@@ -74,7 +74,7 @@ apiRouter.post('/tasks/:id/comments', async (req, res) => {
 })
 
 // Board overview
-apiRouter.get('/board', async (req, res) => {
+apiRouter.get('/board', async (_req, res) => {
   try {
     const summary = await taskStorage.getBoardSummary()
     res.json(summary)
@@ -84,7 +84,7 @@ apiRouter.get('/board', async (req, res) => {
 })
 
 // Personas API
-apiRouter.get('/personas', async (req, res) => {
+apiRouter.get('/personas', async (_req, res) => {
   try {
     const personas = await personaSystem.list()
     res.json({ personas })
@@ -94,12 +94,12 @@ apiRouter.get('/personas', async (req, res) => {
 })
 
 // Cron management API
-apiRouter.get('/cron', (req, res) => {
+apiRouter.get('/cron', (_req, res) => {
   const status = cronSystem.getStatus()
   res.json(status)
 })
 
-apiRouter.post('/cron/trigger', (req, res) => {
+apiRouter.post('/cron/trigger', (_req, res) => {
   cronSystem.triggerWorker()
   res.json({ message: 'Worker triggered manually' })
 })
