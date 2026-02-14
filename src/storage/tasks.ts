@@ -99,7 +99,7 @@ class TaskStorage {
     const tempPath = `${summaryPath}.tmp`
     
     await fs.writeJson(tempPath, { tasks: summaries }, { spaces: 2 })
-    await fs.move(tempPath, summaryPath)
+    await fs.move(tempPath, summaryPath, { overwrite: true })
   }
 
   async list(filters: { status?: string; assignee?: string } = {}): Promise<TaskSummary[]> {
@@ -152,7 +152,7 @@ class TaskStorage {
     const tempPath = `${taskPath}.tmp`
     
     await fs.writeJson(tempPath, task, { spaces: 2 })
-    await fs.move(tempPath, taskPath)
+    await fs.move(tempPath, taskPath, { overwrite: true })
     await this.updateSummary()
     
     return task
@@ -174,7 +174,7 @@ class TaskStorage {
     const tempPath = `${taskPath}.tmp`
     
     await fs.writeJson(tempPath, updated, { spaces: 2 })
-    await fs.move(tempPath, taskPath)
+    await fs.move(tempPath, taskPath, { overwrite: true })
     await this.updateSummary()
     
     return updated
