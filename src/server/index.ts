@@ -1,37 +1,30 @@
-import express from 'express'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import { apiRouter } from './routes/api.js'
-import { cronSystem } from '../cron/index.js'
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const app = express()
-const port = process.env.PORT || 3000
+const app = express();
+const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(express.json())
-app.use(express.static(path.join(__dirname, '../../public')))
+// Serve static files from the client build
+const clientBuildPath = path.join(__dirname, '..', '..', 'dist', 'client');
+app.use(express.static(clientBuildPath));
 
-// API routes
-app.use('/api', apiRouter)
+// API routes (placeholder for future expansion)
+app.use('/api', express.json());
 
-// Serve React SPA for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../public/index.html'))
-})
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
-// Start cron system
-cronSystem.start()
+// Catch all handler: send back React's index.html file for SPA routing
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(clientBuildPath, 'index.html'));
+});
 
-app.listen(port, () => {
-  console.log(`🦊 tix-kanban server running on http://localhost:${port}`)
-})
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Shutting down gracefully...')
-  cronSystem.stop()
-  process.exit(0)
-})
+app.listen(PORT, () => {
+  console.log(`🚀 Tix Kanban server running on port ${PORT}`);
+  console.log(`📁 Serving static files from: ${clientBuildPath}`);
+});

@@ -1,32 +1,16 @@
-# tix-kanban
+# Tix Kanban
 
-A local, lightweight kanban board with built-in AI worker integration. Perfect for solo developers who want to manage tasks locally with optional AI assistance.
+A local kanban board with AI worker integration. Built with React, TypeScript, and Express.
 
-## Vision
+## Features
 
-**Simple Task Management + AI Workers = Productivity**
-
-- 📋 **File-based storage** — Your tasks live in `~/.tix-kanban/` as JSON files
-- 🤖 **AI personas** — Assign tasks to specialized AI workers (QA, Security, Tech Writer, etc.)
-- ⚡ **Single-process deployment** — Express serves React SPA from one process
-- 🔄 **Built-in cron** — Workers pick up tasks automatically
-- 🚀 **Zero configuration** — Works out of the box
-
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   React SPA     │◄───┤   Express API    │◄───┤  File Storage   │
-│  (Vite build)   │    │  /api/tasks      │    │  ~/.tix-kanban/ │
-└─────────────────┘    │  /api/board      │    └─────────────────┘
-                       │  /api/personas   │    
-                       └──────────────────┘    
-                                ▲               
-                       ┌────────┴────────┐    
-                       │   Cron Worker   │    
-                       │ (Claude CLI)    │    
-                       └─────────────────┘    
-```
+- **4-column Kanban board**: Backlog, In Progress, Review, Done
+- **Drag-and-drop**: Move tasks between columns using @dnd-kit
+- **Task management**: Create, edit, and view detailed task information
+- **Persona system**: Assign AI personas to tasks for specialized handling
+- **Filtering**: Filter by assignee, persona, status, and tags
+- **Dark mode**: DWLF-inspired dark theme (default)
+- **Responsive design**: Works on desktop and mobile
 
 ## Quick Start
 
@@ -34,93 +18,44 @@ A local, lightweight kanban board with built-in AI worker integration. Perfect f
 # Install dependencies
 npm install
 
-# Development (React on :3001, API on :3000)
+# Development mode (client + server)
 npm run dev
-
-# Production build & start
-npm run build
-npm start
-```
-
-## Task Storage
-
-Tasks are stored as individual JSON files in `~/.tix-kanban/tasks/`:
-
-- `_summary.json` — Fast list view (like tix pattern)
-- `{taskId}.json` — Full task details with comments/links
-- Atomic writes using tmp file + rename
-- No database required!
-
-## AI Workers
-
-AI workers are defined in `personas/` directory as markdown files:
-
-```markdown
----
-name: "QA Engineer"
-emoji: "🧪"
-description: "Focuses on testing and quality"
----
-
-You are a QA Engineer focused on quality and testing.
-
-When reviewing tasks:
-- Look for edge cases and potential bugs
-- Suggest test scenarios...
-```
-
-The cron system picks up tasks assigned to AI workers and spawns Claude CLI sessions with the appropriate persona context.
-
-## Status Flow
-
-```
-Backlog → In Progress → Review → Done
-```
-
-- **Backlog**: New tasks, ready to be picked up
-- **In Progress**: Being worked on (human or AI)  
-- **Review**: Completed, needs review/testing
-- **Done**: Finished and verified
-
-## Development
-
-```bash
-# Watch both client and server
-npm run dev
-
-# Type check everything
-npm run type-check
 
 # Build for production
 npm run build
+
+# Start production server
+npm start
 ```
 
-## Configuration
+## Architecture
 
-The cron worker runs every 30 minutes by default. Configure via the web UI at `/cron` or by calling the API:
+- **Frontend**: React + TypeScript + Vite
+- **Backend**: Express.js for static serving
+- **Styling**: CSS custom properties with dark/light themes
+- **State**: Local React state (ready for API integration)
 
-```bash
-curl -X PUT http://localhost:3000/api/cron/settings \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true, "interval": "*/15 * * * *"}'
-```
+## Development
 
-## GitHub Integration
+- Client runs on port 3000 (Vite dev server)
+- Server runs on port 3001 (Express)
+- Vite proxy forwards `/api` calls to the Express server
 
-When AI workers complete code tasks, they can automatically:
-- Create a branch
-- Commit changes
-- Open a pull request
-- Link the PR back to the task
+## Personas
 
-Requires `gh` CLI to be installed and authenticated.
+Default personas included:
+- 🔍 QA Engineer - Testing and quality assurance
+- 🔒 Security Reviewer - Security analysis
+- 📝 Tech Writer - Documentation
+- 🐛 Bug Fixer - Debug and fix issues
+- 💻 General Developer - Full-stack development
 
-## Why tix-kanban?
+## Future Enhancements
 
-- **Local-first**: Your tasks stay on your machine
-- **Lightweight**: No heavy database, just JSON files
-- **AI-ready**: Built-in persona system for AI workers
-- **Self-contained**: Single process, easy to run anywhere
-- **Hackable**: Simple codebase, easy to modify
-
-Perfect for solo developers, small teams, or anyone who wants a kanban board that works with AI without the complexity of hosted solutions.
+- API backend for persistent storage
+- GitHub integration (create PRs, sync issues)
+- Built-in cron worker system
+- Real-time updates
+- Custom persona creation
+- Time tracking
+- Comments and links system
