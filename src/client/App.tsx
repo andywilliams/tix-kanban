@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import KanbanBoard from './components/KanbanBoard';
+import { WorkerStatus } from './components/WorkerStatus';
 import { Task, Persona } from './types';
 import { useTasks } from './hooks/useTasks';
 import './App.css';
@@ -80,19 +81,22 @@ function App() {
             {darkMode ? '☀️' : '🌙'}
           </button>
         </header>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <KanbanBoard
-                tasks={tasks}
-                personas={personas}
-                onUpdateTask={handleUpdateTask}
-                onAddTask={handleAddTask}
-              />
-            }
-          />
-        </Routes>
+        <main className="app-main">
+          <WorkerStatus />
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <KanbanBoard
+                  tasks={tasks}
+                  personas={personas}
+                  onUpdateTask={handleUpdateTask}
+                  onAddTask={handleAddTask}
+                />
+              }
+            />
+          </Routes>
+        </main>
       </Router>
     </div>
   );
