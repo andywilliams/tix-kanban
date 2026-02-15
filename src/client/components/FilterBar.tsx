@@ -16,22 +16,11 @@ const FilterBar: React.FC<FilterBarProps> = ({
   onFilterChange,
   onCreateTask,
 }) => {
-  const uniqueAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
   const uniqueTags = Array.from(new Set(tasks.flatMap(t => t.tags)));
 
   return (
     <div className="filter-bar">
       <div className="filter-controls">
-        <select
-          value={filter.assignee || ''}
-          onChange={(e) => onFilterChange({ ...filter, assignee: e.target.value || undefined })}
-        >
-          <option value="">All Assignees</option>
-          {uniqueAssignees.map(assignee => (
-            <option key={assignee} value={assignee}>{assignee}</option>
-          ))}
-        </select>
-
         <select
           value={filter.persona || ''}
           onChange={(e) => onFilterChange({ ...filter, persona: e.target.value || undefined })}
@@ -68,7 +57,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
           ))}
         </select>
 
-        {(filter.assignee || filter.persona || filter.status || filter.tags) && (
+        {(filter.persona || filter.status || filter.tags) && (
           <button
             className="clear-filters"
             onClick={() => onFilterChange({})}

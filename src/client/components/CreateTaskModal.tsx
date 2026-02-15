@@ -13,7 +13,6 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
     description: '',
     status: 'backlog' as Task['status'],
     priority: 50,
-    assignee: '',
     persona: '',
     tags: [] as string[],
     dueDate: undefined as Date | undefined,
@@ -29,7 +28,6 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
       description: newTask.description.trim(),
       status: newTask.status,
       priority: newTask.priority,
-      assignee: newTask.assignee.trim() || undefined,
       persona: newTask.persona || undefined,
       tags: newTask.tags,
       dueDate: newTask.dueDate,
@@ -101,31 +99,19 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
               </div>
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label>Assignee</label>
-                <input
-                  type="email"
-                  value={newTask.assignee}
-                  onChange={(e) => setNewTask({ ...newTask, assignee: e.target.value })}
-                  placeholder="assignee@example.com"
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Persona</label>
-                <select
-                  value={newTask.persona}
-                  onChange={(e) => setNewTask({ ...newTask, persona: e.target.value })}
-                >
-                  <option value="">No Persona</option>
-                  {personas.map(persona => (
-                    <option key={persona.id} value={persona.id}>
-                      {persona.emoji} {persona.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="form-group">
+              <label>Assign to Persona</label>
+              <select
+                value={newTask.persona}
+                onChange={(e) => setNewTask({ ...newTask, persona: e.target.value })}
+              >
+                <option value="">Unassigned</option>
+                {personas.map(persona => (
+                  <option key={persona.id} value={persona.id}>
+                    {persona.emoji} {persona.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="form-row">

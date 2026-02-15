@@ -4,8 +4,7 @@ export interface Task {
   description: string;
   status: 'backlog' | 'in-progress' | 'review' | 'done';
   priority: number;
-  assignee?: string;
-  persona?: string;
+  persona?: string; // Personas ARE the assignees - no separate assignee field
   tags: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -38,7 +37,6 @@ export interface Persona {
 }
 
 export interface Filter {
-  assignee?: string;
   tags?: string[];
   persona?: string;
   status?: Task['status'];
