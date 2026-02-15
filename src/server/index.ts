@@ -374,7 +374,6 @@ app.delete('/api/personas/:id', async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
 // Persona Memory API routes
 
 // GET /api/personas/:id/memory - Get persona memory with token info
