@@ -9,42 +9,22 @@ export function PersonasPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
 
-  const handleCreate = () => {
-    setEditingPersona(null);
-    setIsCreating(true);
-  };
-
-  const handleEdit = (persona: Persona) => {
-    setEditingPersona(persona);
-    setIsCreating(false);
-  };
+  const handleCreate = () => { setEditingPersona(null); setIsCreating(true); };
+  const handleEdit = (persona: Persona) => { setEditingPersona(persona); setIsCreating(false); };
+  const handleCancel = () => { setIsCreating(false); setEditingPersona(null); };
 
   const handleSave = async (personaData: Omit<Persona, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      if (editingPersona) {
-        await updatePersona(editingPersona.id, personaData);
-      } else {
-        await createPersona(personaData);
-      }
+      if (editingPersona) await updatePersona(editingPersona.id, personaData);
+      else await createPersona(personaData);
       setIsCreating(false);
       setEditingPersona(null);
-    } catch (err) {
-      // Error handling is done in the hook
-    }
-  };
-
-  const handleCancel = () => {
-    setIsCreating(false);
-    setEditingPersona(null);
+    } catch {}
   };
 
   const handleDelete = async (personaId: string) => {
-    if (window.confirm('Are you sure you want to delete this persona? This action cannot be undone.')) {
-      try {
-        await deletePersona(personaId);
-      } catch (err) {
-        // Error handling is done in the hook
-      }
+    if (window.confirm('Delete this persona? This cannot be undone.')) {
+      try { await deletePersona(personaId); } catch {}
     }
   };
 
@@ -113,12 +93,8 @@ export function PersonasPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {personas.map((persona) => (
-            <PersonaCard
-              key={persona.id}
-              persona={persona}
-              onEdit={() => handleEdit(persona)}
-              onDelete={() => handleDelete(persona.id)}
-            />
+            <PersonaCard key={persona.id} persona={persona}
+              onEdit={() => handleEdit(persona)} onDelete={() => handleDelete(persona.id)} />
           ))}
         </div>
       )}
