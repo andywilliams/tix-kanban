@@ -209,7 +209,7 @@ Begin working on the task now.`;
     
     try {
       // Use Claude CLI with print mode for non-interactive execution
-      const claudeCommand = `claude --print --model sonnet --system-prompt "You are a helpful AI assistant working on tix-kanban tasks. Use the provided API to update task status and add comments about your work." < "${tempPromptFile}"`;
+      const claudeCommand = `claude --print --model sonnet --system-prompt "You are working on a task. Provide your response directly — do NOT ask for permission, do NOT describe what you would do, just DO it. Output your work product (comments, analysis, code, etc.) directly. The task management (status updates, comments) will be handled for you automatically." < "${tempPromptFile}"`;
       
       console.log(`Executing: ${claudeCommand}`);
       const { stdout, stderr } = await execAsync(claudeCommand, {
@@ -256,21 +256,20 @@ async function processTask(task: Task): Promise<void> {
     // Spawn Claude CLI session
     const output = await spawnAISession(task, persona);
     
-    // Add a worker comment with the Claude output for debugging/transparency
-    // Claude should have already updated the task status and added its own comments via API
-    const workerComment = {
+    // Add Claude's output as a comment from the persona
+    const aiComment = {
       id: Math.random().toString(36).substr(2, 9),
       taskId: task.id,
-      body: `**Worker Log:** Claude CLI session completed.\n\nOutput summary:\n${output.slice(0, 500)}${output.length > 500 ? '...' : ''}`,
-      author: 'tix-worker',
+      body: output || 'No output from Claude CLI session.',
+      author: persona?.name || 'ai-worker',
       createdAt: new Date(),
     };
     
-    // Get current task state to append the worker log comment
+    // Get current task state to append the comment
     const currentTask = await getTask(task.id);
     if (currentTask) {
-      const updatedComments = [...(currentTask.comments || []), workerComment];
-      await updateTask(task.id, { comments: updatedComments });
+      const updatedComments = [...(currentTask.comments || []), aiComment];
+      await updateTask(task.id, { comments: updatedComments, status: 'review' });
     }
     
     console.log(`✅ Task processed: ${task.title}`);
