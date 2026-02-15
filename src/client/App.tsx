@@ -4,6 +4,7 @@ import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
 import { PersonasPage } from './components/PersonasPage';
+import { PersonaDashboard } from './components/PersonaDashboard';
 import PipelinesPage from './components/PipelinesPage';
 import ChatPanel from './components/ChatPanel';
 import { Task } from './types';
@@ -12,6 +13,7 @@ import { usePersonas } from './hooks/usePersonas';
 import { useChat } from './hooks/useChat';
 import './App.css';
 import './github.css';
+import './dashboard.css';
 
 function AppContent() {
   const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
@@ -102,6 +104,12 @@ function AppContent() {
               🤖 Personas
             </Link>
             <Link 
+              to="/dashboard" 
+              className={`nav-link ${location.pathname === '/dashboard' ? 'active' : ''}`}
+            >
+              📊 Dashboard
+            </Link>
+            <Link 
               to="/pipelines" 
               className={`nav-link ${location.pathname === '/pipelines' ? 'active' : ''}`}
             >
@@ -154,6 +162,10 @@ function AppContent() {
           <Route
             path="/personas"
             element={<PersonasPage />}
+          />
+          <Route
+            path="/dashboard"
+            element={<PersonaDashboard />}
           />
           <Route
             path="/pipelines"

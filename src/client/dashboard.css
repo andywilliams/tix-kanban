@@ -1,0 +1,473 @@
+/* Dashboard Layout */
+.dashboard-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  background: var(--background);
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+}
+
+.dashboard-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dashboard-subtitle {
+  color: var(--text-secondary);
+  margin: 0.5rem 0 0;
+  font-size: 1.1rem;
+}
+
+.dashboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.timeframe-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.timeframe-select:hover {
+  border-color: var(--color-primary);
+}
+
+.timeframe-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-alpha);
+}
+
+/* Summary Cards */
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.summary-card {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.summary-icon {
+  font-size: 2.5rem;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-alpha);
+  border-radius: 12px;
+}
+
+.summary-content {
+  flex: 1;
+}
+
+.summary-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.summary-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* Dashboard Content */
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.dashboard-section {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 1.5rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Top Performers */
+.performers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.performer-card {
+  background: var(--background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: border-color 0.2s;
+}
+
+.performer-card:hover {
+  border-color: var(--color-primary);
+}
+
+.performer-rank {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  width: 40px;
+  text-align: center;
+}
+
+.performer-avatar {
+  font-size: 2rem;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-alpha);
+  border-radius: 50%;
+}
+
+.performer-info {
+  flex: 1;
+}
+
+.performer-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.performer-completion {
+  color: var(--color-success);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.performer-activity {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+/* Performance Grid */
+.personas-performance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.performance-card {
+  background: var(--background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.performance-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.performance-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.performance-avatar {
+  font-size: 2rem;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-alpha);
+  border-radius: 50%;
+}
+
+.performance-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.performance-rating {
+  font-size: 1.25rem;
+}
+
+.performance-stats {
+  margin-bottom: 1rem;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.stat-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.stat-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rating-breakdown {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.rating-good { color: var(--color-success); }
+.rating-needs { color: var(--color-warning); }
+.rating-redo { color: var(--color-danger); }
+
+.performance-specialties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.specialty-tag {
+  background: var(--color-primary-alpha);
+  color: var(--color-primary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.performance-last-active {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Task Distribution */
+.distribution-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.distribution-bar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.distribution-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 200px;
+}
+
+.distribution-persona {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.distribution-count {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.distribution-progress {
+  flex: 1;
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 100px;
+}
+
+.distribution-fill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.5s ease;
+}
+
+.distribution-percentage {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  min-width: 50px;
+  text-align: right;
+}
+
+/* Activity Feed */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.activity-avatar {
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-alpha);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.activity-content {
+  flex: 1;
+}
+
+.activity-line {
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.activity-task {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.activity-time {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+/* Loading and Empty States */
+.dashboard-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: var(--text-secondary);
+}
+
+.dashboard-empty {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-secondary);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top: 3px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 1rem;
+  }
+  
+  .dashboard-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .dashboard-summary {
+    grid-template-columns: 1fr;
+  }
+  
+  .performers-grid,
+  .personas-performance-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .distribution-bar {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  
+  .distribution-label {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .summary-card {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .summary-icon {
+    margin: 0 auto;
+  }
+}
