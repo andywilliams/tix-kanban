@@ -5,7 +5,7 @@ import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getAllTasks, updateTask, getTask } from './storage.js';
-import { getPersona } from './persona-storage.js';
+import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { Task, Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
@@ -116,70 +116,48 @@ curl -X POST http://localhost:3001/api/tasks/TASK_ID/links -H "Content-Type: app
 The task ID you're working on is: TASK_ID_PLACEHOLDER`;
 }
 
-// Spawn AI session for a task using Claude CLI
-async function spawnAISession(task: Task, persona: Persona): Promise<string> {
+// Spawn AI session for a task using OpenClaw
+async function spawnAISession(task: Task, persona: Persona): Promise<{ output: string; success: boolean }> {
   try {
-    console.log(`🤖 Spawning Claude CLI session for task: ${task.title}`);
+    console.log(`🤖 Spawning AI session for task: ${task.title}`);
     
-    // Generate API reference with task ID injected
-    const apiReference = generateAPIReference().replace('TASK_ID_PLACEHOLDER', task.id);
+    // Create context with memory injection
+    const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
+      persona.id,
+      task.title,
+      task.description,
+      task.tags,
+      task.repo ? `Repository: ${task.repo}` : undefined
+    );
     
-    // Build comprehensive prompt
-    const prompt = `${persona.prompt}
-
-${apiReference}
-
-## Task Details
-Title: ${task.title}
-Description: ${task.description}
-Priority: ${task.priority}
-Tags: ${task.tags.join(', ')}
-
-## Instructions
-You are now working on this task. Please:
-
-1. Read and understand the task requirements
-2. Perform the work described in the task
-3. Use the tix-kanban API to update the task with your progress
-4. Add detailed comments about what you accomplished
-5. If you create any PRs or generate outputs, add appropriate links
-
-Your working directory is /root/clawd/tix-kanban
-
-Begin working on the task now.`;
+    if (memoryTruncated) {
+      console.log(`⚠️  Memory truncated for persona ${persona.id} due to token limits`);
+    }
+    
+    console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     
     // Create a temporary file with the prompt
-    const tempPromptFile = path.join(os.tmpdir(), `tix-claude-${task.id}.txt`);
+    const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    try {
-      // Use Claude CLI with print mode for non-interactive execution
-      const claudeCommand = `claude --print --model sonnet --system-prompt "You are working on a task. Provide your response directly — do NOT ask for permission, do NOT describe what you would do, just DO it. Output your work product (comments, analysis, code, etc.) directly. The task management (status updates, comments) will be handled for you automatically." < "${tempPromptFile}"`;
-      
-      console.log(`Executing: ${claudeCommand}`);
-      const { stdout, stderr } = await execAsync(claudeCommand, {
-        timeout: 300000, // 5 minutes
-        maxBuffer: 1024 * 1024, // 1MB buffer
-        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
-        env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' },
-      });
-      
-      if (stderr) {
-        console.error(`Claude CLI stderr:`, stderr);
-      }
-      
-      return stdout.trim();
-    } catch (execError) {
-      console.error(`Claude CLI execution failed:`, execError);
-      // Fallback: return a basic response instead of failing completely
-      return `Claude CLI execution failed: ${execError instanceof Error ? execError.message : 'Unknown error'}. Task may need manual attention.`;
-    } finally {
-      // Clean up temp file
-      await fs.unlink(tempPromptFile).catch(() => {});
+    // Use OpenClaw CLI to run the session
+    // Note: This assumes OpenClaw is available in PATH and configured
+    const { stdout, stderr } = await execAsync(`openclaw run --file "${tempPromptFile}" --timeout 300`);
+    
+    // Clean up temp file
+    await fs.unlink(tempPromptFile).catch(() => {});
+    
+    if (stderr) {
+      console.error(`AI session stderr:`, stderr);
     }
+    
+    const output = stdout.trim();
+    const success = !stderr && output.length > 0;
+    
+    return { output, success };
   } catch (error) {
-    console.error(`Failed to spawn Claude session for task ${task.id}:`, error);
-    throw error;
+    console.error(`Failed to spawn AI session for task ${task.id}:`, error);
+    return { output: `Error: ${error}`, success: false };
   }
 }
 
@@ -198,47 +176,28 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
     
-    // Spawn Claude CLI session
-    const output = await spawnAISession(task, persona);
+    // Spawn AI session
+    const { output, success } = await spawnAISession(task, persona);
     
-    // Add Claude's output as a comment from the persona
-    const aiComment = {
-      id: Math.random().toString(36).substr(2, 9),
-      taskId: task.id,
-      body: output || 'No output from Claude CLI session.',
-      author: persona?.name || 'ai-worker',
-      createdAt: new Date(),
-    };
+    // Update persona memory with learnings from this task
+    await updatePersonaMemoryAfterTask(
+      persona.id,
+      task.title,
+      task.description,
+      output,
+      success
+    );
     
-    // Get current task state to append the comment
-    const currentTask = await getTask(task.id);
-    if (currentTask) {
-      const updatedComments = [...(currentTask.comments || []), aiComment];
-      await updateTask(task.id, { comments: updatedComments, status: 'review' });
-    }
+    // For now, just add the output as a comment (we'd need to implement comments API)
+    // Move task to review
+    await updateTask(task.id, { 
+      status: success ? 'review' : 'backlog', // Back to backlog if failed
+      description: `${task.description}\n\n## AI Output\n${output}`
+    });
     
-    console.log(`✅ Task processed: ${task.title}`);
+    console.log(`${success ? '✅' : '❌'} Task processed: ${task.title}`);
   } catch (error) {
     console.error(`Failed to process task ${task.id}:`, error);
-    
-    // Add error comment before moving back to backlog
-    const errorComment = {
-      id: Math.random().toString(36).substr(2, 9),
-      taskId: task.id,
-      body: `**Worker Error:** Failed to process task.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      author: 'tix-worker',
-      createdAt: new Date(),
-    };
-    
-    try {
-      const currentTask = await getTask(task.id);
-      if (currentTask) {
-        const updatedComments = [...(currentTask.comments || []), errorComment];
-        await updateTask(task.id, { comments: updatedComments, status: 'backlog' });
-      }
-    } catch (updateError) {
-      console.error(`Failed to update task with error comment:`, updateError);
-    }
     
     // Move task back to backlog on error
     await updateTask(task.id, { status: 'backlog' });

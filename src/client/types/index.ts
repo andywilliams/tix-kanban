@@ -45,6 +45,11 @@ export interface Persona {
   updatedAt: Date;
 }
 
+export interface PersonaMemory {
+  memory: string;
+  tokenCount: number;
+  isLarge: boolean;
+}
 export interface PersonaStats {
   tasksCompleted: number;
   averageCompletionTime: number; // in minutes
