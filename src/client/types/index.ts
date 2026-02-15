@@ -16,6 +16,16 @@ export interface Task {
   branch?: string; // Git branch name
   comments?: Comment[];
   links?: Link[];
+  rating?: TaskRating; // Human feedback/rating for completed work
+}
+
+export interface TaskRating {
+  id: string;
+  taskId: string;
+  rating: 'good' | 'needs-improvement' | 'redo';
+  comment?: string;
+  ratedBy: string;
+  ratedAt: Date;
 }
 
 export interface Comment {
@@ -57,6 +67,13 @@ export interface PersonaStats {
   averageCompletionTime: number; // in minutes
   successRate: number; // 0-100 percentage
   lastActiveAt?: Date;
+  ratings: {
+    total: number;
+    good: number;
+    needsImprovement: number;
+    redo: number;
+    averageRating: number; // 1-3 scale (3=good, 2=needs improvement, 1=redo)
+  };
 }
 
 export interface Filter {

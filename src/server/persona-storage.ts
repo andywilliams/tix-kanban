@@ -304,11 +304,115 @@ export async function updatePersonaStats(personaId: string, taskCompletionTime: 
       averageCompletionTime: newAverageTime,
       successRate: newSuccessRate,
       lastActiveAt: new Date(),
+      ratings: stats.ratings || {
+        total: 0,
+        good: 0,
+        needsImprovement: 0,
+        redo: 0,
+        averageRating: 0
+      }
     };
     
     await updatePersona(personaId, { stats: updatedStats });
   } catch (error) {
     console.error(`Failed to update persona stats ${personaId}:`, error);
+  }
+}
+
+// Update persona rating stats and trigger reflection
+export async function updatePersonaRating(personaId: string, rating: 'good' | 'needs-improvement' | 'redo', taskTitle: string, taskDescription: string, feedback?: string): Promise<void> {
+  try {
+    const persona = await getPersona(personaId);
+    if (!persona) {
+      return;
+    }
+    
+    const stats = persona.stats;
+    const ratings = stats.ratings || {
+      total: 0,
+      good: 0,
+      needsImprovement: 0,
+      redo: 0,
+      averageRating: 0
+    };
+    
+    // Update rating counts
+    const newTotal = ratings.total + 1;
+    const newGood = rating === 'good' ? ratings.good + 1 : ratings.good;
+    const newNeedsImprovement = rating === 'needs-improvement' ? ratings.needsImprovement + 1 : ratings.needsImprovement;
+    const newRedo = rating === 'redo' ? ratings.redo + 1 : ratings.redo;
+    
+    // Calculate new average rating (3=good, 2=needs-improvement, 1=redo)
+    const ratingValue = rating === 'good' ? 3 : rating === 'needs-improvement' ? 2 : 1;
+    const totalRatingPoints = (ratings.averageRating * ratings.total) + ratingValue;
+    const newAverageRating = totalRatingPoints / newTotal;
+    
+    const updatedRatings = {
+      total: newTotal,
+      good: newGood,
+      needsImprovement: newNeedsImprovement,
+      redo: newRedo,
+      averageRating: newAverageRating
+    };
+    
+    const updatedStats: PersonaStats = {
+      ...stats,
+      ratings: updatedRatings,
+      lastActiveAt: new Date()
+    };
+    
+    await updatePersona(personaId, { stats: updatedStats });
+    
+    // Trigger reflection process if rating is not good
+    if (rating !== 'good') {
+      await triggerPersonaReflection(personaId, taskTitle, taskDescription, rating, feedback);
+    }
+  } catch (error) {
+    console.error(`Failed to update persona rating ${personaId}:`, error);
+  }
+}
+
+// Trigger reflection process for learning from feedback
+async function triggerPersonaReflection(personaId: string, taskTitle: string, taskDescription: string, rating: 'needs-improvement' | 'redo', feedback?: string): Promise<void> {
+  try {
+    const persona = await getPersona(personaId);
+    if (!persona) {
+      return;
+    }
+    
+    // Create reflection entry for memory
+    const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const ratingText = rating === 'needs-improvement' ? 'needed improvement' : 'required redo';
+    
+    let reflectionEntry = `## ${timestamp} - Reflection: Task "${taskTitle}"\n\n`;
+    reflectionEntry += `**Task:** ${taskTitle}\n`;
+    reflectionEntry += `**Rating:** ${ratingText}\n`;
+    
+    if (feedback) {
+      reflectionEntry += `**Feedback:** ${feedback}\n`;
+    }
+    
+    reflectionEntry += `**Description:** ${taskDescription}\n\n`;
+    reflectionEntry += `**Lesson:** `;
+    
+    if (rating === 'redo') {
+      reflectionEntry += `This task required a complete redo. I need to pay more attention to the requirements and double-check my work before submission.`;
+    } else {
+      reflectionEntry += `This task needed improvement. I should focus on addressing the specific feedback provided.`;
+    }
+    
+    if (feedback) {
+      reflectionEntry += ` Specific feedback to address: "${feedback}"`;
+    }
+    
+    reflectionEntry += `\n\n**Action:** Apply these lessons to future similar tasks to improve quality and avoid similar issues.`;
+    
+    // Append to persona memory
+    await appendPersonaMemory(personaId, reflectionEntry);
+    
+    console.log(`Added reflection entry for persona ${personaId} on task "${taskTitle}"`);
+  } catch (error) {
+    console.error(`Failed to trigger reflection for persona ${personaId}:`, error);
   }
 }
 
@@ -490,7 +594,18 @@ export async function initializePersonas(): Promise<void> {
           emoji: '🐛',
           description: 'Specialist in identifying and fixing bugs quickly',
           specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
-          stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+          stats: { 
+            tasksCompleted: 0, 
+            averageCompletionTime: 0, 
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
           prompt: `You are a skilled bug fixer. When given a bug report:
 1. Analyze the issue carefully
 2. Identify the root cause
@@ -505,7 +620,18 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
           emoji: '👩‍💻',
           description: 'Full-stack developer for feature implementation',
           specialties: ['javascript', 'typescript', 'react', 'nodejs', 'api-design'],
-          stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+          stats: { 
+            tasksCompleted: 0, 
+            averageCompletionTime: 0, 
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
           prompt: `You are an experienced software developer. When given a development task:
 1. Break down the requirements
 2. Design the implementation approach
@@ -520,7 +646,18 @@ Write clean, maintainable code that follows established conventions.`
           emoji: '📝',
           description: 'Creates clear, comprehensive documentation',
           specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
-          stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+          stats: { 
+            tasksCompleted: 0, 
+            averageCompletionTime: 0, 
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
           prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
 1. Understand the target audience
 2. Structure information logically
@@ -535,7 +672,18 @@ Make complex technical concepts accessible and actionable.`
           emoji: '🧪',
           description: 'Quality assurance specialist who reviews work for completeness and quality',
           specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
-          stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+          stats: { 
+            tasksCompleted: 0, 
+            averageCompletionTime: 0, 
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
           prompt: `You are a QA Engineer who reviews completed work for quality and completeness. When reviewing:
 1. Check if all requirements are met
 2. Evaluate code quality and best practices
@@ -550,7 +698,18 @@ Be thorough but fair. Approve work that meets standards, reject work that has si
           emoji: '🔒',
           description: 'Security specialist who reviews code and implementations for security vulnerabilities',
           specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
-          stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+          stats: { 
+            tasksCompleted: 0, 
+            averageCompletionTime: 0, 
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
           prompt: `You are a Security Reviewer who evaluates implementations for security vulnerabilities and compliance. When reviewing:
 1. Check for common security vulnerabilities (OWASP Top 10)
 2. Evaluate authentication and authorization mechanisms
