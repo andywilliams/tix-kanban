@@ -106,15 +106,15 @@ async function updateSummary(tasks: Task[]): Promise<void> {
       priority: task.priority,
       persona: task.persona,
       tags: task.tags,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString()
+      createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
+      updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
     }));
     
     const content = JSON.stringify(summary, null, 2);
     await fs.writeFile(SUMMARY_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to update summary:', error);
-    throw error;
+    // Non-fatal — tasks are stored individually, summary is just a cache
   }
 }
 
