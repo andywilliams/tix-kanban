@@ -83,36 +83,22 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                 </div>
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Assignee</label>
-                  <input
-                    type="email"
-                    value={editedTask.assignee || ''}
-                    onChange={(e) => setEditedTask({ 
-                      ...editedTask, 
-                      assignee: e.target.value || undefined 
-                    })}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Persona</label>
-                  <select
-                    value={editedTask.persona || ''}
-                    onChange={(e) => setEditedTask({ 
-                      ...editedTask, 
-                      persona: e.target.value || undefined 
-                    })}
-                  >
-                    <option value="">No Persona</option>
-                    {personas.map(persona => (
-                      <option key={persona.id} value={persona.id}>
-                        {persona.emoji} {persona.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="form-group">
+                <label>Assigned Persona</label>
+                <select
+                  value={editedTask.persona || ''}
+                  onChange={(e) => setEditedTask({ 
+                    ...editedTask, 
+                    persona: e.target.value || undefined 
+                  })}
+                >
+                  <option value="">Unassigned</option>
+                  {personas.map(persona => (
+                    <option key={persona.id} value={persona.id}>
+                      {persona.emoji} {persona.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
@@ -136,9 +122,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                   <span className="task-priority">Priority: {task.priority}</span>
                 </div>
                 {persona && (
-                  <div className="task-persona-badge">
+                  <div className="task-assignee-badge">
                     <span className="persona-emoji">{persona.emoji}</span>
-                    <span className="persona-name">{persona.name}</span>
+                    <span className="persona-name">Assigned to {persona.name}</span>
                   </div>
                 )}
               </div>
@@ -160,7 +146,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
               )}
 
               <div className="task-metadata">
-                {task.assignee && <p><strong>Assignee:</strong> {task.assignee}</p>}
                 <p><strong>Created:</strong> {task.createdAt.toLocaleString()}</p>
                 <p><strong>Updated:</strong> {task.updatedAt.toLocaleString()}</p>
                 {task.dueDate && <p><strong>Due:</strong> {task.dueDate.toLocaleString()}</p>}

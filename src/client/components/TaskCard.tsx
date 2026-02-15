@@ -41,7 +41,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
           {task.priority}
         </div>
         {persona && (
-          <div className="task-persona" title={persona.name}>
+          <div className="task-assignee" title={`Assigned to ${persona.name}`}>
             {persona.emoji}
           </div>
         )}
@@ -67,12 +67,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
             <span className="task-tag-more">+{task.tags.length - 3}</span>
           )}
         </div>
-        
-        {task.assignee && (
-          <div className="task-assignee" title={task.assignee}>
-            {getInitials(task.assignee)}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -83,15 +77,6 @@ function getPriorityColor(priority: number): string {
   if (priority >= 100) return '#f59e0b'; // amber
   if (priority >= 50) return '#10b981'; // emerald
   return '#6b7280'; // gray
-}
-
-function getInitials(email: string): string {
-  const name = email.split('@')[0];
-  return name
-    .split(/[.\-_]/)
-    .map(part => part.charAt(0).toUpperCase())
-    .join('')
-    .slice(0, 2);
 }
 
 export default TaskCard;
