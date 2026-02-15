@@ -215,7 +215,8 @@ Begin working on the task now.`;
       const { stdout, stderr } = await execAsync(claudeCommand, {
         timeout: 300000, // 5 minutes
         maxBuffer: 1024 * 1024, // 1MB buffer
-        cwd: '/root/clawd/tix-kanban'
+        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
+        env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' },
       });
       
       if (stderr) {
