@@ -176,9 +176,20 @@ export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'upda
   
   await writeTask(task);
   
-  // Update summary
-  const allTasks = await getAllTasks();
-  await updateSummary(allTasks);
+  // Append to summary directly (don't re-read via getAllTasks which has stale summary)
+  const currentSummary = await readSummary();
+  currentSummary.push({
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    persona: task.persona,
+    tags: task.tags,
+    createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
+    updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
+  });
+  const content = JSON.stringify(currentSummary, null, 2);
+  await fs.writeFile(SUMMARY_FILE, content, 'utf8');
   
   return task;
 }
