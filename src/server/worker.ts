@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { getAllTasks, updateTask } from './storage.js';
+import { getAllTasks, updateTask, getTask } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { 
   getPipeline, 
@@ -54,6 +54,8 @@ async function loadWorkerState(): Promise<void> {
   try {
     const content = await fs.readFile(WORKER_STATE_FILE, 'utf8');
     workerState = { ...workerState, ...JSON.parse(content) };
+    // Always reset isRunning on startup — if we're loading, previous process is dead
+    workerState.isRunning = false;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker state:', error);
@@ -72,17 +74,78 @@ async function saveWorkerState(): Promise<void> {
   }
 }
 
+// Generate API reference for Claude sessions
+// @ts-ignore TS6133
+function generateAPIReference(): string {
+  return `## Tix-Kanban API Reference
+
+You have access to the tix-kanban API running at http://localhost:3001/api
+
+### Core Task Operations:
+- GET /api/tasks - Get all tasks
+- GET /api/tasks/:id - Get single task with full details
+- PUT /api/tasks/:id - Update task (status, description, etc.)
+
+### Task Status Values:
+- "backlog" - Task is waiting to be picked up
+- "in-progress" - Task is currently being worked on  
+- "review" - Task is completed and needs review
+- "done" - Task is fully completed
+
+### Add Work Comments:
+- POST /api/tasks/:id/comments
+  Body: {"body": "your detailed work summary", "author": "claude-worker"}
+
+### Add Links (PRs, docs, etc.):
+- POST /api/tasks/:id/links  
+  Body: {"url": "https://github.com/...", "title": "PR #123", "type": "pr"}
+  Types: "pr", "attachment", "reference"
+
+### Example curl commands:
+\`\`\`bash
+# Update task status
+curl -X PUT http://localhost:3001/api/tasks/TASK_ID -H "Content-Type: application/json" -d '{"status": "review"}'
+
+# Add work comment
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/comments -H "Content-Type: application/json" -d '{"body": "Implemented feature X with tests", "author": "claude-worker"}'
+
+# Add PR link
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/links -H "Content-Type: application/json" -d '{"url": "https://github.com/owner/repo/pull/123", "title": "PR #123", "type": "pr"}'
+\`\`\`
+
+### Context & History:
+You now receive the FULL task history, including:
+- All previous comments from other personas and humans
+- All linked PRs, documents, and references
+- Task activity timeline
+
+This lets you build on previous work instead of starting from scratch.
+
+### Your Workflow:
+1. Task is already moved to "in-progress" when you start
+2. Review previous comments and links to understand what's been done
+3. Build on existing work rather than duplicating effort
+4. Do the actual work described in the task
+5. If code changes: create branch + PR, add PR link to task, leave as "in-progress"
+6. If non-code work: add detailed comment, move status to "review"
+7. Always add a comment summarizing what you accomplished
+
+The task ID you're working on is: TASK_ID_PLACEHOLDER`;
+}
+
 // Spawn AI session for a task using OpenClaw
 async function spawnAISession(task: Task, persona: Persona): Promise<{ output: string; success: boolean }> {
   try {
     console.log(`🤖 Spawning AI session for task: ${task.title}`);
     
-    // Create context with memory injection
+    // Create context with memory injection and full task history
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
       persona.id,
       task.title,
       task.description,
       task.tags,
+      task.comments || [],
+      task.links || [],
       task.repo ? `Repository: ${task.repo}` : undefined
     );
     
@@ -91,6 +154,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     }
     
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
+    console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
     
     // Create a temporary file with the prompt
     const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
@@ -125,21 +189,28 @@ async function processTask(task: Task): Promise<void> {
     // Move task to in-progress
     await updateTask(task.id, { status: 'in-progress' });
     
-    // Load persona
-    const persona = task.persona ? await getPersona(task.persona) : null;
-    if (!persona) {
-      console.log(`⚠️  No persona found for task ${task.id}, skipping`);
+    // Fetch the full task with all history (comments, links)
+    const fullTask = await getTask(task.id);
+    if (!fullTask) {
+      console.error(`❌ Could not fetch full task ${task.id}`);
       return;
     }
     
-    // Spawn AI session
-    const { output, success } = await spawnAISession(task, persona);
+    // Load persona
+    const persona = fullTask.persona ? await getPersona(fullTask.persona) : null;
+    if (!persona) {
+      console.log(`⚠️  No persona found for task ${fullTask.id}, skipping`);
+      return;
+    }
+    
+    // Spawn AI session with full task context
+    const { output, success } = await spawnAISession(fullTask, persona);
     
     // Update persona memory with learnings from this task
     await updatePersonaMemoryAfterTask(
       persona.id,
-      task.title,
-      task.description,
+      fullTask.title,
+      fullTask.description,
       output,
       success
     );
@@ -175,7 +246,7 @@ async function processTask(task: Task): Promise<void> {
       });
     }
     
-    console.log(`${success ? '✅' : '❌'} Task processed: ${task.title}`);
+    console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);
   } catch (error) {
     console.error(`Failed to process task ${task.id}:`, error);
     
