@@ -6,6 +6,7 @@ export interface Task {
   priority: number;
   assignee?: string; // Who the task is assigned to (email/name)
   persona?: string; // AI persona type for task handling
+  pipelineId?: string; // Pipeline this task is using (if any)
   tags: string[];
   createdAt: Date;
   updatedAt: Date;

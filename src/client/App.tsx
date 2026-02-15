@@ -4,6 +4,7 @@ import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
 import { PersonasPage } from './components/PersonasPage';
+import PipelinesPage from './components/PipelinesPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -89,6 +90,12 @@ function AppContent() {
             >
               🤖 Personas
             </Link>
+            <Link 
+              to="/pipelines" 
+              className={`nav-link ${location.pathname === '/pipelines' ? 'active' : ''}`}
+            >
+              📋 Pipelines
+            </Link>
           </nav>
         </div>
         <div className="header-actions">
@@ -125,6 +132,10 @@ function AppContent() {
           <Route
             path="/personas"
             element={<PersonasPage />}
+          />
+          <Route
+            path="/pipelines"
+            element={<PipelinesPage />}
           />
         </Routes>
       </main>

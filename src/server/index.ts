@@ -38,6 +38,17 @@ import {
   getTaskGitHubData,
   GitHubConfig
 } from './github.js';
+import {
+  getAllPipelines,
+  getPipeline,
+  createPipeline,
+  updatePipeline,
+  removePipeline,
+  initializePipelines,
+  getTaskPipelineState,
+  updateTaskPipelineState,
+  deleteTaskPipelineState
+} from './pipeline-storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -535,6 +546,149 @@ app.get('/api/github/task/:taskId', async (req, res) => {
   }
 });
 
+// Pipeline API routes
+
+// GET /api/pipelines - Get all pipelines
+app.get('/api/pipelines', async (_req, res) => {
+  try {
+    const pipelines = await getAllPipelines();
+    res.json({ pipelines });
+  } catch (error) {
+    console.error('GET /api/pipelines error:', error);
+    res.status(500).json({ error: 'Failed to fetch pipelines' });
+  }
+});
+
+// GET /api/pipelines/:id - Get single pipeline
+app.get('/api/pipelines/:id', async (req, res) => {
+  try {
+    const pipeline = await getPipeline(req.params.id);
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    res.json({ pipeline });
+  } catch (error) {
+    console.error(`GET /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch pipeline' });
+  }
+});
+
+// POST /api/pipelines - Create new pipeline
+app.post('/api/pipelines', async (req, res) => {
+  try {
+    const pipelineData = req.body;
+    
+    // Validate required fields
+    if (!pipelineData.name || !pipelineData.stages || !Array.isArray(pipelineData.stages)) {
+      return res.status(400).json({ error: 'Name and stages array are required' });
+    }
+    
+    const pipeline = await createPipeline(pipelineData);
+    res.status(201).json({ pipeline });
+  } catch (error) {
+    console.error('POST /api/pipelines error:', error);
+    res.status(500).json({ error: 'Failed to create pipeline' });
+  }
+});
+
+// PUT /api/pipelines/:id - Update pipeline
+app.put('/api/pipelines/:id', async (req, res) => {
+  try {
+    const updates = req.body;
+    const pipeline = await updatePipeline(req.params.id, updates);
+    
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    res.json({ pipeline });
+  } catch (error) {
+    console.error(`PUT /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to update pipeline' });
+  }
+});
+
+// DELETE /api/pipelines/:id - Delete pipeline
+app.delete('/api/pipelines/:id', async (req, res) => {
+  try {
+    const success = await removePipeline(req.params.id);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete pipeline' });
+  }
+});
+
+// GET /api/tasks/:taskId/pipeline-state - Get pipeline state for a task
+app.get('/api/tasks/:taskId/pipeline-state', async (req, res) => {
+  try {
+    const state = await getTaskPipelineState(req.params.taskId);
+    res.json({ state });
+  } catch (error) {
+    console.error(`GET /api/tasks/${req.params.taskId}/pipeline-state error:`, error);
+    res.status(500).json({ error: 'Failed to fetch pipeline state' });
+  }
+});
+
+// PUT /api/tasks/:taskId/pipeline-state - Update pipeline state for a task
+app.put('/api/tasks/:taskId/pipeline-state', async (req, res) => {
+  try {
+    const stateData = req.body;
+    stateData.taskId = req.params.taskId; // Ensure taskId matches
+    await updateTaskPipelineState(stateData);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`PUT /api/tasks/${req.params.taskId}/pipeline-state error:`, error);
+    res.status(500).json({ error: 'Failed to update pipeline state' });
+  }
+});
+
+// POST /api/tasks/:taskId/pipeline/:pipelineId/start - Start a task in a pipeline
+app.post('/api/tasks/:taskId/pipeline/:pipelineId/start', async (req, res) => {
+  try {
+    const { taskId, pipelineId } = req.params;
+    
+    const pipeline = await getPipeline(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    if (pipeline.stages.length === 0) {
+      return res.status(400).json({ error: 'Pipeline has no stages' });
+    }
+    
+    const firstStage = pipeline.stages[0];
+    const pipelineState = {
+      taskId,
+      pipelineId,
+      currentStageId: firstStage.id,
+      stageAttempts: { [firstStage.id]: 0 },
+      stageHistory: [],
+      isStuck: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await updateTaskPipelineState(pipelineState);
+    
+    // Update task to assign to first stage persona
+    await updateTask(taskId, { 
+      persona: firstStage.persona,
+      assignee: firstStage.persona 
+    });
+    
+    res.json({ pipelineState });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.taskId}/pipeline/${req.params.pipelineId}/start error:`, error);
+    res.status(500).json({ error: 'Failed to start task in pipeline' });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
@@ -545,6 +699,7 @@ async function startServer() {
   try {
     await initializeStorage();
     await initializePersonas();
+    await initializePipelines();
     await startWorker();
     
     app.listen(PORT, () => {
