@@ -39,13 +39,15 @@ import {
   GitHubConfig
 } from './github.js';
 import {
-  initializeChatStorage,
-  getChannel,
-  createOrGetChannel,
-  addMessage,
-  getMessages,
-  getAllChannels
-} from './chat-storage.js';
+  getAllPipelines,
+  getPipeline,
+  createPipeline,
+  updatePipeline,
+  removePipeline,
+  initializePipelines,
+  getTaskPipelineState,
+  updateTaskPipelineState
+} from './pipeline-storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -414,93 +416,6 @@ app.put('/api/personas/:id/memory', async (req, res) => {
   }
 });
 
-// Chat API routes
-
-// GET /api/chat/channels - Get all channels
-app.get('/api/chat/channels', async (_req, res) => {
-  try {
-    const channels = await getAllChannels();
-    res.json({ channels });
-  } catch (error) {
-    console.error('GET /api/chat/channels error:', error);
-    res.status(500).json({ error: 'Failed to fetch channels' });
-  }
-});
-
-// GET /api/chat/:channelId - Get or create a channel
-app.get('/api/chat/:channelId', async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const { type = 'general', taskId, name } = req.query;
-    
-    if (!['task', 'general'].includes(type as string)) {
-      return res.status(400).json({ error: 'type must be "task" or "general"' });
-    }
-    
-    const channel = await createOrGetChannel(
-      channelId, 
-      type as 'task' | 'general', 
-      taskId as string, 
-      name as string
-    );
-    
-    res.json({ channel });
-  } catch (error) {
-    console.error(`GET /api/chat/${req.params.channelId} error:`, error);
-    res.status(500).json({ error: 'Failed to get channel' });
-  }
-});
-
-// GET /api/chat/:channelId/messages - Get messages for a channel
-app.get('/api/chat/:channelId/messages', async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const before = req.query.before as string;
-    
-    const messages = await getMessages(channelId, limit, before);
-    res.json({ messages });
-  } catch (error) {
-    console.error(`GET /api/chat/${req.params.channelId}/messages error:`, error);
-    res.status(500).json({ error: 'Failed to fetch messages' });
-  }
-});
-
-// POST /api/chat/:channelId/messages - Send a message to a channel
-app.post('/api/chat/:channelId/messages', async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const { author, authorType = 'human', content, replyTo } = req.body;
-    
-    if (!author || !content) {
-      return res.status(400).json({ error: 'author and content are required' });
-    }
-    
-    if (!['human', 'persona'].includes(authorType)) {
-      return res.status(400).json({ error: 'authorType must be "human" or "persona"' });
-    }
-    
-    // Ensure channel exists
-    const channel = await getChannel(channelId);
-    if (!channel) {
-      return res.status(404).json({ error: 'Channel not found' });
-    }
-    
-    const message = await addMessage(channelId, author, authorType, content, replyTo);
-    
-    // TODO: Process @mentions here (trigger persona responses)
-    if (message.mentions.length > 0) {
-      // This is where we would trigger Claude CLI sessions for mentioned personas
-      console.log(`Message mentions personas: ${message.mentions.join(', ')}`);
-    }
-    
-    res.status(201).json({ message });
-  } catch (error) {
-    console.error(`POST /api/chat/${req.params.channelId}/messages error:`, error);
-    res.status(500).json({ error: 'Failed to send message' });
-  }
-});
-
 // GitHub API routes
 
 // GET /api/github/config - Get GitHub configuration
@@ -630,6 +545,149 @@ app.get('/api/github/task/:taskId', async (req, res) => {
   }
 });
 
+// Pipeline API routes
+
+// GET /api/pipelines - Get all pipelines
+app.get('/api/pipelines', async (_req, res) => {
+  try {
+    const pipelines = await getAllPipelines();
+    res.json({ pipelines });
+  } catch (error) {
+    console.error('GET /api/pipelines error:', error);
+    res.status(500).json({ error: 'Failed to fetch pipelines' });
+  }
+});
+
+// GET /api/pipelines/:id - Get single pipeline
+app.get('/api/pipelines/:id', async (req, res) => {
+  try {
+    const pipeline = await getPipeline(req.params.id);
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    res.json({ pipeline });
+  } catch (error) {
+    console.error(`GET /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch pipeline' });
+  }
+});
+
+// POST /api/pipelines - Create new pipeline
+app.post('/api/pipelines', async (req, res) => {
+  try {
+    const pipelineData = req.body;
+    
+    // Validate required fields
+    if (!pipelineData.name || !pipelineData.stages || !Array.isArray(pipelineData.stages)) {
+      return res.status(400).json({ error: 'Name and stages array are required' });
+    }
+    
+    const pipeline = await createPipeline(pipelineData);
+    res.status(201).json({ pipeline });
+  } catch (error) {
+    console.error('POST /api/pipelines error:', error);
+    res.status(500).json({ error: 'Failed to create pipeline' });
+  }
+});
+
+// PUT /api/pipelines/:id - Update pipeline
+app.put('/api/pipelines/:id', async (req, res) => {
+  try {
+    const updates = req.body;
+    const pipeline = await updatePipeline(req.params.id, updates);
+    
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    res.json({ pipeline });
+  } catch (error) {
+    console.error(`PUT /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to update pipeline' });
+  }
+});
+
+// DELETE /api/pipelines/:id - Delete pipeline
+app.delete('/api/pipelines/:id', async (req, res) => {
+  try {
+    const success = await removePipeline(req.params.id);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/pipelines/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete pipeline' });
+  }
+});
+
+// GET /api/tasks/:taskId/pipeline-state - Get pipeline state for a task
+app.get('/api/tasks/:taskId/pipeline-state', async (req, res) => {
+  try {
+    const state = await getTaskPipelineState(req.params.taskId);
+    res.json({ state });
+  } catch (error) {
+    console.error(`GET /api/tasks/${req.params.taskId}/pipeline-state error:`, error);
+    res.status(500).json({ error: 'Failed to fetch pipeline state' });
+  }
+});
+
+// PUT /api/tasks/:taskId/pipeline-state - Update pipeline state for a task
+app.put('/api/tasks/:taskId/pipeline-state', async (req, res) => {
+  try {
+    const stateData = req.body;
+    stateData.taskId = req.params.taskId; // Ensure taskId matches
+    await updateTaskPipelineState(stateData);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`PUT /api/tasks/${req.params.taskId}/pipeline-state error:`, error);
+    res.status(500).json({ error: 'Failed to update pipeline state' });
+  }
+});
+
+// POST /api/tasks/:taskId/pipeline/:pipelineId/start - Start a task in a pipeline
+app.post('/api/tasks/:taskId/pipeline/:pipelineId/start', async (req, res) => {
+  try {
+    const { taskId, pipelineId } = req.params;
+    
+    const pipeline = await getPipeline(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    if (pipeline.stages.length === 0) {
+      return res.status(400).json({ error: 'Pipeline has no stages' });
+    }
+    
+    const firstStage = pipeline.stages[0];
+    const pipelineState = {
+      taskId,
+      pipelineId,
+      currentStageId: firstStage.id,
+      stageAttempts: { [firstStage.id]: 0 },
+      stageHistory: [],
+      isStuck: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await updateTaskPipelineState(pipelineState);
+    
+    // Update task to assign to first stage persona
+    await updateTask(taskId, { 
+      persona: firstStage.persona,
+      assignee: firstStage.persona 
+    });
+    
+    res.json({ pipelineState });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.taskId}/pipeline/${req.params.pipelineId}/start error:`, error);
+    res.status(500).json({ error: 'Failed to start task in pipeline' });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
@@ -640,7 +698,7 @@ async function startServer() {
   try {
     await initializeStorage();
     await initializePersonas();
-    initializeChatStorage();
+    await initializePipelines();
     await startWorker();
     
     app.listen(PORT, () => {

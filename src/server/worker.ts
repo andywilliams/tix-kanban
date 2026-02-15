@@ -6,7 +6,13 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getAllTasks, updateTask } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
-import { Task, Persona } from '../client/types/index.js';
+import { 
+  getPipeline, 
+  getTaskPipelineState, 
+  updateTaskPipelineState 
+} from './pipeline-storage.js';
+import { Task, Persona, Comment } from '../client/types/index.js';
+import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 
 const execAsync = promisify(exec);
 
@@ -138,12 +144,36 @@ async function processTask(task: Task): Promise<void> {
       success
     );
     
-    // For now, just add the output as a comment (we'd need to implement comments API)
-    // Move task to review
-    await updateTask(task.id, { 
-      status: success ? 'review' : 'backlog', // Back to backlog if failed
-      description: `${task.description}\n\n## AI Output\n${output}`
-    });
+    // Add AI output as a comment to preserve work history
+    const existingComments = fullTask.comments || [];
+    const aiComment: Comment = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: fullTask.id,
+      body: output,
+      author: `${persona.name} (AI)`,
+      createdAt: new Date(),
+    };
+    const updatedComments = [...existingComments, aiComment];
+    
+    if (success) {
+      // Check if task is part of a pipeline
+      const pipelineState = await getTaskPipelineState(fullTask.id);
+      if (pipelineState && fullTask.pipelineId) {
+        await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
+      } else {
+        // No pipeline - move to review as before
+        await updateTask(fullTask.id, { 
+          status: 'review',
+          comments: updatedComments
+        });
+      }
+    } else {
+      // Task failed - back to backlog
+      await updateTask(fullTask.id, { 
+        status: 'backlog',
+        comments: updatedComments
+      });
+    }
     
     console.log(`${success ? '✅' : '❌'} Task processed: ${task.title}`);
   } catch (error) {
@@ -151,6 +181,111 @@ async function processTask(task: Task): Promise<void> {
     
     // Move task back to backlog on error
     await updateTask(task.id, { status: 'backlog' });
+  }
+}
+
+// Handle pipeline advancement after task completion
+async function advanceTaskInPipeline(
+  task: Task, 
+  pipelineState: TaskPipelineState, 
+  updatedComments: Comment[], 
+  output: string
+): Promise<void> {
+  try {
+    const pipeline = await getPipeline(pipelineState.pipelineId);
+    if (!pipeline) {
+      console.error(`Pipeline ${pipelineState.pipelineId} not found for task ${task.id}`);
+      // Fall back to normal review
+      await updateTask(task.id, { status: 'review', comments: updatedComments });
+      return;
+    }
+
+    const currentStageIndex = pipeline.stages.findIndex(s => s.id === pipelineState.currentStageId);
+    if (currentStageIndex === -1) {
+      console.error(`Current stage ${pipelineState.currentStageId} not found in pipeline`);
+      await updateTask(task.id, { status: 'review', comments: updatedComments });
+      return;
+    }
+
+    const currentStage = pipeline.stages[currentStageIndex];
+    
+    // Record stage completion in history
+    const stageHistory: TaskStageHistory = {
+      stageId: currentStage.id,
+      persona: currentStage.persona,
+      startedAt: new Date(task.updatedAt), // Approximate start time
+      completedAt: new Date(),
+      result: 'success',
+      feedback: output,
+      attempt: (pipelineState.stageAttempts[currentStage.id] || 0) + 1,
+      outputs: [
+        { type: 'comment', content: output, metadata: { author: currentStage.persona } }
+      ]
+    };
+    
+    // Update stage history and attempts
+    const updatedHistory = [...pipelineState.stageHistory, stageHistory];
+    const updatedAttempts = {
+      ...pipelineState.stageAttempts,
+      [currentStage.id]: (pipelineState.stageAttempts[currentStage.id] || 0) + 1
+    };
+
+    // Check if there's a next stage
+    const nextStageIndex = currentStageIndex + 1;
+    if (nextStageIndex < pipeline.stages.length) {
+      // Move to next stage
+      const nextStage = pipeline.stages[nextStageIndex];
+      
+      console.log(`📋 Pipeline: ${task.title} → Stage ${nextStage.name} (${nextStage.persona})`);
+      
+      // Update pipeline state
+      const updatedPipelineState: TaskPipelineState = {
+        ...pipelineState,
+        currentStageId: nextStage.id,
+        stageAttempts: {
+          ...updatedAttempts,
+          [nextStage.id]: 0 // Reset attempts for new stage
+        },
+        stageHistory: updatedHistory,
+        updatedAt: new Date()
+      };
+      
+      await updateTaskPipelineState(updatedPipelineState);
+      
+      // Update task to assign to next stage persona
+      await updateTask(task.id, {
+        status: currentStage.autoAdvance ? 'backlog' : 'review', // Auto-advance or wait for review
+        persona: nextStage.persona,
+        assignee: nextStage.persona,
+        comments: updatedComments
+      });
+      
+      if (currentStage.autoAdvance) {
+        console.log(`⚡ Auto-advancing task ${task.title} to ${nextStage.name}`);
+      } else {
+        console.log(`⏸️  Task ${task.title} waiting for review before ${nextStage.name}`);
+      }
+    } else {
+      // Pipeline complete - move to final review
+      console.log(`🏁 Pipeline complete for task: ${task.title}`);
+      
+      const completedPipelineState: TaskPipelineState = {
+        ...pipelineState,
+        stageAttempts: updatedAttempts,
+        stageHistory: updatedHistory,
+        updatedAt: new Date()
+      };
+      
+      await updateTaskPipelineState(completedPipelineState);
+      await updateTask(task.id, { 
+        status: 'review', 
+        comments: updatedComments 
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to advance task ${task.id} in pipeline:`, error);
+    // Fall back to normal review
+    await updateTask(task.id, { status: 'review', comments: updatedComments });
   }
 }
 
