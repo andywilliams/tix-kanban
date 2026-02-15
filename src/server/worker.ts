@@ -13,6 +13,7 @@ import {
 } from './pipeline-storage.js';
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
+import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 
 const execAsync = promisify(exec);
 
@@ -232,11 +233,25 @@ async function processTask(task: Task): Promise<void> {
       if (pipelineState && fullTask.pipelineId) {
         await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
       } else {
-        // No pipeline - move to review as before
-        await updateTask(fullTask.id, { 
-          status: 'review',
-          comments: updatedComments
-        });
+        // No pipeline - try auto-review first, then fall back to manual review
+        const reviewState = await initiateAutoReview(fullTask, persona.id);
+        if (reviewState) {
+          // Auto-review initiated - move to auto-review status
+          await updateTask(fullTask.id, { 
+            status: 'auto-review',
+            comments: updatedComments
+          });
+          
+          // Execute the first review cycle
+          const reviewResult = await executeReviewCycle(fullTask.id);
+          console.log(`🔍 Auto-review result for ${fullTask.title}: ${reviewResult}`);
+        } else {
+          // Auto-review disabled or failed - move directly to human review
+          await updateTask(fullTask.id, { 
+            status: 'review',
+            comments: updatedComments
+          });
+        }
       }
     } else {
       // Task failed - back to backlog
@@ -360,6 +375,30 @@ async function advanceTaskInPipeline(
   }
 }
 
+// Process auto-review tasks
+async function processAutoReviewTasks(): Promise<void> {
+  try {
+    const tasks = await getAllTasks();
+    const autoReviewTasks = tasks
+      .filter(task => task.status === 'auto-review')
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
+    
+    for (const task of autoReviewTasks) {
+      console.log(`🔍 Processing auto-review for task: ${task.title}`);
+      const reviewResult = await executeReviewCycle(task.id);
+      console.log(`🔍 Auto-review result for ${task.title}: ${reviewResult}`);
+      
+      // Avoid processing too many at once to prevent overwhelming the system
+      if (autoReviewTasks.indexOf(task) >= 2) {
+        console.log('⏸️ Auto-review: Processing 3 tasks per cycle, stopping here');
+        break;
+      }
+    }
+  } catch (error) {
+    console.error('❌ Auto-review processing failed:', error);
+  }
+}
+
 // Main worker function
 async function runWorker(): Promise<void> {
   if (workerState.isRunning) {
@@ -374,6 +413,9 @@ async function runWorker(): Promise<void> {
     
     console.log('🔄 Worker cycle starting...');
     
+    // First, process any auto-review tasks
+    await processAutoReviewTasks();
+    
     // Get all tasks
     const tasks = await getAllTasks();
     const backlogTasks = tasks
@@ -381,7 +423,7 @@ async function runWorker(): Promise<void> {
       .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
     
     workerState.workload = tasks.filter(task => 
-      task.status === 'backlog' || task.status === 'in-progress'
+      task.status === 'backlog' || task.status === 'in-progress' || task.status === 'auto-review'
     ).length;
     
     if (backlogTasks.length === 0) {

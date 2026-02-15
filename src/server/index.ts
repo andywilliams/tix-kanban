@@ -46,6 +46,7 @@ import {
   getMessages,
   getAllChannels
 } from './chat-storage.js';
+import { processMentions } from './mention-handler.js';
 import {
   getAllPipelines,
   getPipeline,
@@ -56,6 +57,12 @@ import {
   getTaskPipelineState,
   updateTaskPipelineState
 } from './pipeline-storage.js';
+import {
+  getAutoReviewConfig,
+  updateAutoReviewConfig,
+  getTaskReviewState,
+  executeReviewCycle
+} from './auto-review.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -498,10 +505,13 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
     
     const message = await addMessage(channelId, author, authorType, content, replyTo);
     
-    // TODO: Process @mentions here (trigger persona responses)
+    // Process @mentions - trigger persona responses asynchronously
     if (message.mentions.length > 0) {
-      // This is where we would trigger Claude CLI sessions for mentioned personas
       console.log(`Message mentions personas: ${message.mentions.join(', ')}`);
+      // Don't await - let persona responses happen in background
+      processMentions(message).catch(error => {
+        console.error('Error processing mentions:', error);
+      });
     }
     
     res.status(201).json({ message });
@@ -780,6 +790,53 @@ app.post('/api/tasks/:taskId/pipeline/:pipelineId/start', async (req, res) => {
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.taskId}/pipeline/${req.params.pipelineId}/start error:`, error);
     res.status(500).json({ error: 'Failed to start task in pipeline' });
+  }
+});
+
+// Auto-Review API endpoints
+
+// GET /api/auto-review/config - Get auto-review configuration
+app.get('/api/auto-review/config', async (_req, res) => {
+  try {
+    const config = await getAutoReviewConfig();
+    res.json(config);
+  } catch (error) {
+    console.error('GET /api/auto-review/config error:', error);
+    res.status(500).json({ error: 'Failed to fetch auto-review config' });
+  }
+});
+
+// PUT /api/auto-review/config - Update auto-review configuration
+app.put('/api/auto-review/config', async (req, res) => {
+  try {
+    const updates = req.body;
+    const config = await updateAutoReviewConfig(updates);
+    res.json(config);
+  } catch (error) {
+    console.error('PUT /api/auto-review/config error:', error);
+    res.status(500).json({ error: 'Failed to update auto-review config' });
+  }
+});
+
+// GET /api/tasks/:taskId/review-state - Get auto-review state for a task
+app.get('/api/tasks/:taskId/review-state', async (req, res) => {
+  try {
+    const state = await getTaskReviewState(req.params.taskId);
+    res.json({ state });
+  } catch (error) {
+    console.error(`GET /api/tasks/${req.params.taskId}/review-state error:`, error);
+    res.status(500).json({ error: 'Failed to fetch review state' });
+  }
+});
+
+// POST /api/tasks/:taskId/review-cycle - Manually trigger a review cycle
+app.post('/api/tasks/:taskId/review-cycle', async (req, res) => {
+  try {
+    const result = await executeReviewCycle(req.params.taskId);
+    res.json({ result });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.taskId}/review-cycle error:`, error);
+    res.status(500).json({ error: 'Failed to execute review cycle' });
   }
 });
 
