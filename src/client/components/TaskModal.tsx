@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Task, Persona } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Task, Persona, GitHubConfig } from '../types';
+import { GitHubStatus } from './GitHubStatus';
 
 interface TaskModalProps {
   task: Task;
@@ -11,6 +12,61 @@ interface TaskModalProps {
 const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate }) => {
   const [editing, setEditing] = useState(false);
   const [editedTask, setEditedTask] = useState(task);
+  const [githubConfig, setGithubConfig] = useState<GitHubConfig | null>(null);
+  const [creatingPR, setCreatingPR] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState('');
+
+  useEffect(() => {
+    loadGitHubConfig();
+  }, []);
+
+  const loadGitHubConfig = async () => {
+    try {
+      const response = await fetch('/api/github/config');
+      if (response.ok) {
+        const data = await response.json();
+        setGithubConfig(data.config);
+        if (data.config.repos.length > 0) {
+          setSelectedRepo(task.repo || data.config.repos[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load GitHub config:', error);
+    }
+  };
+
+  const createPR = async () => {
+    if (!selectedRepo) return;
+    
+    setCreatingPR(true);
+    try {
+      const response = await fetch('/api/github/pr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: selectedRepo,
+          taskId: task.id,
+          taskTitle: task.title,
+          taskDescription: task.description,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Update task with repo info
+        onUpdate({ ...task, repo: selectedRepo });
+        alert(`PR created successfully: ${data.prStatus.url}`);
+      } else {
+        const error = await response.json();
+        alert(`Failed to create PR: ${error.details || error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to create PR:', error);
+      alert('Failed to create PR. Check console for details.');
+    } finally {
+      setCreatingPR(false);
+    }
+  };
 
   const handleSave = () => {
     onUpdate(editedTask);
@@ -112,6 +168,24 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                   })}
                 />
               </div>
+
+              <div className="form-group">
+                <label>GitHub Repository</label>
+                <select
+                  value={editedTask.repo || ''}
+                  onChange={(e) => setEditedTask({ 
+                    ...editedTask, 
+                    repo: e.target.value || undefined 
+                  })}
+                >
+                  <option value="">None</option>
+                  {githubConfig?.repos.map(repo => (
+                    <option key={repo} value={repo}>
+                      {repo}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </>
           ) : (
             <>
@@ -149,7 +223,42 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                 <p><strong>Created:</strong> {task.createdAt.toLocaleString()}</p>
                 <p><strong>Updated:</strong> {task.updatedAt.toLocaleString()}</p>
                 {task.dueDate && <p><strong>Due:</strong> {task.dueDate.toLocaleString()}</p>}
+                {task.repo && <p><strong>Repository:</strong> {task.repo}</p>}
               </div>
+
+              {/* GitHub Section */}
+              {githubConfig && githubConfig.repos.length > 0 && (
+                <div className="github-section">
+                  <h4>GitHub Integration</h4>
+                  
+                  <GitHubStatus taskId={task.id} repo={task.repo} />
+                  
+                  <div className="github-actions">
+                    <div className="create-pr-section">
+                      <label htmlFor="repo-select">Create PR in:</label>
+                      <select
+                        id="repo-select"
+                        value={selectedRepo}
+                        onChange={(e) => setSelectedRepo(e.target.value)}
+                      >
+                        <option value="">Select repository...</option>
+                        {githubConfig.repos.map(repo => (
+                          <option key={repo} value={repo}>
+                            {repo}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={createPR}
+                        disabled={!selectedRepo || creatingPR}
+                      >
+                        {creatingPR ? 'Creating...' : 'Create PR'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

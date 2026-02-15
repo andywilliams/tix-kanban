@@ -18,6 +18,18 @@ import {
   getAllPersonas,
   initializePersonas
 } from './worker.js';
+import {
+  getGitHubConfig,
+  saveGitHubConfig,
+  testGitHubAuth,
+  createTaskPR,
+  getPRStatus,
+  getRepoPRs,
+  getRepoIssues,
+  syncTaskWithPR,
+  getTaskGitHubData,
+  GitHubConfig
+} from './github.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -182,6 +194,135 @@ app.get('/api/personas', async (_req, res) => {
   } catch (error) {
     console.error('GET /api/personas error:', error);
     res.status(500).json({ error: 'Failed to fetch personas' });
+  }
+});
+
+// GitHub API routes
+
+// GET /api/github/config - Get GitHub configuration
+app.get('/api/github/config', async (_req, res) => {
+  try {
+    const config = await getGitHubConfig();
+    res.json({ config });
+  } catch (error) {
+    console.error('GET /api/github/config error:', error);
+    res.status(500).json({ error: 'Failed to get GitHub config' });
+  }
+});
+
+// PUT /api/github/config - Update GitHub configuration
+app.put('/api/github/config', async (req, res) => {
+  try {
+    const config = req.body as GitHubConfig;
+    await saveGitHubConfig(config);
+    res.json({ config });
+  } catch (error) {
+    console.error('PUT /api/github/config error:', error);
+    res.status(500).json({ error: 'Failed to update GitHub config' });
+  }
+});
+
+// GET /api/github/auth - Check GitHub authentication status
+app.get('/api/github/auth', async (_req, res) => {
+  try {
+    const authStatus = await testGitHubAuth();
+    res.json(authStatus);
+  } catch (error) {
+    console.error('GET /api/github/auth error:', error);
+    res.status(500).json({ error: 'Failed to check GitHub auth' });
+  }
+});
+
+// POST /api/github/pr - Create PR from task
+app.post('/api/github/pr', async (req, res) => {
+  try {
+    const { repo, taskId, taskTitle, taskDescription, branchName } = req.body;
+    
+    if (!repo || !taskId || !taskTitle) {
+      return res.status(400).json({ error: 'repo, taskId, and taskTitle are required' });
+    }
+    
+    const prStatus = await createTaskPR(repo, taskId, taskTitle, taskDescription, branchName);
+    res.json({ prStatus });
+  } catch (error) {
+    console.error('POST /api/github/pr error:', error);
+    res.status(500).json({ error: 'Failed to create PR', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// GET /api/github/pr/:repo/:number - Get PR status
+app.get('/api/github/pr/:repo/:number', async (req, res) => {
+  try {
+    const repo = `${req.params.repo}`.replace('--', '/'); // Convert owner--repo back to owner/repo
+    const prNumber = parseInt(req.params.number, 10);
+    
+    if (isNaN(prNumber)) {
+      return res.status(400).json({ error: 'Invalid PR number' });
+    }
+    
+    const prStatus = await getPRStatus(repo, prNumber);
+    res.json({ prStatus });
+  } catch (error) {
+    console.error(`GET /api/github/pr/${req.params.repo}/${req.params.number} error:`, error);
+    res.status(500).json({ error: 'Failed to get PR status', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// GET /api/github/prs/:repo - Get all PRs for a repo
+app.get('/api/github/prs/:repo', async (req, res) => {
+  try {
+    const repo = `${req.params.repo}`.replace('--', '/'); // Convert owner--repo back to owner/repo
+    const state = req.query.state as 'open' | 'closed' | 'merged' | 'all' || 'open';
+    
+    const prs = await getRepoPRs(repo, state);
+    res.json({ prs });
+  } catch (error) {
+    console.error(`GET /api/github/prs/${req.params.repo} error:`, error);
+    res.status(500).json({ error: 'Failed to get PRs', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// GET /api/github/issues/:repo - Get all issues for a repo
+app.get('/api/github/issues/:repo', async (req, res) => {
+  try {
+    const repo = `${req.params.repo}`.replace('--', '/'); // Convert owner--repo back to owner/repo
+    const state = req.query.state as 'open' | 'closed' | 'all' || 'open';
+    
+    const issues = await getRepoIssues(repo, state);
+    res.json({ issues });
+  } catch (error) {
+    console.error(`GET /api/github/issues/${req.params.repo} error:`, error);
+    res.status(500).json({ error: 'Failed to get issues', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// POST /api/github/sync/:taskId - Sync task with its linked PRs
+app.post('/api/github/sync/:taskId', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { repo, prNumber } = req.body;
+    
+    if (!repo || !prNumber) {
+      return res.status(400).json({ error: 'repo and prNumber are required' });
+    }
+    
+    const syncResult = await syncTaskWithPR(taskId, repo, parseInt(prNumber, 10));
+    res.json(syncResult);
+  } catch (error) {
+    console.error(`POST /api/github/sync/${req.params.taskId} error:`, error);
+    res.status(500).json({ error: 'Failed to sync task with PR', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// GET /api/github/task/:taskId - Get GitHub data for a task
+app.get('/api/github/task/:taskId', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const githubData = await getTaskGitHubData(taskId);
+    res.json(githubData);
+  } catch (error) {
+    console.error(`GET /api/github/task/${req.params.taskId} error:`, error);
+    res.status(500).json({ error: 'Failed to get task GitHub data', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 

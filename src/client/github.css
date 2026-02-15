@@ -1,0 +1,411 @@
+/* GitHub Integration Styles */
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.github-settings-btn {
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.2s;
+}
+
+.github-settings-btn:hover {
+  background: var(--color-primary-dark, #2563eb);
+}
+
+/* GitHub Settings Modal */
+.github-settings-modal {
+  width: 600px;
+  max-width: 90vw;
+}
+
+.github-settings-modal .section {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.github-settings-modal .section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.github-settings-modal h3 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text-primary, #111827);
+  font-size: 1.125rem;
+}
+
+/* Auth Status */
+.auth-status {
+  padding: 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+}
+
+.auth-status.authenticated {
+  background: var(--color-success-light, #d1fae5);
+  color: var(--color-success-dark, #065f46);
+  border: 1px solid var(--color-success, #10b981);
+}
+
+.auth-status.not-authenticated {
+  background: var(--color-danger-light, #fee2e2);
+  color: var(--color-danger-dark, #991b1b);
+  border: 1px solid var(--color-danger, #ef4444);
+}
+
+.auth-status code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+/* Repository List */
+.repo-list {
+  margin-bottom: 1rem;
+}
+
+.repo-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: var(--color-background-secondary, #f9fafb);
+  border-radius: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.repo-item:last-child {
+  margin-bottom: 0;
+}
+
+.remove-btn {
+  background: var(--color-danger, #ef4444);
+  color: white;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.remove-btn:hover {
+  background: var(--color-danger-dark, #dc2626);
+}
+
+.add-repo {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-repo input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 0.375rem;
+}
+
+.add-repo button {
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.add-repo button:hover {
+  background: var(--color-primary-dark, #2563eb);
+}
+
+/* Form Groups */
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #374151);
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 0.375rem;
+  background: var(--color-background, #ffffff);
+  color: var(--color-text-primary, #111827);
+}
+
+.form-group.checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.form-group.checkbox input {
+  width: auto;
+  margin-right: 0.5rem;
+}
+
+/* GitHub Status Components */
+.github-status {
+  font-size: 0.875rem;
+}
+
+.github-status.compact {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--color-background-secondary, #f3f4f6);
+  border: 1px solid var(--color-border, #d1d5db);
+}
+
+.github-status.loading {
+  opacity: 0.6;
+}
+
+.github-status.no-prs {
+  color: var(--color-text-secondary, #6b7280);
+  font-style: italic;
+}
+
+.github-status.full {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--color-background-secondary, #f9fafb);
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+
+.github-status.full h4 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text-primary, #111827);
+}
+
+/* PR Status */
+.pr-status {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-border, #d1d5db);
+}
+
+.pr-status:last-child {
+  margin-bottom: 0;
+}
+
+.pr-status.merged {
+  background: var(--color-purple-light, #ede9fe);
+  border-color: var(--color-purple, #8b5cf6);
+}
+
+.pr-status.closed {
+  background: var(--color-gray-light, #f3f4f6);
+  border-color: var(--color-gray, #6b7280);
+}
+
+.pr-status.draft {
+  background: var(--color-gray-light, #f3f4f6);
+  border-color: var(--color-gray, #9ca3af);
+}
+
+.pr-status.failing {
+  background: var(--color-danger-light, #fee2e2);
+  border-color: var(--color-danger, #ef4444);
+}
+
+.pr-status.approved {
+  background: var(--color-success-light, #d1fae5);
+  border-color: var(--color-success, #10b981);
+}
+
+.pr-status.changes-requested {
+  background: var(--color-warning-light, #fef3c7);
+  border-color: var(--color-warning, #f59e0b);
+}
+
+.pr-status.passing {
+  background: var(--color-success-light, #d1fae5);
+  border-color: var(--color-success, #10b981);
+}
+
+.pr-status.pending {
+  background: var(--color-yellow-light, #fefce8);
+  border-color: var(--color-yellow, #eab308);
+}
+
+.pr-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.pr-link {
+  color: var(--color-primary, #3b82f6);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.pr-link:hover {
+  text-decoration: underline;
+}
+
+.draft-badge {
+  background: var(--color-gray, #6b7280);
+  color: white;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.pr-details {
+  margin-left: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.pr-details > div {
+  margin-bottom: 0.25rem;
+}
+
+.pr-details .label {
+  font-weight: 500;
+  margin-right: 0.5rem;
+}
+
+.checks-summary, .reviews-summary {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.checks-passing, .reviews-approved {
+  color: var(--color-success-dark, #065f46);
+}
+
+.checks-failing, .reviews-changes {
+  color: var(--color-danger-dark, #991b1b);
+}
+
+.checks-pending {
+  color: var(--color-warning-dark, #92400e);
+}
+
+.mergeable-yes {
+  color: var(--color-success-dark, #065f46);
+}
+
+.mergeable-no {
+  color: var(--color-danger-dark, #991b1b);
+}
+
+/* GitHub Section in Task Modal */
+.github-section {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--color-background-secondary, #f9fafb);
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+
+.github-section h4 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text-primary, #111827);
+}
+
+.github-actions {
+  margin-top: 1rem;
+}
+
+.create-pr-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.create-pr-section label {
+  font-weight: 500;
+  color: var(--color-text-primary, #374151);
+}
+
+.create-pr-section select {
+  padding: 0.5rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 0.375rem;
+  background: var(--color-background, #ffffff);
+}
+
+.create-pr-section button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  background: var(--color-secondary, #6b7280);
+  color: white;
+}
+
+.create-pr-section button:hover:not(:disabled) {
+  background: var(--color-secondary-dark, #4b5563);
+}
+
+.create-pr-section button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Task Footer GitHub Status */
+.task-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.task-status {
+  display: flex;
+  align-items: center;
+}
+
+/* Dark mode adjustments */
+:root.dark .github-settings-modal .section {
+  border-color: var(--color-border-dark, #374151);
+}
+
+:root.dark .auth-status.authenticated {
+  background: var(--color-success-dark, #064e3b);
+  color: var(--color-success-light, #a7f3d0);
+}
+
+:root.dark .auth-status.not-authenticated {
+  background: var(--color-danger-dark, #7f1d1d);
+  color: var(--color-danger-light, #fecaca);
+}
+
+:root.dark .repo-item {
+  background: var(--color-background-tertiary, #374151);
+}
+
+:root.dark .github-status.full {
+  background: var(--color-background-tertiary, #374151);
+  border-color: var(--color-border-dark, #4b5563);
+}
+
+:root.dark .github-section {
+  background: var(--color-background-tertiary, #374151);
+  border-color: var(--color-border-dark, #4b5563);
+}

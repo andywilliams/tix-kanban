@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
+import { GitHubSettingsModal } from './components/GitHubSettingsModal';
 import { Task, Persona } from './types';
 import { useTasks } from './hooks/useTasks';
 import './App.css';
+import './github.css';
 
 const mockPersonas: Persona[] = [
   { id: 'qa', name: 'QA Engineer', emoji: '🔍', description: 'Quality assurance and testing', prompt: 'You are a QA engineer focused on testing and quality.' },
@@ -18,6 +20,7 @@ function App() {
   const { tasks, loading, error, createTask, updateTask } = useTasks();
   const [personas] = useState<Persona[]>(mockPersonas);
   const [darkMode, setDarkMode] = useState(true);
+  const [githubSettingsOpen, setGithubSettingsOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -73,13 +76,22 @@ function App() {
       <Router>
         <header className="app-header">
           <h1>Tix Kanban</h1>
-          <button
-            className="theme-toggle"
-            onClick={() => setDarkMode(!darkMode)}
-            aria-label="Toggle dark mode"
-          >
-            {darkMode ? '☀️' : '🌙'}
-          </button>
+          <div className="header-actions">
+            <button
+              className="github-settings-btn"
+              onClick={() => setGithubSettingsOpen(true)}
+              aria-label="GitHub settings"
+            >
+              🐙 GitHub
+            </button>
+            <button
+              className="theme-toggle"
+              onClick={() => setDarkMode(!darkMode)}
+              aria-label="Toggle dark mode"
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </button>
+          </div>
         </header>
         <main className="app-main">
           <WorkerStatus />
@@ -98,6 +110,11 @@ function App() {
           </Routes>
         </main>
       </Router>
+
+      <GitHubSettingsModal
+        isOpen={githubSettingsOpen}
+        onClose={() => setGithubSettingsOpen(false)}
+      />
     </div>
   );
 }

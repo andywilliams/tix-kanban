@@ -11,6 +11,10 @@ export interface Task {
   updatedAt: Date;
   dueDate?: Date;
   estimate?: string;
+  repo?: string; // GitHub repo (owner/repo format)
+  branch?: string; // Git branch name
+  comments?: Comment[];
+  links?: Link[];
 }
 
 export interface Comment {
@@ -41,4 +45,47 @@ export interface Filter {
   tags?: string[];
   persona?: string;
   status?: Task['status'];
+}
+
+export interface GitHubConfig {
+  repos: string[]; // List of repo names like "owner/repo"
+  defaultBranch: string; // Default branch name (usually "main" or "master")
+  branchPrefix: string; // Prefix for feature branches (e.g., "tix/")
+  autoLink: boolean; // Auto-link tasks to PRs when created
+}
+
+export interface PRStatus {
+  number: number;
+  title: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  url: string;
+  checks: {
+    conclusion: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required' | null;
+    status: 'queued' | 'in_progress' | 'completed';
+  }[];
+  reviews: {
+    state: 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENTED' | 'DISMISSED';
+    reviewer: string;
+  }[];
+  mergeable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  body: string;
+  state: 'open' | 'closed';
+  labels: string[];
+  assignees: string[];
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface GitHubAuthStatus {
+  authenticated: boolean;
+  username?: string;
 }
