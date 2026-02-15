@@ -46,8 +46,7 @@ import {
   removePipeline,
   initializePipelines,
   getTaskPipelineState,
-  updateTaskPipelineState,
-  deleteTaskPipelineState
+  updateTaskPipelineState
 } from './pipeline-storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
