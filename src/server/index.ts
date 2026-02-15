@@ -9,7 +9,7 @@ import {
   removeTask, 
   initializeStorage 
 } from './storage.js';
-import { Task } from '../client/types/index.js';
+import { Task, Comment, Link } from '../client/types/index.js';
 import { 
   startWorker,
   toggleWorker,
@@ -132,6 +132,99 @@ app.delete('/api/tasks/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+// Comments API routes
+
+// POST /api/tasks/:id/comments - Add comment to task
+app.post('/api/tasks/:id/comments', async (req, res) => {
+  try {
+    const { body, author } = req.body as { body: string; author: string };
+    
+    if (!body || !author) {
+      return res.status(400).json({ error: 'body and author are required' });
+    }
+    
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const newComment: Comment = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: req.params.id,
+      body,
+      author,
+      createdAt: new Date(),
+    };
+    
+    const updatedComments = [...(task.comments || []), newComment];
+    const updatedTask = await updateTask(req.params.id, { comments: updatedComments });
+    
+    res.status(201).json({ comment: newComment, task: updatedTask });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.id}/comments error:`, error);
+    res.status(500).json({ error: 'Failed to add comment' });
+  }
+});
+
+// Links API routes
+
+// POST /api/tasks/:id/links - Add link to task
+app.post('/api/tasks/:id/links', async (req, res) => {
+  try {
+    const { url, title, type } = req.body as { url: string; title: string; type: 'pr' | 'attachment' | 'reference' };
+    
+    if (!url || !title || !type) {
+      return res.status(400).json({ error: 'url, title, and type are required' });
+    }
+    
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const newLink: Link = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: req.params.id,
+      url,
+      title,
+      type,
+    };
+    
+    const updatedLinks = [...(task.links || []), newLink];
+    const updatedTask = await updateTask(req.params.id, { links: updatedLinks });
+    
+    res.status(201).json({ link: newLink, task: updatedTask });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.id}/links error:`, error);
+    res.status(500).json({ error: 'Failed to add link' });
+  }
+});
+
+// DELETE /api/tasks/:id/links/:linkId - Delete link from task
+app.delete('/api/tasks/:id/links/:linkId', async (req, res) => {
+  try {
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const links = task.links || [];
+    const linkIndex = links.findIndex(link => link.id === req.params.linkId);
+    
+    if (linkIndex === -1) {
+      return res.status(404).json({ error: 'Link not found' });
+    }
+    
+    const updatedLinks = links.filter(link => link.id !== req.params.linkId);
+    const updatedTask = await updateTask(req.params.id, { links: updatedLinks });
+    
+    res.json({ success: true, task: updatedTask });
+  } catch (error) {
+    console.error(`DELETE /api/tasks/${req.params.id}/links/${req.params.linkId} error:`, error);
+    res.status(500).json({ error: 'Failed to delete link' });
   }
 });
 

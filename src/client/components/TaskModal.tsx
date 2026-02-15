@@ -9,12 +9,33 @@ interface TaskModalProps {
   onUpdate: (updates: Partial<Task>) => void;
 }
 
+interface CommentFormData {
+  body: string;
+  author: string;
+}
+
+interface LinkFormData {
+  url: string;
+  title: string;
+  type: 'pr' | 'attachment' | 'reference';
+}
+
 const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate }) => {
   const [editing, setEditing] = useState(false);
   const [editedTask, setEditedTask] = useState(task);
   const [githubConfig, setGithubConfig] = useState<GitHubConfig | null>(null);
   const [creatingPR, setCreatingPR] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState('');
+  
+  // Comment form state
+  const [showCommentForm, setShowCommentForm] = useState(false);
+  const [commentForm, setCommentForm] = useState<CommentFormData>({ body: '', author: 'User' });
+  const [addingComment, setAddingComment] = useState(false);
+  
+  // Link form state
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkForm, setLinkForm] = useState<LinkFormData>({ url: '', title: '', type: 'reference' });
+  const [addingLink, setAddingLink] = useState(false);
 
   useEffect(() => {
     loadGitHubConfig();
@@ -65,6 +86,81 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
       alert('Failed to create PR. Check console for details.');
     } finally {
       setCreatingPR(false);
+    }
+  };
+
+  const addComment = async () => {
+    if (!commentForm.body.trim()) return;
+    
+    setAddingComment(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(commentForm),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        onUpdate(data.task);
+        setCommentForm({ body: '', author: 'User' });
+        setShowCommentForm(false);
+      } else {
+        const error = await response.json();
+        alert(`Failed to add comment: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+      alert('Failed to add comment. Check console for details.');
+    } finally {
+      setAddingComment(false);
+    }
+  };
+
+  const addLink = async () => {
+    if (!linkForm.url.trim() || !linkForm.title.trim()) return;
+    
+    setAddingLink(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(linkForm),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        onUpdate(data.task);
+        setLinkForm({ url: '', title: '', type: 'reference' });
+        setShowLinkForm(false);
+      } else {
+        const error = await response.json();
+        alert(`Failed to add link: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to add link:', error);
+      alert('Failed to add link. Check console for details.');
+    } finally {
+      setAddingLink(false);
+    }
+  };
+
+  const deleteLink = async (linkId: string) => {
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/links/${linkId}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        onUpdate(data.task);
+      } else {
+        const error = await response.json();
+        alert(`Failed to delete link: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to delete link:', error);
+      alert('Failed to delete link. Check console for details.');
     }
   };
 
@@ -224,6 +320,142 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                 <p><strong>Updated:</strong> {task.updatedAt.toLocaleString()}</p>
                 {task.dueDate && <p><strong>Due:</strong> {task.dueDate.toLocaleString()}</p>}
                 {task.repo && <p><strong>Repository:</strong> {task.repo}</p>}
+              </div>
+
+              {/* Comments Section */}
+              <div className="comments-section">
+                <div className="section-header">
+                  <h4>Comments ({task.comments?.length || 0})</h4>
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowCommentForm(!showCommentForm)}
+                  >
+                    Add Comment
+                  </button>
+                </div>
+                
+                {showCommentForm && (
+                  <div className="comment-form">
+                    <div className="form-row">
+                      <input
+                        type="text"
+                        placeholder="Your name"
+                        value={commentForm.author}
+                        onChange={(e) => setCommentForm({ ...commentForm, author: e.target.value })}
+                        style={{ width: '150px', marginRight: '10px' }}
+                      />
+                    </div>
+                    <textarea
+                      placeholder="Add a comment..."
+                      value={commentForm.body}
+                      onChange={(e) => setCommentForm({ ...commentForm, body: e.target.value })}
+                      rows={3}
+                      style={{ width: '100%', marginBottom: '10px' }}
+                    />
+                    <div className="form-actions">
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setShowCommentForm(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        onClick={addComment}
+                        disabled={addingComment || !commentForm.body.trim()}
+                      >
+                        {addingComment ? 'Adding...' : 'Add Comment'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="comments-list">
+                  {task.comments?.map(comment => (
+                    <div key={comment.id} className="comment">
+                      <div className="comment-header">
+                        <strong>{comment.author}</strong>
+                        <span className="comment-date">{comment.createdAt.toLocaleString()}</span>
+                      </div>
+                      <div className="comment-body">{comment.body}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Links Section */}
+              <div className="links-section">
+                <div className="section-header">
+                  <h4>Links ({task.links?.length || 0})</h4>
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowLinkForm(!showLinkForm)}
+                  >
+                    Add Link
+                  </button>
+                </div>
+                
+                {showLinkForm && (
+                  <div className="link-form">
+                    <input
+                      type="text"
+                      placeholder="URL"
+                      value={linkForm.url}
+                      onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })}
+                      style={{ width: '100%', marginBottom: '10px' }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Title"
+                      value={linkForm.title}
+                      onChange={(e) => setLinkForm({ ...linkForm, title: e.target.value })}
+                      style={{ width: '100%', marginBottom: '10px' }}
+                    />
+                    <select
+                      value={linkForm.type}
+                      onChange={(e) => setLinkForm({ ...linkForm, type: e.target.value as 'pr' | 'attachment' | 'reference' })}
+                      style={{ width: '100%', marginBottom: '10px' }}
+                    >
+                      <option value="reference">Reference</option>
+                      <option value="pr">Pull Request</option>
+                      <option value="attachment">Attachment</option>
+                    </select>
+                    <div className="form-actions">
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setShowLinkForm(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        onClick={addLink}
+                        disabled={addingLink || !linkForm.url.trim() || !linkForm.title.trim()}
+                      >
+                        {addingLink ? 'Adding...' : 'Add Link'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="links-list">
+                  {task.links?.map(link => (
+                    <div key={link.id} className="link-item">
+                      <div className="link-info">
+                        <a href={link.url} target="_blank" rel="noopener noreferrer">
+                          {link.title}
+                        </a>
+                        <span className="link-type">{link.type}</span>
+                      </div>
+                      <button 
+                        className="btn btn-danger btn-sm"
+                        onClick={() => deleteLink(link.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* GitHub Section */}
