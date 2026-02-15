@@ -14,15 +14,8 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ 
-  isOpen, 
-  onClose, 
-  currentChannel, 
-  channels, 
-  personas,
-  currentUser,
-  onSendMessage,
-  onSwitchChannel,
-  onCreateTaskChannel 
+  isOpen, onClose, currentChannel, channels, personas, currentUser,
+  onSendMessage, onSwitchChannel, onCreateTaskChannel 
 }: ChatPanelProps) {
   const [messageInput, setMessageInput] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
@@ -34,12 +27,10 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChannel?.messages]);
 
-  // Handle @mention autocomplete
   useEffect(() => {
     if (messageInput.includes('@')) {
       const atIndex = messageInput.lastIndexOf('@', cursorPosition);
@@ -48,9 +39,7 @@ export default function ChatPanel({
         if (query.length >= 0 && !query.includes(' ')) {
           setMentionQuery(query);
           setMentionSuggestions(
-            personas.filter(persona => 
-              persona.name.toLowerCase().includes(query.toLowerCase())
-            )
+            personas.filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
           );
           setShowMentionSuggestions(true);
           return;
@@ -62,53 +51,38 @@ export default function ChatPanel({
 
   const handleSendMessage = () => {
     if (!messageInput.trim() || !currentChannel) return;
-    
     onSendMessage(currentChannel.id, messageInput.trim(), replyToMessage?.id);
     setMessageInput('');
     setReplyToMessage(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    } else if (e.key === 'Escape') {
-      setReplyToMessage(null);
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+    else if (e.key === 'Escape') setReplyToMessage(null);
   };
 
   const handleMentionSelect = (persona: Persona) => {
     const atIndex = messageInput.lastIndexOf('@', cursorPosition);
-    const newMessage = 
-      messageInput.slice(0, atIndex + 1) + 
-      persona.name + ' ' + 
-      messageInput.slice(cursorPosition);
-    
+    const newMessage = messageInput.slice(0, atIndex + 1) + persona.name + ' ' + messageInput.slice(cursorPosition);
     setMessageInput(newMessage);
     setShowMentionSuggestions(false);
     setCursorPosition(atIndex + persona.name.length + 2);
-    
-    // Focus back on input
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const formatMessageContent = (content: string): JSX.Element => {
-    // Replace @mentions with highlighted spans
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
     const parts = content.split(mentionRegex);
-    
     return (
       <span>
         {parts.map((part, index) => {
           if (index % 2 === 1) {
-            // This is a mention
             const persona = personas.find(p => p.name === part);
             return (
-              <span 
-                key={index}
-                className="bg-blue-100 text-blue-800 px-1 rounded font-medium"
-                title={persona ? `${persona.emoji} ${persona.description}` : undefined}
-              >
+              <span key={index} style={{
+                background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent)',
+                padding: '0 0.25rem', borderRadius: '0.2rem', fontWeight: 500
+              }} title={persona ? `${persona.emoji} ${persona.description}` : undefined}>
                 @{part}
               </span>
             );
@@ -120,10 +94,8 @@ export default function ChatPanel({
   };
 
   const formatTimestamp = (date: Date): string => {
-    const now = new Date();
-    const diff = now.getTime() - new Date(date).getTime();
+    const diff = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
-    
     if (minutes < 1) return 'now';
     if (minutes < 60) return `${minutes}m`;
     if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
@@ -133,40 +105,43 @@ export default function ChatPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed right-0 top-0 h-full w-96 bg-white border-l shadow-lg z-50 flex flex-col">
+    <div style={{
+      position: 'fixed', right: 0, top: 0, height: '100%', width: '24rem',
+      background: 'var(--bg-primary)', borderLeft: '1px solid var(--border)',
+      zIndex: 50, display: 'flex', flexDirection: 'column',
+      boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
+    }}>
       {/* Header */}
-      <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
+      <div style={{
+        padding: '1rem', borderBottom: '1px solid var(--border)',
+        background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+      }}>
         <div>
-          <h2 className="font-semibold text-lg">💬 Team Chat</h2>
+          <h2 style={{ fontWeight: 600, fontSize: '1.1rem', color: 'var(--text-primary)', margin: 0 }}>💬 Team Chat</h2>
           {currentChannel && (
-            <p className="text-sm text-gray-600">
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
               {currentChannel.name}
               {currentChannel.type === 'task' && ' • Task Discussion'}
             </p>
           )}
         </div>
-        <button 
-          onClick={onClose}
-          className="p-2 hover:bg-gray-200 rounded"
-          title="Close chat"
-        >
+        <button onClick={onClose} title="Close chat"
+          style={{ padding: '0.5rem', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem', borderRadius: '0.25rem' }}>
           ✕
         </button>
       </div>
 
       {/* Channel Switcher */}
-      <div className="p-3 border-b bg-gray-25">
-        <div className="flex gap-2 overflow-x-auto">
+      <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
           {channels.map(channel => (
-            <button
-              key={channel.id}
-              onClick={() => onSwitchChannel(channel)}
-              className={`px-3 py-1 rounded-full text-sm whitespace-nowrap ${
-                currentChannel?.id === channel.id 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-gray-200 hover:bg-gray-300'
-              }`}
-            >
+            <button key={channel.id} onClick={() => onSwitchChannel(channel)}
+              style={{
+                padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.8rem',
+                whiteSpace: 'nowrap', border: 'none', cursor: 'pointer',
+                background: currentChannel?.id === channel.id ? 'var(--accent)' : 'var(--bg-tertiary)',
+                color: currentChannel?.id === channel.id ? '#fff' : 'var(--text-secondary)'
+              }}>
               {channel.type === 'general' ? '🏠' : '📋'} {channel.name}
             </button>
           ))}
@@ -174,52 +149,53 @@ export default function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {!currentChannel && (
-          <div className="text-center text-gray-500 mt-8">
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
             <p>Select a channel to start chatting</p>
           </div>
         )}
         
         {currentChannel?.messages.map(message => (
-          <div key={message.id} className="group">
+          <div key={message.id} className="chat-message-group">
             {message.replyTo && (
-              <div className="text-xs text-gray-400 mb-1 pl-4 border-l-2 border-gray-200">
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem', paddingLeft: '1rem', borderLeft: '2px solid var(--border)' }}>
                 Replying to previous message
               </div>
             )}
             
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm font-medium">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+              <div style={{
+                width: '2rem', height: '2rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem',
+                flexShrink: 0, color: 'var(--text-primary)'
+              }}>
                 {message.authorType === 'persona' 
                   ? personas.find(p => p.name === message.author)?.emoji || '🤖'
                   : message.author[0]?.toUpperCase()
                 }
               </div>
               
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
                     {message.authorType === 'persona' 
                       ? personas.find(p => p.name === message.author)?.name || message.author
                       : message.author
                     }
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                     {formatTimestamp(message.createdAt)}
                   </span>
                 </div>
-                
-                <div className="text-sm mt-1 break-words">
+                <div style={{ fontSize: '0.85rem', marginTop: '0.2rem', color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
                   {formatMessageContent(message.content)}
                 </div>
               </div>
               
-              <button
-                onClick={() => setReplyToMessage(message)}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded text-xs"
-                title="Reply"
-              >
+              <button onClick={() => setReplyToMessage(message)} className="chat-reply-btn"
+                style={{ padding: '0.25rem', background: 'none', border: 'none', cursor: 'pointer', opacity: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}
+                title="Reply">
                 ↩️
               </button>
             </div>
@@ -230,17 +206,18 @@ export default function ChatPanel({
 
       {/* Reply indicator */}
       {replyToMessage && (
-        <div className="px-4 py-2 bg-blue-50 border-t border-blue-200 text-sm">
-          <div className="flex items-center justify-between">
-            <span>Replying to <strong>{replyToMessage.author}</strong></span>
-            <button 
-              onClick={() => setReplyToMessage(null)}
-              className="text-blue-600 hover:text-blue-800"
-            >
+        <div style={{
+          padding: '0.5rem 1rem', background: 'rgba(59, 130, 246, 0.1)',
+          borderTop: '1px solid var(--border)', fontSize: '0.8rem'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Replying to <strong>{replyToMessage.author}</strong></span>
+            <button onClick={() => setReplyToMessage(null)}
+              style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.8rem' }}>
               Cancel
             </button>
           </div>
-          <div className="text-gray-600 truncate">
+          <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {formatMessageContent(replyToMessage.content)}
           </div>
         </div>
@@ -248,18 +225,24 @@ export default function ChatPanel({
 
       {/* Mention suggestions */}
       {showMentionSuggestions && mentionSuggestions.length > 0 && (
-        <div className="px-4">
-          <div className="bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto">
+        <div style={{ padding: '0 1rem' }}>
+          <div style={{
+            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            borderRadius: '0.5rem', maxHeight: '8rem', overflowY: 'auto',
+            boxShadow: '0 -4px 12px rgba(0,0,0,0.2)'
+          }}>
             {mentionSuggestions.map(persona => (
-              <button
-                key={persona.id}
-                onClick={() => handleMentionSelect(persona)}
-                className="w-full p-2 hover:bg-gray-100 text-left flex items-center gap-2"
-              >
+              <button key={persona.id} onClick={() => handleMentionSelect(persona)}
+                style={{
+                  width: '100%', padding: '0.5rem', textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)'
+                }}
+                className="chat-mention-option">
                 <span>{persona.emoji}</span>
                 <div>
-                  <div className="font-medium text-sm">{persona.name}</div>
-                  <div className="text-xs text-gray-500 truncate">
+                  <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{persona.name}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {persona.description}
                   </div>
                 </div>
@@ -270,27 +253,27 @@ export default function ChatPanel({
       )}
 
       {/* Message Input */}
-      <div className="p-4 border-t">
+      <div style={{ padding: '1rem', borderTop: '1px solid var(--border)' }}>
         {currentChannel && (
-          <div className="flex gap-2">
-            <textarea
-              ref={inputRef}
-              value={messageInput}
-              onChange={(e) => {
-                setMessageInput(e.target.value);
-                setCursorPosition(e.target.selectionStart);
-              }}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <textarea ref={inputRef} value={messageInput}
+              onChange={(e) => { setMessageInput(e.target.value); setCursorPosition(e.target.selectionStart); }}
               onKeyDown={handleKeyDown}
               onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart)}
-              placeholder="Type a message... Use @name to mention personas"
-              className="flex-1 border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Type a message... Use @name to mention"
               rows={2}
+              style={{
+                flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: '0.5rem', padding: '0.5rem 0.75rem', resize: 'none',
+                color: 'var(--text-primary)', fontSize: '0.85rem', outline: 'none'
+              }}
             />
-            <button
-              onClick={handleSendMessage}
-              disabled={!messageInput.trim()}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleSendMessage} disabled={!messageInput.trim()}
+              style={{
+                padding: '0.5rem 1rem', background: 'var(--accent)', color: '#fff',
+                borderRadius: '0.5rem', border: 'none', cursor: 'pointer', fontWeight: 500,
+                fontSize: '0.85rem', opacity: messageInput.trim() ? 1 : 0.5, alignSelf: 'flex-end'
+              }}>
               Send
             </button>
           </div>

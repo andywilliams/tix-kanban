@@ -1142,3 +1142,12 @@ body {
 .editor-common-tag:hover {
   color: var(--text-primary);
 }
+
+/* Chat Panel */
+.chat-message-group:hover .chat-reply-btn {
+  opacity: 1 !important;
+}
+
+.chat-mention-option:hover {
+  background: var(--bg-tertiary) !important;
+}
