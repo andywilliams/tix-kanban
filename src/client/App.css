@@ -710,3 +710,435 @@ body {
 .btn-danger:hover {
   background: #dc2626;
 }
+/* Personas Page */
+.personas-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.personas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.personas-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.personas-subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.personas-create-btn {
+  background: var(--accent, #3b82f6);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.personas-create-btn:hover {
+  opacity: 0.9;
+}
+
+.personas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.personas-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: var(--text-muted);
+}
+
+.personas-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.personas-empty {
+  text-align: center;
+  padding: 4rem 0;
+  color: var(--text-muted);
+}
+
+.personas-empty-emoji {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.personas-empty h2 {
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.personas-empty p {
+  margin-bottom: 1.5rem;
+}
+
+/* Persona Card */
+.persona-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.persona-card:hover {
+  border-color: var(--accent, #3b82f6);
+}
+
+.persona-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.persona-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.persona-card-emoji {
+  font-size: 2rem;
+}
+
+.persona-card-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.persona-card-id {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+  font-family: monospace;
+}
+
+.persona-card-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.persona-card-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.9rem;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.persona-card-btn:hover {
+  opacity: 1;
+}
+
+.persona-card-description {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+}
+
+.persona-card-specialties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.persona-card-tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent, #3b82f6);
+  border-radius: 1rem;
+}
+
+.persona-card-tag-more {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.persona-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.persona-card-stat {
+  text-align: center;
+}
+
+.persona-card-stat-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.persona-card-stat-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.persona-card-footer {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+/* Persona Editor */
+.editor-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.editor-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.editor-subtitle {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.editor-btn-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.editor-btn-cancel:hover {
+  color: var(--text-primary);
+}
+
+.editor-btn-save {
+  background: var(--accent, #3b82f6);
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.editor-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .editor-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.editor-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.editor-panel-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
+
+.editor-field {
+  margin-bottom: 1rem;
+}
+
+.editor-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.375rem;
+}
+
+.editor-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.editor-input:focus {
+  outline: none;
+  border-color: var(--accent, #3b82f6);
+}
+
+.editor-textarea {
+  resize: vertical;
+}
+
+.editor-prompt {
+  height: 350px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+.editor-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.editor-emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.editor-emoji-btn {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.1rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.editor-emoji-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.editor-emoji-btn.selected {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: var(--accent, #3b82f6);
+}
+
+.editor-specialty-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+}
+
+.editor-specialty-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent, #3b82f6);
+  border-radius: 1rem;
+}
+
+.editor-specialty-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.editor-specialty-add {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.editor-btn-add {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.editor-btn-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-common-specialties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.editor-common-tag {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-muted);
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.editor-common-tag:hover {
+  color: var(--text-primary);
+}

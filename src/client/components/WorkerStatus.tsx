@@ -169,8 +169,8 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
       
       <style jsx>{`
         .worker-status {
-          background: #f8f9fa;
-          border: 1px solid #e9ecef;
+          background: var(--bg-secondary, #1e293b);
+          border: 1px solid var(--border, #334155);
           border-radius: 8px;
           padding: 16px;
           margin-bottom: 16px;
@@ -200,21 +200,31 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
         
         .worker-toggle {
           padding: 6px 12px;
-          border: 1px solid #dee2e6;
+          border: 1px solid var(--border, #334155);
           border-radius: 4px;
-          background: white;
+          background: var(--bg-primary, #0f172a);
           cursor: pointer;
           font-size: 12px;
           transition: all 0.2s;
         }
         
         .worker-toggle:hover {
-          background: #f8f9fa;
+          background: var(--bg-hover, #1e293b);
         }
         
         .worker-toggle:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+        
+        .worker-toggle.disabled {
+          background: #22c55e;
+          color: white;
+          border-color: #22c55e;
+        }
+        
+        .worker-toggle.disabled:hover {
+          background: #16a34a;
         }
         
         .worker-toggle.enabled {
@@ -231,7 +241,7 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 8px;
-          border-top: 1px solid #e9ecef;
+          border-top: 1px solid var(--border, #334155);
           padding-top: 12px;
         }
         
@@ -242,14 +252,14 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
         }
         
         .stat-label {
-          color: #6c757d;
+          color: var(--text-muted, #94a3b8);
           font-weight: 500;
         }
         
         .stat-value {
           font-family: monospace;
           font-size: 12px;
-          color: #495057;
+          color: var(--text-secondary, #cbd5e1);
         }
         
         .worker-status-loading,
@@ -257,7 +267,7 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
           display: flex;
           align-items: center;
           gap: 8px;
-          color: #6c757d;
+          color: var(--text-muted, #94a3b8);
         }
         
         .worker-status-error {
@@ -270,9 +280,10 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
           font-size: 12px;
           border: 1px solid #dc3545;
           color: #dc3545;
-          background: white;
+          background: var(--bg-primary, #0f172a);
           border-radius: 4px;
           cursor: pointer;
+          color: var(--text-primary, #e2e8f0);
         }
       `}</style>
     </div>

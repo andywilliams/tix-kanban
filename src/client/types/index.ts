@@ -50,7 +50,6 @@ export interface PersonaMemory {
   tokenCount: number;
   isLarge: boolean;
 }
-
 export interface PersonaStats {
   tasksCompleted: number;
   averageCompletionTime: number; // in minutes

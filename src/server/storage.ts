@@ -106,29 +106,51 @@ async function updateSummary(tasks: Task[]): Promise<void> {
       priority: task.priority,
       persona: task.persona,
       tags: task.tags,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString()
+      createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
+      updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
     }));
     
     const content = JSON.stringify(summary, null, 2);
     await fs.writeFile(SUMMARY_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to update summary:', error);
-    throw error;
+    // Non-fatal — tasks are stored individually, summary is just a cache
   }
 }
 
 // Get all tasks (uses summary for listing, loads full tasks as needed)
 export async function getAllTasks(): Promise<Task[]> {
   try {
+    // Try summary first for speed
     const summary = await readSummary();
-    const tasks: Task[] = [];
+    if (summary.length > 0) {
+      const tasks: Task[] = [];
+      for (const taskSummary of summary) {
+        const task = await readTask(taskSummary.id);
+        if (task) {
+          tasks.push(task);
+        }
+      }
+      return tasks;
+    }
     
-    for (const taskSummary of summary) {
-      const task = await readTask(taskSummary.id);
+    // Fallback: scan tasks directory directly
+    await ensureStorageDirectories();
+    const files = await fs.readdir(TASKS_DIR);
+    const jsonFiles = files.filter(f => f.endsWith('.json'));
+    const tasks: Task[] = [];
+    for (const file of jsonFiles) {
+      const taskId = file.replace('.json', '');
+      const task = await readTask(taskId);
       if (task) {
         tasks.push(task);
       }
+    }
+    
+    // Rebuild summary if we found tasks
+    if (tasks.length > 0) {
+      console.log(`🔧 Rebuilt summary from ${tasks.length} task files`);
+      await updateSummary(tasks);
     }
     
     return tasks;
@@ -154,9 +176,20 @@ export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'upda
   
   await writeTask(task);
   
-  // Update summary
-  const allTasks = await getAllTasks();
-  await updateSummary(allTasks);
+  // Append to summary directly (don't re-read via getAllTasks which has stale summary)
+  const currentSummary = await readSummary();
+  currentSummary.push({
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    persona: task.persona,
+    tags: task.tags,
+    createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
+    updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
+  });
+  const content = JSON.stringify(currentSummary, null, 2);
+  await fs.writeFile(SUMMARY_FILE, content, 'utf8');
   
   return task;
 }
@@ -202,40 +235,7 @@ export async function initializeStorage(): Promise<void> {
   try {
     const tasks = await getAllTasks();
     if (tasks.length === 0) {
-      console.log('🔄 Initializing storage with mock data...');
-      
-      const mockTasks: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>[] = [
-        {
-          title: 'Fix authentication bug',
-          description: 'Users cannot log in with Google OAuth',
-          status: 'backlog',
-          priority: 100,
-          persona: 'bug-fixer',
-          tags: ['bug', 'auth'],
-        },
-        {
-          title: 'Add dark mode support',
-          description: 'Implement dark theme across the application',
-          status: 'in-progress',
-          priority: 75,
-          persona: 'developer',
-          tags: ['feature', 'ui'],
-        },
-        {
-          title: 'Write API documentation',
-          description: 'Document the REST API endpoints',
-          status: 'review',
-          priority: 50,
-          persona: 'tech-writer',
-          tags: ['docs', 'api'],
-        },
-      ];
-      
-      for (const taskData of mockTasks) {
-        await createTask(taskData);
-      }
-      
-      console.log('✅ Storage initialized with mock data');
+      console.log('📁 No tasks found — board is empty');
     } else {
       console.log(`📁 Storage loaded with ${tasks.length} tasks`);
     }

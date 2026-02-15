@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { getAllTasks, updateTask } from './storage.js';
+import { getAllTasks, updateTask, getTask } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { Task, Persona } from '../client/types/index.js';
 
@@ -48,6 +48,8 @@ async function loadWorkerState(): Promise<void> {
   try {
     const content = await fs.readFile(WORKER_STATE_FILE, 'utf8');
     workerState = { ...workerState, ...JSON.parse(content) };
+    // Always reset isRunning on startup — if we're loading, previous process is dead
+    workerState.isRunning = false;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker state:', error);
@@ -64,6 +66,54 @@ async function saveWorkerState(): Promise<void> {
   } catch (error) {
     console.error('Failed to save worker state:', error);
   }
+}
+
+// Generate API reference for Claude sessions
+function generateAPIReference(): string {
+  return `## Tix-Kanban API Reference
+
+You have access to the tix-kanban API running at http://localhost:3001/api
+
+### Core Task Operations:
+- GET /api/tasks - Get all tasks
+- GET /api/tasks/:id - Get single task with full details
+- PUT /api/tasks/:id - Update task (status, description, etc.)
+
+### Task Status Values:
+- "backlog" - Task is waiting to be picked up
+- "in-progress" - Task is currently being worked on  
+- "review" - Task is completed and needs review
+- "done" - Task is fully completed
+
+### Add Work Comments:
+- POST /api/tasks/:id/comments
+  Body: {"body": "your detailed work summary", "author": "claude-worker"}
+
+### Add Links (PRs, docs, etc.):
+- POST /api/tasks/:id/links  
+  Body: {"url": "https://github.com/...", "title": "PR #123", "type": "pr"}
+  Types: "pr", "attachment", "reference"
+
+### Example curl commands:
+\`\`\`bash
+# Update task status
+curl -X PUT http://localhost:3001/api/tasks/TASK_ID -H "Content-Type: application/json" -d '{"status": "review"}'
+
+# Add work comment
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/comments -H "Content-Type: application/json" -d '{"body": "Implemented feature X with tests", "author": "claude-worker"}'
+
+# Add PR link
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/links -H "Content-Type: application/json" -d '{"url": "https://github.com/owner/repo/pull/123", "title": "PR #123", "type": "pr"}'
+\`\`\`
+
+### Your Workflow:
+1. Task is already moved to "in-progress" when you start
+2. Do the actual work described in the task
+3. If code changes: create branch + PR, add PR link to task, leave as "in-progress"
+4. If non-code work: add detailed comment, move status to "review"
+5. Always add a comment summarizing what you accomplished
+
+The task ID you're working on is: TASK_ID_PLACEHOLDER`;
 }
 
 // Spawn AI session for a task using OpenClaw
