@@ -47,6 +47,8 @@ async function loadWorkerState(): Promise<void> {
   try {
     const content = await fs.readFile(WORKER_STATE_FILE, 'utf8');
     workerState = { ...workerState, ...JSON.parse(content) };
+    // Always reset isRunning on startup — if we're loading, previous process is dead
+    workerState.isRunning = false;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker state:', error);
