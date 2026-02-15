@@ -4,17 +4,28 @@ import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
 import { PersonasPage } from './components/PersonasPage';
+import ChatPanel from './components/ChatPanel';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
+import { useChat } from './hooks/useChat';
 import './App.css';
 import './github.css';
 
 function AppContent() {
   const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
   const { personas, loading: personasLoading } = usePersonas();
+  const { 
+    channels, 
+    currentChannel, 
+    loading: chatLoading,
+    switchChannel, 
+    sendMessage, 
+    createTaskChannel 
+  } = useChat();
   const [darkMode, setDarkMode] = useState(true);
   const [githubSettingsOpen, setGithubSettingsOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -29,7 +40,7 @@ function AppContent() {
     await createTask(newTask);
   };
 
-  const isLoading = tasksLoading || personasLoading;
+  const isLoading = tasksLoading || personasLoading || chatLoading;
   const error = tasksError;
 
   // Show loading state
@@ -93,6 +104,17 @@ function AppContent() {
         </div>
         <div className="header-actions">
           <button
+            className="chat-toggle"
+            onClick={() => setChatOpen(!chatOpen)}
+            aria-label="Toggle chat"
+            style={{ 
+              backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : 'transparent',
+              color: chatOpen ? 'white' : 'inherit'
+            }}
+          >
+            💬 Chat
+          </button>
+          <button
             className="github-settings-btn"
             onClick={() => setGithubSettingsOpen(true)}
             aria-label="GitHub settings"
@@ -128,6 +150,18 @@ function AppContent() {
           />
         </Routes>
       </main>
+
+      <ChatPanel
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        currentChannel={currentChannel}
+        channels={channels}
+        personas={personas}
+        currentUser="User" // TODO: Get actual user name
+        onSendMessage={sendMessage}
+        onSwitchChannel={switchChannel}
+        onCreateTaskChannel={createTaskChannel}
+      />
 
       <GitHubSettingsModal
         isOpen={githubSettingsOpen}

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { Persona, PersonaStats, Comment, Link } from '../client/types/index.js';
+import { Persona, PersonaStats } from '../client/types/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -373,15 +373,7 @@ export async function getPersonaMemoryWithTokens(personaId: string): Promise<{ m
 }
 
 // Create context for AI with memory injection and token limits
-export async function createPersonaContext(
-  personaId: string, 
-  taskTitle: string, 
-  taskDescription: string, 
-  taskTags: string[], 
-  comments?: Comment[], 
-  links?: Link[], 
-  additionalContext?: string
-): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean }> {
+export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean }> {
   try {
     const persona = await getPersona(personaId);
     if (!persona) {
@@ -397,33 +389,11 @@ Title: ${taskTitle}
 Description: ${taskDescription}
 Tags: ${taskTags.join(', ')}`;
     
-    // Build task history section
-    let taskHistorySection = '';
-    
-    if (comments && comments.length > 0) {
-      taskHistorySection += '\n\n## Previous Comments\n';
-      comments.forEach((comment, index) => {
-        const commentDate = comment.createdAt instanceof Date 
-          ? comment.createdAt.toISOString().split('T')[0] 
-          : new Date(comment.createdAt).toISOString().split('T')[0];
-        taskHistorySection += `\n**${comment.author}** (${commentDate}):\n${comment.body}\n`;
-        if (index < comments.length - 1) taskHistorySection += '\n---\n';
-      });
-    }
-    
-    if (links && links.length > 0) {
-      taskHistorySection += '\n\n## Linked Resources\n';
-      links.forEach(link => {
-        const linkType = link.type === 'pr' ? '🔗 PR' : link.type === 'attachment' ? '📄 Document' : '🔗 Reference';
-        taskHistorySection += `- ${linkType}: [${link.title}](${link.url})\n`;
-      });
-    }
-    
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
     
     // Calculate token budget (aim for ~50k total, reserve space for task content)
     const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + taskContext + taskHistorySection + additionalSection);
+    const baseTokens = estimateTokenCount(systemPrompt + taskContext + additionalSection);
     const memoryTokenBudget = maxTokens - baseTokens - 1000; // 1000 token buffer
     
     let finalMemory = memory;
@@ -447,7 +417,7 @@ Tags: ${taskTags.join(', ')}`;
     
     // Build final prompt
     const memorySection = finalMemory.length > 0 ? `\n\n## Your Memory\n${finalMemory}` : '';
-    const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${taskHistorySection}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
     
     return {
       prompt: fullPrompt,

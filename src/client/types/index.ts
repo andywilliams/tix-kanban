@@ -50,6 +50,7 @@ export interface PersonaMemory {
   tokenCount: number;
   isLarge: boolean;
 }
+
 export interface PersonaStats {
   tasksCompleted: number;
   averageCompletionTime: number; // in minutes
@@ -104,4 +105,24 @@ export interface GitHubIssue {
 export interface GitHubAuthStatus {
   authenticated: boolean;
   username?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  channelId: string;
+  author: string;
+  authorType: 'human' | 'persona';
+  content: string;
+  mentions: string[]; // Array of persona names that were @mentioned
+  createdAt: Date;
+  replyTo?: string; // ID of message this is replying to
+}
+
+export interface ChatChannel {
+  id: string;
+  type: 'task' | 'general';
+  taskId?: string; // Only set for task channels
+  name: string;
+  messages: ChatMessage[];
+  lastActivity: Date;
 }
