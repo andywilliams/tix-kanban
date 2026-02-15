@@ -30,6 +30,17 @@ async function ensurePersonaDirectories(): Promise<void> {
   }
 }
 
+// Ensure persona-specific directory exists
+async function ensurePersonaDirectory(personaId: string): Promise<void> {
+  try {
+    const personaDir = path.join(PERSONAS_DIR, personaId);
+    await fs.mkdir(personaDir, { recursive: true });
+  } catch (error) {
+    console.error(`Failed to create persona directory for ${personaId}:`, error);
+    throw error;
+  }
+}
+
 // Read persona index for fast listing
 async function readPersonaIndex(): Promise<PersonaIndex> {
   try {
@@ -298,6 +309,171 @@ export async function updatePersonaStats(personaId: string, taskCompletionTime: 
     await updatePersona(personaId, { stats: updatedStats });
   } catch (error) {
     console.error(`Failed to update persona stats ${personaId}:`, error);
+  }
+}
+
+// Read persona memory
+export async function getPersonaMemory(personaId: string): Promise<string> {
+  try {
+    await ensurePersonaDirectory(personaId);
+    const memoryPath = path.join(PERSONAS_DIR, personaId, 'MEMORY.md');
+    const content = await fs.readFile(memoryPath, 'utf8');
+    return content.trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ''; // Memory file doesn't exist yet
+    }
+    console.error(`Failed to read memory for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Write persona memory (overwrite)
+export async function setPersonaMemory(personaId: string, memory: string): Promise<void> {
+  try {
+    await ensurePersonaDirectory(personaId);
+    const memoryPath = path.join(PERSONAS_DIR, personaId, 'MEMORY.md');
+    await fs.writeFile(memoryPath, memory, 'utf8');
+  } catch (error) {
+    console.error(`Failed to write memory for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Append to persona memory
+export async function appendPersonaMemory(personaId: string, newMemory: string): Promise<void> {
+  try {
+    const existingMemory = await getPersonaMemory(personaId);
+    const separator = existingMemory.length > 0 ? '\n\n' : '';
+    const updatedMemory = `${existingMemory}${separator}${newMemory}`;
+    await setPersonaMemory(personaId, updatedMemory);
+  } catch (error) {
+    console.error(`Failed to append memory for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Get memory token count (rough estimate: ~4 chars per token)
+export function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+// Get persona memory with token info
+export async function getPersonaMemoryWithTokens(personaId: string): Promise<{ memory: string; tokenCount: number; isLarge: boolean }> {
+  try {
+    const memory = await getPersonaMemory(personaId);
+    const tokenCount = estimateTokenCount(memory);
+    const isLarge = tokenCount > 10000; // Warning threshold
+    
+    return { memory, tokenCount, isLarge };
+  } catch (error) {
+    console.error(`Failed to get memory with tokens for persona ${personaId}:`, error);
+    return { memory: '', tokenCount: 0, isLarge: false };
+  }
+}
+
+// Create context for AI with memory injection and token limits
+export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean }> {
+  try {
+    const persona = await getPersona(personaId);
+    if (!persona) {
+      throw new Error(`Persona ${personaId} not found`);
+    }
+    
+    const { memory } = await getPersonaMemoryWithTokens(personaId);
+    
+    // Base prompt parts
+    const systemPrompt = persona.prompt;
+    const taskContext = `## Task Details
+Title: ${taskTitle}
+Description: ${taskDescription}
+Tags: ${taskTags.join(', ')}`;
+    
+    const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
+    
+    // Calculate token budget (aim for ~50k total, reserve space for task content)
+    const maxTokens = 50000;
+    const baseTokens = estimateTokenCount(systemPrompt + taskContext + additionalSection);
+    const memoryTokenBudget = maxTokens - baseTokens - 1000; // 1000 token buffer
+    
+    let finalMemory = memory;
+    let memoryTruncated = false;
+    
+    if (memory.length > 0) {
+      const memoryTokens = estimateTokenCount(memory);
+      if (memoryTokens > memoryTokenBudget) {
+        // Truncate memory from the beginning, keeping recent learnings
+        const targetChars = memoryTokenBudget * 4;
+        const truncatePoint = memory.length - targetChars;
+        if (truncatePoint > 0) {
+          // Try to truncate at a natural break (paragraph)
+          const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
+          const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
+          finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
+          memoryTruncated = true;
+        }
+      }
+    }
+    
+    // Build final prompt
+    const memorySection = finalMemory.length > 0 ? `\n\n## Your Memory\n${finalMemory}` : '';
+    const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    
+    return {
+      prompt: fullPrompt,
+      tokenCount: estimateTokenCount(fullPrompt),
+      memoryTruncated
+    };
+  } catch (error) {
+    console.error(`Failed to create context for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Extract learnings from task completion
+export async function extractLearnings(personaId: string, taskTitle: string, taskDescription: string, taskOutput: string, success: boolean): Promise<string> {
+  try {
+    // This would ideally use an AI service to reflect on the task
+    // For now, create a simple structured learning entry
+    const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const status = success ? '✅ Success' : '❌ Failed';
+    
+    // Extract key insights from output (simple heuristics for now)
+    const outputSnippet = taskOutput.length > 200 ? taskOutput.slice(0, 200) + '...' : taskOutput;
+    const hasError = taskOutput.toLowerCase().includes('error') || taskOutput.toLowerCase().includes('failed');
+    
+    const learning = `## ${timestamp} - ${taskTitle} (${status})
+
+**Task:** ${taskDescription}
+
+**Approach:** ${success ? 'Successful completion' : 'Encountered difficulties'}
+${!success && hasError ? `**Output:** ${outputSnippet}` : ''}
+
+**Key Learnings:**
+- ${success ? 'Approach worked well' : 'Need to improve approach'}
+- Task type: ${taskTitle.toLowerCase().includes('bug') ? 'Bug fixing' : taskTitle.toLowerCase().includes('feature') ? 'Feature development' : 'General task'}
+
+**For Future:**
+- ${success ? 'Continue with similar approach for this type of task' : 'Consider alternative approaches'}
+
+---`;
+    
+    return learning;
+  } catch (error) {
+    console.error(`Failed to extract learnings for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Post-task reflection and memory update
+export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle: string, taskDescription: string, taskOutput: string, success: boolean): Promise<void> {
+  try {
+    const learning = await extractLearnings(personaId, taskTitle, taskDescription, taskOutput, success);
+    await appendPersonaMemory(personaId, learning);
+    
+    console.log(`📝 Updated memory for persona ${personaId} after task: ${taskTitle}`);
+  } catch (error) {
+    console.error(`Failed to update memory after task for persona ${personaId}:`, error);
   }
 }
 

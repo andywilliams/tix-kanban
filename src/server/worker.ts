@@ -5,7 +5,7 @@ import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getAllTasks, updateTask } from './storage.js';
-import { getPersona } from './persona-storage.js';
+import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { Task, Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
@@ -67,11 +67,24 @@ async function saveWorkerState(): Promise<void> {
 }
 
 // Spawn AI session for a task using OpenClaw
-async function spawnAISession(task: Task, persona: Persona): Promise<string> {
+async function spawnAISession(task: Task, persona: Persona): Promise<{ output: string; success: boolean }> {
   try {
     console.log(`🤖 Spawning AI session for task: ${task.title}`);
     
-    const prompt = `${persona.prompt}\n\n## Task Details\nTitle: ${task.title}\nDescription: ${task.description}\nPriority: ${task.priority}\nTags: ${task.tags.join(', ')}\n\nPlease work on this task and provide your output.`;
+    // Create context with memory injection
+    const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
+      persona.id,
+      task.title,
+      task.description,
+      task.tags,
+      task.repo ? `Repository: ${task.repo}` : undefined
+    );
+    
+    if (memoryTruncated) {
+      console.log(`⚠️  Memory truncated for persona ${persona.id} due to token limits`);
+    }
+    
+    console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     
     // Create a temporary file with the prompt
     const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
@@ -88,10 +101,13 @@ async function spawnAISession(task: Task, persona: Persona): Promise<string> {
       console.error(`AI session stderr:`, stderr);
     }
     
-    return stdout.trim();
+    const output = stdout.trim();
+    const success = !stderr && output.length > 0;
+    
+    return { output, success };
   } catch (error) {
     console.error(`Failed to spawn AI session for task ${task.id}:`, error);
-    throw error;
+    return { output: `Error: ${error}`, success: false };
   }
 }
 
@@ -111,16 +127,25 @@ async function processTask(task: Task): Promise<void> {
     }
     
     // Spawn AI session
-    const output = await spawnAISession(task, persona);
+    const { output, success } = await spawnAISession(task, persona);
+    
+    // Update persona memory with learnings from this task
+    await updatePersonaMemoryAfterTask(
+      persona.id,
+      task.title,
+      task.description,
+      output,
+      success
+    );
     
     // For now, just add the output as a comment (we'd need to implement comments API)
     // Move task to review
     await updateTask(task.id, { 
-      status: 'review',
+      status: success ? 'review' : 'backlog', // Back to backlog if failed
       description: `${task.description}\n\n## AI Output\n${output}`
     });
     
-    console.log(`✅ Task processed: ${task.title}`);
+    console.log(`${success ? '✅' : '❌'} Task processed: ${task.title}`);
   } catch (error) {
     console.error(`Failed to process task ${task.id}:`, error);
     
