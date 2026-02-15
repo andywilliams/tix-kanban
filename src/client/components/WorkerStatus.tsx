@@ -217,6 +217,16 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
           cursor: not-allowed;
         }
         
+        .worker-toggle.disabled {
+          background: #22c55e;
+          color: white;
+          border-color: #22c55e;
+        }
+        
+        .worker-toggle.disabled:hover {
+          background: #16a34a;
+        }
+        
         .worker-toggle.enabled {
           background: #dc3545;
           color: white;
