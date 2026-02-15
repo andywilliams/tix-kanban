@@ -42,6 +42,10 @@ export function useTasks() {
         createdAt: new Date(task.createdAt),
         updatedAt: new Date(task.updatedAt),
         dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+        comments: task.comments?.map(comment => ({
+          ...comment,
+          createdAt: new Date(comment.createdAt),
+        })),
       }));
       
       setTasks(tasksWithDates);
@@ -75,6 +79,10 @@ export function useTasks() {
         createdAt: new Date(data.task.createdAt),
         updatedAt: new Date(data.task.updatedAt),
         dueDate: data.task.dueDate ? new Date(data.task.dueDate) : undefined,
+        comments: data.task.comments?.map(comment => ({
+          ...comment,
+          createdAt: new Date(comment.createdAt),
+        })),
       };
       
       setTasks(prev => [...prev, newTask]);
@@ -108,6 +116,10 @@ export function useTasks() {
         createdAt: new Date(data.task.createdAt),
         updatedAt: new Date(data.task.updatedAt),
         dueDate: data.task.dueDate ? new Date(data.task.dueDate) : undefined,
+        comments: data.task.comments?.map(comment => ({
+          ...comment,
+          createdAt: new Date(comment.createdAt),
+        })),
       };
       
       setTasks(prev => prev.map(task => 
