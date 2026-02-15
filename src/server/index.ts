@@ -9,15 +9,21 @@ import {
   removeTask, 
   initializeStorage 
 } from './storage.js';
-import { Task, Comment, Link } from '../client/types/index.js';
+import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import { 
   startWorker,
   toggleWorker,
   updateWorkerInterval,
-  getWorkerStatus,
-  getAllPersonas,
-  initializePersonas
+  getWorkerStatus
 } from './worker.js';
+import {
+  getAllPersonas,
+  getPersona,
+  createPersona,
+  updatePersona,
+  deletePersona,
+  initializePersonas
+} from './persona-storage.js';
 import {
   getGitHubConfig,
   saveGitHubConfig,
@@ -279,6 +285,8 @@ app.put('/api/worker/interval', async (req, res) => {
   }
 });
 
+// Personas API routes
+
 // GET /api/personas - Get all personas
 app.get('/api/personas', async (_req, res) => {
   try {
@@ -287,6 +295,80 @@ app.get('/api/personas', async (_req, res) => {
   } catch (error) {
     console.error('GET /api/personas error:', error);
     res.status(500).json({ error: 'Failed to fetch personas' });
+  }
+});
+
+// GET /api/personas/:id - Get single persona
+app.get('/api/personas/:id', async (req, res) => {
+  try {
+    const persona = await getPersona(req.params.id);
+    if (!persona) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+    res.json({ persona });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch persona' });
+  }
+});
+
+// POST /api/personas - Create new persona
+app.post('/api/personas', async (req, res) => {
+  try {
+    const personaData = req.body as Omit<Persona, 'id' | 'createdAt' | 'updatedAt'>;
+    
+    // Validate required fields
+    if (!personaData.name || !personaData.prompt) {
+      return res.status(400).json({ error: 'name and prompt are required' });
+    }
+    
+    // Set defaults
+    const newPersonaData = {
+      emoji: '🤖',
+      description: '',
+      specialties: [],
+      stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 },
+      ...personaData,
+    };
+    
+    const persona = await createPersona(newPersonaData);
+    res.status(201).json({ persona });
+  } catch (error) {
+    console.error('POST /api/personas error:', error);
+    res.status(500).json({ error: 'Failed to create persona' });
+  }
+});
+
+// PUT /api/personas/:id - Update persona
+app.put('/api/personas/:id', async (req, res) => {
+  try {
+    const updates = req.body as Partial<Persona>;
+    const persona = await updatePersona(req.params.id, updates);
+    
+    if (!persona) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+    
+    res.json({ persona });
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to update persona' });
+  }
+});
+
+// DELETE /api/personas/:id - Delete persona
+app.delete('/api/personas/:id', async (req, res) => {
+  try {
+    const success = await deletePersona(req.params.id);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/personas/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete persona' });
   }
 });
 

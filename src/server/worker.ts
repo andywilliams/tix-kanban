@@ -5,6 +5,7 @@ import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getAllTasks, updateTask, getTask } from './storage.js';
+import { getPersona } from './persona-storage.js';
 import { Task, Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
@@ -64,64 +65,6 @@ async function saveWorkerState(): Promise<void> {
     await fs.writeFile(WORKER_STATE_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to save worker state:', error);
-  }
-}
-
-// Load persona from file
-async function loadPersona(personaId: string): Promise<Persona | null> {
-  try {
-    const personaPath = path.join(PERSONAS_DIR, `${personaId}.md`);
-    const content = await fs.readFile(personaPath, 'utf8');
-    
-    // Simple parsing - assume YAML front matter + markdown body
-    const lines = content.split('\n');
-    let yamlEnd = -1;
-    
-    if (lines[0] === '---') {
-      for (let i = 1; i < lines.length; i++) {
-        if (lines[i] === '---') {
-          yamlEnd = i;
-          break;
-        }
-      }
-    }
-    
-    const prompt = yamlEnd > 0 ? lines.slice(yamlEnd + 1).join('\n').trim() : content.trim();
-    
-    return {
-      id: personaId,
-      name: personaId.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      emoji: '🤖',
-      description: `AI persona for ${personaId} tasks`,
-      prompt
-    };
-  } catch (error) {
-    console.error(`Failed to load persona ${personaId}:`, error);
-    return null;
-  }
-}
-
-// Get all available personas
-async function getAllPersonas(): Promise<Persona[]> {
-  try {
-    await ensureWorkerDirectories();
-    const files = await fs.readdir(PERSONAS_DIR);
-    const personas: Persona[] = [];
-    
-    for (const file of files) {
-      if (file.endsWith('.md')) {
-        const personaId = file.slice(0, -3); // Remove .md extension
-        const persona = await loadPersona(personaId);
-        if (persona) {
-          personas.push(persona);
-        }
-      }
-    }
-    
-    return personas;
-  } catch (error) {
-    console.error('Failed to get all personas:', error);
-    return [];
   }
 }
 
@@ -249,7 +192,7 @@ async function processTask(task: Task): Promise<void> {
     await updateTask(task.id, { status: 'in-progress' });
     
     // Load persona
-    const persona = task.persona ? await loadPersona(task.persona) : null;
+    const persona = task.persona ? await getPersona(task.persona) : null;
     if (!persona) {
       console.log(`⚠️  No persona found for task ${task.id}, skipping`);
       return;
@@ -414,64 +357,4 @@ export async function updateWorkerInterval(interval: string): Promise<void> {
 // Get worker status
 export function getWorkerStatus(): WorkerState {
   return { ...workerState };
-}
-
-// Get all personas
-export { getAllPersonas };
-
-// Initialize default personas
-export async function initializePersonas(): Promise<void> {
-  try {
-    await ensureWorkerDirectories();
-    
-    const existingPersonas = await getAllPersonas();
-    if (existingPersonas.length === 0) {
-      console.log('🔄 Creating default personas...');
-      
-      const defaultPersonas = [
-        {
-          id: 'bug-fixer',
-          prompt: `You are a skilled bug fixer. When given a bug report:
-1. Analyze the issue carefully
-2. Identify the root cause
-3. Propose a solution
-4. Consider edge cases and testing
-5. Provide clear, actionable steps
-
-Be thorough but concise. Focus on fixing the problem efficiently.`
-        },
-        {
-          id: 'developer',
-          prompt: `You are an experienced software developer. When given a development task:
-1. Break down the requirements
-2. Design the implementation approach
-3. Consider best practices and patterns
-4. Think about testing and documentation
-5. Provide clear implementation steps
-
-Write clean, maintainable code that follows established conventions.`
-        },
-        {
-          id: 'tech-writer',
-          prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
-1. Understand the target audience
-2. Structure information logically
-3. Use clear, simple language
-4. Include examples and code samples
-5. Consider different use cases
-
-Make complex technical concepts accessible and actionable.`
-        }
-      ];
-      
-      for (const persona of defaultPersonas) {
-        const filePath = path.join(PERSONAS_DIR, `${persona.id}.md`);
-        await fs.writeFile(filePath, persona.prompt, 'utf8');
-      }
-      
-      console.log('✅ Default personas created');
-    }
-  } catch (error) {
-    console.error('Failed to initialize personas:', error);
-  }
 }

@@ -39,6 +39,17 @@ export interface Persona {
   emoji: string;
   description: string;
   prompt: string;
+  specialties: string[]; // Areas of expertise (e.g., ["TypeScript", "React", "API Design"])
+  stats: PersonaStats;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PersonaStats {
+  tasksCompleted: number;
+  averageCompletionTime: number; // in minutes
+  successRate: number; // 0-100 percentage
+  lastActiveAt?: Date;
 }
 
 export interface Filter {

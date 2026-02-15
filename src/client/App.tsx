@@ -1,26 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
-import { Task, Persona } from './types';
+import { PersonasPage } from './components/PersonasPage';
+import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
+import { usePersonas } from './hooks/usePersonas';
 import './App.css';
 import './github.css';
 
-const mockPersonas: Persona[] = [
-  { id: 'qa', name: 'QA Engineer', emoji: '🔍', description: 'Quality assurance and testing', prompt: 'You are a QA engineer focused on testing and quality.' },
-  { id: 'security', name: 'Security Reviewer', emoji: '🔒', description: 'Security analysis and reviews', prompt: 'You are a security expert reviewing code and systems for vulnerabilities.' },
-  { id: 'tech-writer', name: 'Tech Writer', emoji: '📝', description: 'Documentation and writing', prompt: 'You are a technical writer focused on clear documentation.' },
-  { id: 'bug-fixer', name: 'Bug Fixer', emoji: '🐛', description: 'Bug investigation and fixes', prompt: 'You are a developer who specializes in debugging and fixing issues.' },
-  { id: 'developer', name: 'General Developer', emoji: '💻', description: 'General development tasks', prompt: 'You are a full-stack developer working on various coding tasks.' },
-];
-
-function App() {
-  const { tasks, loading, error, createTask, updateTask } = useTasks();
-  const [personas] = useState<Persona[]>(mockPersonas);
+function AppContent() {
+  const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
+  const { personas, loading: personasLoading } = usePersonas();
   const [darkMode, setDarkMode] = useState(true);
   const [githubSettingsOpen, setGithubSettingsOpen] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -34,8 +29,11 @@ function App() {
     await createTask(newTask);
   };
 
+  const isLoading = tasksLoading || personasLoading;
+  const error = tasksError;
+
   // Show loading state
-  if (loading) {
+  if (isLoading) {
     return (
       <div className={`app ${darkMode ? 'dark' : ''}`}>
         <div className="loading-container" style={{ 
@@ -45,7 +43,7 @@ function App() {
           height: '100vh',
           fontSize: '1.2em' 
         }}>
-          🔄 Loading tasks...
+          🔄 Loading...
         </div>
       </div>
     );
@@ -64,7 +62,7 @@ function App() {
           fontSize: '1.2em',
           color: 'var(--color-danger, #ef4444)' 
         }}>
-          <p>⚠️ Failed to load tasks</p>
+          <p>⚠️ Failed to load application</p>
           <p style={{ fontSize: '0.9em', opacity: 0.8 }}>{error}</p>
         </div>
       </div>
@@ -73,49 +71,77 @@ function App() {
 
   return (
     <div className={`app ${darkMode ? 'dark' : ''}`}>
-      <Router>
-        <header className="app-header">
-          <h1>Tix Kanban</h1>
-          <div className="header-actions">
-            <button
-              className="github-settings-btn"
-              onClick={() => setGithubSettingsOpen(true)}
-              aria-label="GitHub settings"
+      <header className="app-header">
+        <div className="header-left">
+          <Link to="/" className="app-title">
+            <h1>Tix Kanban</h1>
+          </Link>
+          <nav className="app-nav">
+            <Link 
+              to="/" 
+              className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
             >
-              🐙 GitHub
-            </button>
-            <button
-              className="theme-toggle"
-              onClick={() => setDarkMode(!darkMode)}
-              aria-label="Toggle dark mode"
+              📋 Board
+            </Link>
+            <Link 
+              to="/personas" 
+              className={`nav-link ${location.pathname === '/personas' ? 'active' : ''}`}
             >
-              {darkMode ? '☀️' : '🌙'}
-            </button>
-          </div>
-        </header>
-        <main className="app-main">
-          <WorkerStatus />
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <KanbanBoard
-                  tasks={tasks}
-                  personas={personas}
-                  onUpdateTask={handleUpdateTask}
-                  onAddTask={handleAddTask}
-                />
-              }
-            />
-          </Routes>
-        </main>
-      </Router>
+              🤖 Personas
+            </Link>
+          </nav>
+        </div>
+        <div className="header-actions">
+          <button
+            className="github-settings-btn"
+            onClick={() => setGithubSettingsOpen(true)}
+            aria-label="GitHub settings"
+          >
+            🐙 GitHub
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={() => setDarkMode(!darkMode)}
+            aria-label="Toggle dark mode"
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
+        </div>
+      </header>
+      <main className="app-main">
+        <WorkerStatus />
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <KanbanBoard
+                tasks={tasks}
+                personas={personas}
+                onUpdateTask={handleUpdateTask}
+                onAddTask={handleAddTask}
+              />
+            }
+          />
+          <Route
+            path="/personas"
+            element={<PersonasPage />}
+          />
+        </Routes>
+      </main>
 
       <GitHubSettingsModal
         isOpen={githubSettingsOpen}
         onClose={() => setGithubSettingsOpen(false)}
       />
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AppContent />
+    </Router>
   );
 }
 
