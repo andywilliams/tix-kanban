@@ -63,10 +63,49 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.app-header h1 {
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.app-title {
+  text-decoration: none;
+}
+
+.app-title h1 {
   font-size: 1.5rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.app-nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.nav-link {
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  color: var(--text-secondary);
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.nav-link.active {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
 }
 
 .theme-toggle {
