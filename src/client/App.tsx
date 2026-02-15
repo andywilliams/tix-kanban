@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import KanbanBoard from './components/KanbanBoard';
+import { WorkerStatus } from './components/WorkerStatus';
 import { Task, Persona } from './types';
+import { useTasks } from './hooks/useTasks';
 import './App.css';
 
 const mockPersonas: Persona[] = [
@@ -12,47 +14,8 @@ const mockPersonas: Persona[] = [
   { id: 'developer', name: 'General Developer', emoji: '💻', description: 'General development tasks', prompt: 'You are a full-stack developer working on various coding tasks.' },
 ];
 
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Fix authentication bug',
-    description: 'Users cannot log in with Google OAuth',
-    status: 'backlog',
-    priority: 100,
-    assignee: 'jenna@dwlf.co.uk',
-    persona: 'bug-fixer',
-    tags: ['bug', 'auth'],
-    createdAt: new Date('2026-02-14T10:00:00Z'),
-    updatedAt: new Date('2026-02-14T10:00:00Z'),
-  },
-  {
-    id: '2',
-    title: 'Add dark mode support',
-    description: 'Implement dark theme across the application',
-    status: 'in-progress',
-    priority: 75,
-    assignee: 'jenna@dwlf.co.uk',
-    persona: 'developer',
-    tags: ['feature', 'ui'],
-    createdAt: new Date('2026-02-14T09:00:00Z'),
-    updatedAt: new Date('2026-02-14T11:00:00Z'),
-  },
-  {
-    id: '3',
-    title: 'Write API documentation',
-    description: 'Document the REST API endpoints',
-    status: 'review',
-    priority: 50,
-    assignee: 'andy@dwlf.co.uk',
-    persona: 'tech-writer',
-    tags: ['docs', 'api'],
-    createdAt: new Date('2026-02-14T08:00:00Z'),
-    updatedAt: new Date('2026-02-14T12:00:00Z'),
-  },
-];
-
 function App() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const { tasks, loading, error, createTask, updateTask } = useTasks();
   const [personas] = useState<Persona[]>(mockPersonas);
   const [darkMode, setDarkMode] = useState(true);
 
@@ -60,23 +23,50 @@ function App() {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
-  const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId 
-        ? { ...task, ...updates, updatedAt: new Date() }
-        : task
-    ));
+  const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+    await updateTask(taskId, updates);
   };
 
-  const addTask = (newTask: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const task: Task = {
-      ...newTask,
-      id: Math.random().toString(36).substr(2, 9),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setTasks(prev => [...prev, task]);
+  const handleAddTask = async (newTask: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
+    await createTask(newTask);
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className={`app ${darkMode ? 'dark' : ''}`}>
+        <div className="loading-container" style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          fontSize: '1.2em' 
+        }}>
+          🔄 Loading tasks...
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className={`app ${darkMode ? 'dark' : ''}`}>
+        <div className="error-container" style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          fontSize: '1.2em',
+          color: 'var(--color-danger, #ef4444)' 
+        }}>
+          <p>⚠️ Failed to load tasks</p>
+          <p style={{ fontSize: '0.9em', opacity: 0.8 }}>{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`app ${darkMode ? 'dark' : ''}`}>
@@ -91,19 +81,22 @@ function App() {
             {darkMode ? '☀️' : '🌙'}
           </button>
         </header>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <KanbanBoard
-                tasks={tasks}
-                personas={personas}
-                onUpdateTask={updateTask}
-                onAddTask={addTask}
-              />
-            }
-          />
-        </Routes>
+        <main className="app-main">
+          <WorkerStatus />
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <KanbanBoard
+                  tasks={tasks}
+                  personas={personas}
+                  onUpdateTask={handleUpdateTask}
+                  onAddTask={handleAddTask}
+                />
+              }
+            />
+          </Routes>
+        </main>
       </Router>
     </div>
   );
