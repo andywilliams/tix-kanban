@@ -38,6 +38,14 @@ import {
   getTaskGitHubData,
   GitHubConfig
 } from './github.js';
+import {
+  initializeChatStorage,
+  getChannel,
+  createOrGetChannel,
+  addMessage,
+  getMessages,
+  getAllChannels
+} from './chat-storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -406,6 +414,93 @@ app.put('/api/personas/:id/memory', async (req, res) => {
   }
 });
 
+// Chat API routes
+
+// GET /api/chat/channels - Get all channels
+app.get('/api/chat/channels', async (_req, res) => {
+  try {
+    const channels = await getAllChannels();
+    res.json({ channels });
+  } catch (error) {
+    console.error('GET /api/chat/channels error:', error);
+    res.status(500).json({ error: 'Failed to fetch channels' });
+  }
+});
+
+// GET /api/chat/:channelId - Get or create a channel
+app.get('/api/chat/:channelId', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const { type = 'general', taskId, name } = req.query;
+    
+    if (!['task', 'general'].includes(type as string)) {
+      return res.status(400).json({ error: 'type must be "task" or "general"' });
+    }
+    
+    const channel = await createOrGetChannel(
+      channelId, 
+      type as 'task' | 'general', 
+      taskId as string, 
+      name as string
+    );
+    
+    res.json({ channel });
+  } catch (error) {
+    console.error(`GET /api/chat/${req.params.channelId} error:`, error);
+    res.status(500).json({ error: 'Failed to get channel' });
+  }
+});
+
+// GET /api/chat/:channelId/messages - Get messages for a channel
+app.get('/api/chat/:channelId/messages', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const before = req.query.before as string;
+    
+    const messages = await getMessages(channelId, limit, before);
+    res.json({ messages });
+  } catch (error) {
+    console.error(`GET /api/chat/${req.params.channelId}/messages error:`, error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// POST /api/chat/:channelId/messages - Send a message to a channel
+app.post('/api/chat/:channelId/messages', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const { author, authorType = 'human', content, replyTo } = req.body;
+    
+    if (!author || !content) {
+      return res.status(400).json({ error: 'author and content are required' });
+    }
+    
+    if (!['human', 'persona'].includes(authorType)) {
+      return res.status(400).json({ error: 'authorType must be "human" or "persona"' });
+    }
+    
+    // Ensure channel exists
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+    
+    const message = await addMessage(channelId, author, authorType, content, replyTo);
+    
+    // TODO: Process @mentions here (trigger persona responses)
+    if (message.mentions.length > 0) {
+      // This is where we would trigger Claude CLI sessions for mentioned personas
+      console.log(`Message mentions personas: ${message.mentions.join(', ')}`);
+    }
+    
+    res.status(201).json({ message });
+  } catch (error) {
+    console.error(`POST /api/chat/${req.params.channelId}/messages error:`, error);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
 // GitHub API routes
 
 // GET /api/github/config - Get GitHub configuration
@@ -545,6 +640,7 @@ async function startServer() {
   try {
     await initializeStorage();
     await initializePersonas();
+    initializeChatStorage();
     await startWorker();
     
     app.listen(PORT, () => {
