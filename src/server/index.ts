@@ -22,7 +22,9 @@ import {
   createPersona,
   updatePersona,
   deletePersona,
-  initializePersonas
+  initializePersonas,
+  getPersonaMemoryWithTokens,
+  setPersonaMemory
 } from './persona-storage.js';
 import {
   getGitHubConfig,
@@ -369,6 +371,38 @@ app.delete('/api/personas/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/personas/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete persona' });
+  }
+});
+
+// Persona Memory API routes
+
+// GET /api/personas/:id/memory - Get persona memory with token info
+app.get('/api/personas/:id/memory', async (req, res) => {
+  try {
+    const memoryData = await getPersonaMemoryWithTokens(req.params.id);
+    res.json(memoryData);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/memory error:`, error);
+    res.status(500).json({ error: 'Failed to fetch persona memory' });
+  }
+});
+
+// PUT /api/personas/:id/memory - Update persona memory
+app.put('/api/personas/:id/memory', async (req, res) => {
+  try {
+    const { memory } = req.body as { memory: string };
+    
+    if (typeof memory !== 'string') {
+      return res.status(400).json({ error: 'memory must be a string' });
+    }
+    
+    await setPersonaMemory(req.params.id, memory);
+    const memoryData = await getPersonaMemoryWithTokens(req.params.id);
+    
+    res.json(memoryData);
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id}/memory error:`, error);
+    res.status(500).json({ error: 'Failed to update persona memory' });
   }
 });
 
