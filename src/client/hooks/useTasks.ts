@@ -24,9 +24,9 @@ export function useTasks() {
   const [error, setError] = useState<string | null>(null);
 
   // Fetch all tasks
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       
       const response = await fetch(`${API_BASE}/tasks`);
@@ -156,9 +156,13 @@ export function useTasks() {
     }
   }, []);
 
-  // Load tasks on mount
+  // Load tasks on mount + poll every 5 seconds for worker updates
   useEffect(() => {
     fetchTasks();
+    const interval = setInterval(() => {
+      fetchTasks(true);
+    }, 5000);
+    return () => clearInterval(interval);
   }, [fetchTasks]);
 
   return {
