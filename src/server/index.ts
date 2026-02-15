@@ -24,7 +24,8 @@ import {
   deletePersona,
   initializePersonas,
   getPersonaMemoryWithTokens,
-  setPersonaMemory
+  setPersonaMemory,
+  updatePersonaRating
 } from './persona-storage.js';
 import {
   getGitHubConfig,
@@ -258,6 +259,56 @@ app.delete('/api/tasks/:id/links/:linkId', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id}/links/${req.params.linkId} error:`, error);
     res.status(500).json({ error: 'Failed to delete link' });
+  }
+});
+
+// POST /api/tasks/:id/rating - Add rating to task
+app.post('/api/tasks/:id/rating', async (req, res) => {
+  try {
+    const { rating, comment, ratedBy } = req.body;
+    
+    if (!rating || !['good', 'needs-improvement', 'redo'].includes(rating)) {
+      return res.status(400).json({ error: 'Invalid rating. Must be good, needs-improvement, or redo' });
+    }
+    
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Create rating object
+    const taskRating = {
+      id: Date.now().toString(), // Simple ID generation
+      taskId: req.params.id,
+      rating,
+      comment: comment || undefined,
+      ratedBy: ratedBy || 'User',
+      ratedAt: new Date()
+    };
+    
+    // Update task with rating
+    const updatedTask = await updateTask(req.params.id, { 
+      rating: taskRating,
+      // If rating is redo or needs-improvement, task stays in review
+      // If rating is good, we'll let the frontend handle status change
+    });
+    
+    // Update persona rating stats and trigger reflection if needed
+    if (task.persona) {
+      await updatePersonaRating(
+        task.persona,
+        rating,
+        task.title,
+        task.description,
+        comment
+      );
+      console.log(`Updated persona ${task.persona} rating stats and ${rating !== 'good' ? 'triggered reflection' : 'logged positive feedback'}`);
+    }
+    
+    res.json({ success: true, task: updatedTask });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.id}/rating error:`, error);
+    res.status(500).json({ error: 'Failed to add rating' });
   }
 });
 

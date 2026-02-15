@@ -1643,3 +1643,154 @@ body {
 .save-button:hover {
   background: var(--accent-hover);
 }
+
+/* Task Rating Styles */
+.rating-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+}
+
+.task-rating-form h4,
+.task-rating-display h4 {
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.task-rating-form p {
+  margin-bottom: 1.5rem;
+  color: var(--text-secondary);
+}
+
+.rating-options {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.rating-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 2px solid #ccc;
+  border-radius: 0.5rem;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 120px;
+  text-align: center;
+}
+
+.rating-option:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.rating-option.selected {
+  border-width: 2px;
+  font-weight: 600;
+}
+
+.rating-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.rating-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.rating-comment-form {
+  margin: 1.5rem 0;
+}
+
+.rating-comment-form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rating-comment-form textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+}
+
+.rating-comment-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}
+
+.rating-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+/* Rating Display (when already rated) */
+.task-rating-display {
+  padding: 1rem 0;
+}
+
+.rating-result {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.rating-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.rating-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.rating-comment {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  border-radius: 0.375rem;
+  border-left: 4px solid var(--accent);
+}
+
+.rating-comment strong {
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.rating-comment p {
+  color: var(--text-secondary);
+  margin: 0;
+  white-space: pre-wrap;
+}

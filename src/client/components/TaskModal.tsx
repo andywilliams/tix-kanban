@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Persona, GitHubConfig } from '../types';
 import { GitHubStatus } from './GitHubStatus';
+import TaskRating from './TaskRating';
 
 interface TaskModalProps {
   task: Task;
@@ -36,6 +37,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkForm, setLinkForm] = useState<LinkFormData>({ url: '', title: '', type: 'reference' });
   const [addingLink, setAddingLink] = useState(false);
+  
+  // Rating state
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useEffect(() => {
     loadGitHubConfig();
@@ -161,6 +165,39 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
     } catch (error) {
       console.error('Failed to delete link:', error);
       alert('Failed to delete link. Check console for details.');
+    }
+  };
+
+  const submitRating = async (rating: 'good' | 'needs-improvement' | 'redo', comment?: string) => {
+    setSubmittingRating(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          rating, 
+          comment,
+          ratedBy: 'User' // TODO: Get actual user identity
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        onUpdate(data.task);
+        
+        // Auto-move task to done if rating is good, otherwise keep in review
+        if (rating === 'good') {
+          onUpdate({ ...data.task, status: 'done' });
+        }
+      } else {
+        const error = await response.json();
+        alert(`Failed to submit rating: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to submit rating:', error);
+      alert('Failed to submit rating. Check console for details.');
+    } finally {
+      setSubmittingRating(false);
     }
   };
 
@@ -457,6 +494,17 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                   ))}
                 </div>
               </div>
+
+              {/* Rating Section - Only show for review status tasks */}
+              {task.status === 'review' && (
+                <div className="rating-section">
+                  <TaskRating
+                    task={task}
+                    onSubmitRating={submitRating}
+                    isSubmitting={submittingRating}
+                  />
+                </div>
+              )}
 
               {/* GitHub Section */}
               {githubConfig && githubConfig.repos.length > 0 && (
