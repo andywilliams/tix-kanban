@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { getAllTasks, updateTask } from './storage.js';
+import { getAllTasks, updateTask, getTask } from './storage.js';
 import { Task, Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
@@ -123,31 +123,116 @@ async function getAllPersonas(): Promise<Persona[]> {
   }
 }
 
-// Spawn AI session for a task using OpenClaw
+// Generate API reference for Claude sessions
+function generateAPIReference(): string {
+  return `## Tix-Kanban API Reference
+
+You have access to the tix-kanban API running at http://localhost:3001/api
+
+### Core Task Operations:
+- GET /api/tasks - Get all tasks
+- GET /api/tasks/:id - Get single task with full details
+- PUT /api/tasks/:id - Update task (status, description, etc.)
+
+### Task Status Values:
+- "backlog" - Task is waiting to be picked up
+- "in-progress" - Task is currently being worked on  
+- "review" - Task is completed and needs review
+- "done" - Task is fully completed
+
+### Add Work Comments:
+- POST /api/tasks/:id/comments
+  Body: {"body": "your detailed work summary", "author": "claude-worker"}
+
+### Add Links (PRs, docs, etc.):
+- POST /api/tasks/:id/links  
+  Body: {"url": "https://github.com/...", "title": "PR #123", "type": "pr"}
+  Types: "pr", "attachment", "reference"
+
+### Example curl commands:
+\`\`\`bash
+# Update task status
+curl -X PUT http://localhost:3001/api/tasks/TASK_ID -H "Content-Type: application/json" -d '{"status": "review"}'
+
+# Add work comment
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/comments -H "Content-Type: application/json" -d '{"body": "Implemented feature X with tests", "author": "claude-worker"}'
+
+# Add PR link
+curl -X POST http://localhost:3001/api/tasks/TASK_ID/links -H "Content-Type: application/json" -d '{"url": "https://github.com/owner/repo/pull/123", "title": "PR #123", "type": "pr"}'
+\`\`\`
+
+### Your Workflow:
+1. Task is already moved to "in-progress" when you start
+2. Do the actual work described in the task
+3. If code changes: create branch + PR, add PR link to task, leave as "in-progress"
+4. If non-code work: add detailed comment, move status to "review"
+5. Always add a comment summarizing what you accomplished
+
+The task ID you're working on is: TASK_ID_PLACEHOLDER`;
+}
+
+// Spawn AI session for a task using Claude CLI
 async function spawnAISession(task: Task, persona: Persona): Promise<string> {
   try {
-    console.log(`🤖 Spawning AI session for task: ${task.title}`);
+    console.log(`🤖 Spawning Claude CLI session for task: ${task.title}`);
     
-    const prompt = `${persona.prompt}\n\n## Task Details\nTitle: ${task.title}\nDescription: ${task.description}\nPriority: ${task.priority}\nTags: ${task.tags.join(', ')}\n\nPlease work on this task and provide your output.`;
+    // Generate API reference with task ID injected
+    const apiReference = generateAPIReference().replace('TASK_ID_PLACEHOLDER', task.id);
+    
+    // Build comprehensive prompt
+    const prompt = `${persona.prompt}
+
+${apiReference}
+
+## Task Details
+Title: ${task.title}
+Description: ${task.description}
+Priority: ${task.priority}
+Tags: ${task.tags.join(', ')}
+
+## Instructions
+You are now working on this task. Please:
+
+1. Read and understand the task requirements
+2. Perform the work described in the task
+3. Use the tix-kanban API to update the task with your progress
+4. Add detailed comments about what you accomplished
+5. If you create any PRs or generate outputs, add appropriate links
+
+Your working directory is /root/clawd/tix-kanban
+
+Begin working on the task now.`;
     
     // Create a temporary file with the prompt
-    const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
+    const tempPromptFile = path.join(os.tmpdir(), `tix-claude-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    // Use OpenClaw CLI to run the session
-    // Note: This assumes OpenClaw is available in PATH and configured
-    const { stdout, stderr } = await execAsync(`openclaw run --file "${tempPromptFile}" --timeout 300`);
-    
-    // Clean up temp file
-    await fs.unlink(tempPromptFile).catch(() => {});
-    
-    if (stderr) {
-      console.error(`AI session stderr:`, stderr);
+    try {
+      // Use Claude CLI with print mode for non-interactive execution
+      const claudeCommand = `claude --print --model sonnet --system-prompt "You are a helpful AI assistant working on tix-kanban tasks. Use the provided API to update task status and add comments about your work." < "${tempPromptFile}"`;
+      
+      console.log(`Executing: ${claudeCommand}`);
+      const { stdout, stderr } = await execAsync(claudeCommand, {
+        timeout: 300000, // 5 minutes
+        maxBuffer: 1024 * 1024, // 1MB buffer
+        cwd: '/root/clawd/tix-kanban'
+      });
+      
+      if (stderr) {
+        console.error(`Claude CLI stderr:`, stderr);
+      }
+      
+      return stdout.trim();
+    } catch (execError) {
+      console.error(`Claude CLI execution failed:`, execError);
+      // Fallback: return a basic response instead of failing completely
+      return `Claude CLI execution failed: ${execError instanceof Error ? execError.message : 'Unknown error'}. Task may need manual attention.`;
+    } finally {
+      // Clean up temp file
+      await fs.unlink(tempPromptFile).catch(() => {});
     }
-    
-    return stdout.trim();
   } catch (error) {
-    console.error(`Failed to spawn AI session for task ${task.id}:`, error);
+    console.error(`Failed to spawn Claude session for task ${task.id}:`, error);
     throw error;
   }
 }
@@ -167,19 +252,48 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
     
-    // Spawn AI session
+    // Spawn Claude CLI session
     const output = await spawnAISession(task, persona);
     
-    // For now, just add the output as a comment (we'd need to implement comments API)
-    // Move task to review
-    await updateTask(task.id, { 
-      status: 'review',
-      description: `${task.description}\n\n## AI Output\n${output}`
-    });
+    // Add a worker comment with the Claude output for debugging/transparency
+    // Claude should have already updated the task status and added its own comments via API
+    const workerComment = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: task.id,
+      body: `**Worker Log:** Claude CLI session completed.\n\nOutput summary:\n${output.slice(0, 500)}${output.length > 500 ? '...' : ''}`,
+      author: 'tix-worker',
+      createdAt: new Date(),
+    };
+    
+    // Get current task state to append the worker log comment
+    const currentTask = await getTask(task.id);
+    if (currentTask) {
+      const updatedComments = [...(currentTask.comments || []), workerComment];
+      await updateTask(task.id, { comments: updatedComments });
+    }
     
     console.log(`✅ Task processed: ${task.title}`);
   } catch (error) {
     console.error(`Failed to process task ${task.id}:`, error);
+    
+    // Add error comment before moving back to backlog
+    const errorComment = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: task.id,
+      body: `**Worker Error:** Failed to process task.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      author: 'tix-worker',
+      createdAt: new Date(),
+    };
+    
+    try {
+      const currentTask = await getTask(task.id);
+      if (currentTask) {
+        const updatedComments = [...(currentTask.comments || []), errorComment];
+        await updateTask(task.id, { comments: updatedComments, status: 'backlog' });
+      }
+    } catch (updateError) {
+      console.error(`Failed to update task with error comment:`, updateError);
+    }
     
     // Move task back to backlog on error
     await updateTask(task.id, { status: 'backlog' });
