@@ -4,8 +4,7 @@ export interface Task {
   description: string;
   status: 'backlog' | 'in-progress' | 'review' | 'done';
   priority: number;
-  assignee?: string; // Who the task is assigned to (email/name)
-  persona?: string; // AI persona type for task handling
+  persona?: string; // Personas ARE the assignees - no separate assignee field
   tags: string[];
   createdAt: Date;
   updatedAt: Date;
