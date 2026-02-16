@@ -203,11 +203,11 @@ export default function PipelineEditor({ isOpen, onClose, pipeline, onSave }: Pi
                           value={stage.persona}
                           onChange={(e) => updateStage(index, { persona: e.target.value })}
                         >
-                          <option value="general-developer">General Developer 💻</option>
-                          <option value="tech-writer">Tech Writer 📝</option>
-                          <option value="bug-fixer">Bug Fixer 🐛</option>
-                          <option value="qa-engineer">QA Engineer 🔍</option>
-                          <option value="security-reviewer">Security Reviewer 🔒</option>
+                          <option value="general-developer">General-Developer 💻</option>
+                          <option value="tech-writer">Tech-Writer 📝</option>
+                          <option value="bug-fixer">Bug-Fixer 🐛</option>
+                          <option value="qa-engineer">QA-Engineer 🔍</option>
+                          <option value="security-reviewer">Security-Reviewer 🔒</option>
                         </select>
                       </label>
 

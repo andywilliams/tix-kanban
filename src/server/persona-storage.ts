@@ -590,7 +590,7 @@ export async function initializePersonas(): Promise<void> {
       
       const defaultPersonas = [
         {
-          name: 'Bug Fixer',
+          name: 'Bug-Fixer',
           emoji: '🐛',
           description: 'Specialist in identifying and fixing bugs quickly',
           specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
@@ -642,7 +642,7 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
 Write clean, maintainable code that follows established conventions.`
         },
         {
-          name: 'Tech Writer',
+          name: 'Tech-Writer',
           emoji: '📝',
           description: 'Creates clear, comprehensive documentation',
           specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
@@ -668,7 +668,7 @@ Write clean, maintainable code that follows established conventions.`
 Make complex technical concepts accessible and actionable.`
         },
         {
-          name: 'QA Engineer',
+          name: 'QA-Engineer',
           emoji: '🧪',
           description: 'Quality assurance specialist who reviews work for completeness and quality',
           specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
@@ -694,7 +694,7 @@ Make complex technical concepts accessible and actionable.`
 Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.`
         },
         {
-          name: 'Security Reviewer',
+          name: 'Security-Reviewer',
           emoji: '🔒',
           description: 'Security specialist who reviews code and implementations for security vulnerabilities',
           specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
