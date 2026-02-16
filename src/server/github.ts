@@ -8,9 +8,22 @@ const exec = promisify(execCallback);
 
 const CONFIG_FILE = path.join(os.homedir(), '.tix-kanban', 'github-config.json');
 
+// Helper to get repo name from string or object
+const getRepoName = (repo: string | RepoConfig): string =>
+  typeof repo === 'string' ? repo : repo.name;
+
+// Helper to get default branch for a specific repo
+const getRepoBranch = (repo: string | RepoConfig, fallback: string): string =>
+  typeof repo === 'object' && repo.defaultBranch ? repo.defaultBranch : fallback;
+
+export interface RepoConfig {
+  name: string;
+  defaultBranch: string;
+}
+
 export interface GitHubConfig {
-  repos: string[]; // List of repo names like "owner/repo"
-  defaultBranch: string; // Default branch name (usually "main" or "master")
+  repos: (string | RepoConfig)[]; // Strings for backwards compat, or objects with per-repo settings
+  defaultBranch: string; // Fallback default branch
   branchPrefix: string; // Prefix for feature branches (e.g., "tix/")
   autoLink: boolean; // Auto-link tasks to PRs when created
 }
@@ -91,13 +104,20 @@ export async function testGitHubAuth(): Promise<{ authenticated: boolean; userna
   }
 }
 
+// Resolve the default branch for a given repo name
+function resolveDefaultBranch(config: GitHubConfig, repoName: string): string {
+  const entry = config.repos.find(r => getRepoName(r) === repoName);
+  return entry ? getRepoBranch(entry, config.defaultBranch) : config.defaultBranch;
+}
+
 // Create a new branch for a task
 export async function createTaskBranch(repo: string, taskId: string, taskTitle: string): Promise<string> {
   const config = await getGitHubConfig();
+  const baseBranch = resolveDefaultBranch(config, repo);
   const branchName = `${config.branchPrefix}${taskId}-${taskTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   
   // Create branch using gh CLI
-  await exec(`gh api repos/${repo}/git/refs -f ref=refs/heads/${branchName} -f sha=$(gh api repos/${repo}/git/refs/heads/${config.defaultBranch} --jq '.object.sha')`);
+  await exec(`gh api repos/${repo}/git/refs -f ref=refs/heads/${branchName} -f sha=$(gh api repos/${repo}/git/refs/heads/${baseBranch} --jq '.object.sha')`);
   
   return branchName;
 }
@@ -126,7 +146,8 @@ ${taskDescription}
 ---
 *This PR was automatically created from task ${taskId} via tix-kanban*`;
 
-  const { stdout } = await exec(`gh pr create --repo ${repo} --title "${prTitle}" --body "${prBody}" --head ${branchName} --base ${config.defaultBranch} --draft`);
+  const baseBranch = resolveDefaultBranch(config, repo);
+  const { stdout } = await exec(`gh pr create --repo ${repo} --title "${prTitle}" --body "${prBody}" --head ${branchName} --base ${baseBranch} --draft`);
   
   // Extract PR number from output
   const urlMatch = stdout.match(/https:\/\/github\.com\/[^\/]+\/[^\/]+\/pull\/(\d+)/);
@@ -254,18 +275,19 @@ export async function getTaskGitHubData(taskId: string): Promise<{
   
   // For now, we'll need to search through PRs to find ones linked to this task
   // This is a simplified approach - in a real system you'd store these links
-  for (const repo of config.repos) {
+  for (const repoEntry of config.repos) {
+    const repoName = getRepoName(repoEntry);
     try {
-      const prs = await getRepoPRs(repo, 'all');
+      const prs = await getRepoPRs(repoName, 'all');
       const taskPRs = prs.filter(pr => pr.title.includes(`[${taskId}]`));
       linkedPRs.push(...taskPRs);
     } catch (error) {
-      console.error(`Failed to check PRs for repo ${repo}:`, error);
+      console.error(`Failed to check PRs for repo ${repoName}:`, error);
     }
   }
   
   return {
     linkedPRs,
-    suggestedRepos: config.repos,
+    suggestedRepos: config.repos.map(r => getRepoName(r)),
   };
 }
