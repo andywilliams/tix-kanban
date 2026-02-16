@@ -71,8 +71,8 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
     
     // Use Claude CLI in agentic mode for mention responses (using stdin to avoid shell injection)
     const { stdout, stderr } = await execAsync(
-      `cat "${tempPromptFile}" | claude -p --allowedTools Read,web_search --timeoutSeconds 60`,
-      { maxBuffer: 1024 * 1024, timeout: 70000 } // 1MB buffer, 70s timeout (slightly longer than Claude timeout)
+      `cat "${tempPromptFile}" | claude -p --allowedTools Read,web_search`,
+      { maxBuffer: 1024 * 1024, timeout: 70000 } // 1MB buffer, 70s timeout (process-level timeout)
     );
     
     // Clean up temp file
