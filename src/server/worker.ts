@@ -148,8 +148,20 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     // Create context with memory injection and full task history
     let additionalContext = '';
     if (task.repo) additionalContext += `Repository: ${task.repo}\n`;
-    if (task.comments?.length) additionalContext += `Comments: ${task.comments.length} existing comments\n`;
-    if (task.links?.length) additionalContext += `Links: ${task.links.length} existing links\n`;
+    
+    if (task.comments?.length) {
+      additionalContext += `\n## Previous Comments (${task.comments.length})\n`;
+      task.comments.forEach((comment, index) => {
+        additionalContext += `Comment ${index + 1}: ${comment.body}\n`;
+      });
+    }
+    
+    if (task.links?.length) {
+      additionalContext += `\n## Previous Links (${task.links.length})\n`;
+      task.links.forEach((link, index) => {
+        additionalContext += `Link ${index + 1}: ${link.title} - ${link.url}\n`;
+      });
+    }
     
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
       persona.id,
@@ -170,9 +182,9 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    // Use Claude CLI to run the task in agentic mode
+    // Use Claude CLI to run the task in agentic mode (using stdin to avoid shell injection)
     const { stdout, stderr } = await execAsync(
-      `claude -p "$(cat \"${tempPromptFile}\")" --allowedTools Edit,exec,Read,Write --timeoutSeconds 300`,
+      `cat "${tempPromptFile}" | claude -p --allowedTools Edit,exec,Read,Write --timeoutSeconds 300`,
       { timeout: 320000 } // 5.3 min timeout (slightly longer than Claude timeout)
     );
     

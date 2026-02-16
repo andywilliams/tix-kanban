@@ -69,9 +69,9 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
     const tempPromptFile = path.join(os.tmpdir(), `tix-mention-${persona.id}-${Date.now()}.txt`);
     await fs.writeFile(tempPromptFile, contextPrompt, 'utf8');
     
-    // Use Claude CLI in agentic mode for mention responses
+    // Use Claude CLI in agentic mode for mention responses (using stdin to avoid shell injection)
     const { stdout, stderr } = await execAsync(
-      `claude -p "$(cat \"${tempPromptFile}\")" --allowedTools Read,web_search --timeoutSeconds 60`,
+      `cat "${tempPromptFile}" | claude -p --allowedTools Read,web_search --timeoutSeconds 60`,
       { maxBuffer: 1024 * 1024, timeout: 70000 } // 1MB buffer, 70s timeout (slightly longer than Claude timeout)
     );
     

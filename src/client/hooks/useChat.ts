@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatChannel, ChatMessage } from '../types';
 
 interface UseChatReturn {
@@ -19,6 +19,7 @@ export function useChat(): UseChatReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [messagePolling, setMessagePolling] = useState<NodeJS.Timeout | null>(null);
+  const mentionPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch all channels
   const refreshChannels = useCallback(async () => {
@@ -104,16 +105,23 @@ export function useChat(): UseChatReturn {
       
       // If message contains @mentions, poll more frequently for persona responses
       if (content.includes('@')) {
+        // Clear any existing mention polling
+        if (mentionPollingRef.current) {
+          clearInterval(mentionPollingRef.current);
+          mentionPollingRef.current = null;
+        }
+        
         // Poll every 500ms for 10 seconds to catch persona responses quickly
         let pollCount = 0;
         const maxPolls = 20; // 10 seconds at 500ms intervals
         
-        const mentionPolling = setInterval(async () => {
+        mentionPollingRef.current = setInterval(async () => {
           pollCount++;
           await refreshMessages(channelId);
           
           if (pollCount >= maxPolls) {
-            clearInterval(mentionPolling);
+            clearInterval(mentionPollingRef.current!);
+            mentionPollingRef.current = null;
           }
         }, 500);
       }
@@ -132,10 +140,10 @@ export function useChat(): UseChatReturn {
       clearInterval(messagePolling);
     }
     
-    // Start polling new channel for updates (reduced from 2000ms to 1000ms)
+    // Start polling new channel for updates
     const interval = setInterval(() => {
       refreshMessages(channel.id);
-    }, 1000);
+    }, 2000);
     setMessagePolling(interval);
     
     // Initial refresh
@@ -221,6 +229,10 @@ export function useChat(): UseChatReturn {
     return () => {
       if (messagePolling) {
         clearInterval(messagePolling);
+      }
+      if (mentionPollingRef.current) {
+        clearInterval(mentionPollingRef.current);
+        mentionPollingRef.current = null;
       }
     };
   }, [messagePolling]);
