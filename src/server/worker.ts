@@ -161,9 +161,11 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    // Use OpenClaw CLI to run the session
-    // Note: This assumes OpenClaw is available in PATH and configured
-    const { stdout, stderr } = await execAsync(`openclaw run --file "${tempPromptFile}" --timeout 300`);
+    // Use Claude CLI to run the task
+    const { stdout, stderr } = await execAsync(
+      `cat "${tempPromptFile}" | claude --print`,
+      { timeout: 300000 } // 5 min timeout
+    );
     
     // Clean up temp file
     await fs.unlink(tempPromptFile).catch(() => {});
