@@ -48,18 +48,21 @@ async function readTask(taskId: string): Promise<Task | null> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null; // File doesn't exist
     }
-    console.error(`Failed to read task ${taskId}:`, error);
-    throw error;
+    // Log but don't throw on corrupt files — skip gracefully
+    console.warn(`⚠️ Skipping corrupt task file ${taskId}:`, (error as Error).message);
+    return null;
   }
 }
 
-// Write task to individual file
+// Write task to individual file (atomic: write to temp then rename)
 async function writeTask(task: Task): Promise<void> {
   try {
     await ensureStorageDirectories();
     const taskPath = path.join(TASKS_DIR, `${task.id}.json`);
+    const tmpPath = `${taskPath}.tmp.${Date.now()}`;
     const content = JSON.stringify(task, null, 2);
-    await fs.writeFile(taskPath, content, 'utf8');
+    await fs.writeFile(tmpPath, content, 'utf8');
+    await fs.rename(tmpPath, taskPath);
   } catch (error) {
     console.error(`Failed to write task ${task.id}:`, error);
     throw error;
