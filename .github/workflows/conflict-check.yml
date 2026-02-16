@@ -1,0 +1,27 @@
+name: Conflict Marker Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  conflict-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for git conflict markers
+        run: |
+          echo "Scanning for git conflict markers..."
+          FOUND=0
+          while IFS= read -r file; do
+            if grep -nE '^<{7}|^={7}$|^>{7}' "$file"; then
+              echo "❌ Conflict marker found in: $file"
+              FOUND=1
+            fi
+          done < <(find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' -o -name '*.css' -o -name '*.scss' -o -name '*.html' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.py' -o -name '*.sh' \) -not -path './.git/*' -not -path './node_modules/*' -not -path './dist/*' -not -path './.next/*')
+          if [ "$FOUND" -eq 1 ]; then
+            echo "::error::Git conflict markers detected! Please resolve all merge conflicts."
+            exit 1
+          fi
+          echo "✅ No conflict markers found."
