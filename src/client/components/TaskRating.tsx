@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Task, TaskRating } from '../types';
+import { Task } from '../types';
 
 interface TaskRatingProps {
   task: Task;
