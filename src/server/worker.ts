@@ -2,8 +2,7 @@ import * as cron from 'node-cron';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import { getAllTasks, updateTask, getTask } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { 
@@ -15,7 +14,68 @@ import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 
-const execAsync = promisify(exec);
+// Sanitize user content to prevent prompt injection attacks
+function sanitizeForPrompt(content: string): string {
+  if (!content) return '';
+  
+  // Remove or escape content that could be prompt injection attempts
+  return content
+    // Remove null bytes and control characters that might terminate prompts
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    // Escape content that looks like instructions or system messages
+    .replace(/^\s*(system|human|assistant|ai):/igm, '[USER_CONTENT] $&')
+    // Escape markdown-like instructions that might confuse the model
+    .replace(/^\s*```/gm, '[CODE_BLOCK]')
+    // Limit length to prevent overwhelming the context
+    .substring(0, 2000)
+    // Indicate if content was truncated
+    + (content.length > 2000 ? '\n[Content truncated for security]' : '');
+}
+
+// Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const claudeArgs = ['-p', ...args];
+    const child = spawn('claude', claudeArgs, {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    // Set up timeout
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`Claude process timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      } else {
+        reject(new Error(`Claude process exited with code ${code}: ${stderr}`));
+      }
+    });
+    
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    
+    // Send prompt via stdin and close it
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -152,14 +212,19 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     if (task.comments?.length) {
       additionalContext += `\n## Previous Comments (${task.comments.length})\n`;
       task.comments.forEach((comment, index) => {
-        additionalContext += `Comment ${index + 1}: ${comment.body}\n`;
+        // Sanitize comment body to prevent prompt injection
+        const sanitizedBody = sanitizeForPrompt(comment.body);
+        additionalContext += `Comment ${index + 1}: ${sanitizedBody}\n`;
       });
     }
     
     if (task.links?.length) {
       additionalContext += `\n## Previous Links (${task.links.length})\n`;
       task.links.forEach((link, index) => {
-        additionalContext += `Link ${index + 1}: ${link.title} - ${link.url}\n`;
+        // Sanitize link content to prevent prompt injection
+        const sanitizedTitle = sanitizeForPrompt(link.title);
+        const sanitizedUrl = sanitizeForPrompt(link.url);
+        additionalContext += `Link ${index + 1}: ${sanitizedTitle} - ${sanitizedUrl}\n`;
       });
     }
     
@@ -178,18 +243,12 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
     
-    // Create a temporary file with the prompt
-    const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
-    await fs.writeFile(tempPromptFile, prompt, 'utf8');
-    
-    // Use Claude CLI to run the task in agentic mode (using stdin to avoid shell injection)
-    const { stdout, stderr } = await execAsync(
-      `cat "${tempPromptFile}" | claude -p --allowedTools Edit,exec,Read,Write --timeoutSeconds 300`,
-      { timeout: 320000 } // 5.3 min timeout (slightly longer than Claude timeout)
+    // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
+    const { stdout, stderr } = await executeClaudeWithStdin(
+      prompt, 
+      ['--allowedTools', 'Edit,exec,Read,Write', '--timeoutSeconds', '300'],
+      320000 // 5.3 min timeout (slightly longer than Claude timeout)
     );
-    
-    // Clean up temp file
-    await fs.unlink(tempPromptFile).catch(() => {});
     
     if (stderr) {
       console.error(`AI session stderr:`, stderr);
