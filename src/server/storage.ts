@@ -48,8 +48,9 @@ async function readTask(taskId: string): Promise<Task | null> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null; // File doesn't exist
     }
-    console.error(`Failed to read task ${taskId}:`, error);
-    throw error;
+    // Log but don't throw on corrupt files — skip gracefully
+    console.warn(`⚠️ Skipping corrupt task file ${taskId}:`, (error as Error).message);
+    return null;
   }
 }
 
