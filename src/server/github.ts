@@ -164,13 +164,23 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
   const { stdout: prData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json number,title,state,isDraft,url,createdAt,updatedAt,mergeable`);
   const pr = JSON.parse(prData);
   
-  // Get check runs
-  const { stdout: checksData } = await exec(`gh api repos/${repo}/pulls/${prNumber}/checks --jq '.check_runs[] | {conclusion, status}'`);
-  const checks = checksData.trim() ? checksData.split('\n').map(line => JSON.parse(line)) : [];
+  // Get check runs (may 404 for repos without CI)
+  let checks: Array<{ conclusion: string | null; status: string }> = [];
+  try {
+    const { stdout: checksData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json statusCheckRollup --jq '.statusCheckRollup[] | {conclusion: .conclusion, status: .status}'`);
+    checks = checksData.trim() ? checksData.split('\n').map(line => JSON.parse(line)) : [];
+  } catch {
+    // No CI checks configured — that's fine
+  }
   
-  // Get reviews
-  const { stdout: reviewsData } = await exec(`gh api repos/${repo}/pulls/${prNumber}/reviews --jq '.[] | select(.state != null) | {state, user: {login}}'`);
-  const reviewsRaw = reviewsData.trim() ? reviewsData.split('\n').map(line => JSON.parse(line)) : [];
+  // Get reviews (may 404 for some repo configurations)
+  let reviewsRaw: Array<{ state: string; user: { login: string } }> = [];
+  try {
+    const { stdout: reviewsData } = await exec(`gh api repos/${repo}/pulls/${prNumber}/reviews --jq '.[] | select(.state != null) | {state, user: {login}}'`);
+    reviewsRaw = reviewsData.trim() ? reviewsData.split('\n').map(line => JSON.parse(line)) : [];
+  } catch {
+    // No reviews — that's fine
+  }
   const reviews = reviewsRaw.map(review => ({
     state: review.state as PRStatus['reviews'][0]['state'],
     reviewer: review.user.login,
