@@ -8,9 +8,10 @@ import {
 } from './persona-storage.js';
 import { 
   addMessage, 
-  getMessages 
+  getMessages,
+  ChatMessage
 } from './chat-storage.js';
-import { ChatMessage, Persona } from '../client/types/index.js';
+import { Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
 

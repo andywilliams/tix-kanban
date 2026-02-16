@@ -140,14 +140,17 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     console.log(`🤖 Spawning AI session for task: ${task.title}`);
     
     // Create context with memory injection and full task history
+    let additionalContext = '';
+    if (task.repo) additionalContext += `Repository: ${task.repo}\n`;
+    if (task.comments?.length) additionalContext += `Comments: ${task.comments.length} existing comments\n`;
+    if (task.links?.length) additionalContext += `Links: ${task.links.length} existing links\n`;
+    
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
       persona.id,
       task.title,
       task.description,
       task.tags,
-      task.comments || [],
-      task.links || [],
-      task.repo ? `Repository: ${task.repo}` : undefined
+      additionalContext || undefined
     );
     
     if (memoryTruncated) {
