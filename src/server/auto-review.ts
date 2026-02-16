@@ -172,10 +172,10 @@ async function spawnReviewSession(
     const tempPromptFile = path.join(os.tmpdir(), `tix-review-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, reviewPrompt, 'utf8');
     
-    // Use Claude CLI to run the review session
+    // Use Claude CLI to run the review session in agentic mode
     const { stdout, stderr } = await execAsync(
-      `cat "${tempPromptFile}" | claude --print`,
-      { timeout: 180000 } // 3 min timeout
+      `claude -p "$(cat \"${tempPromptFile}\")" --allowedTools Read,web_search,web_fetch --timeoutSeconds 180`,
+      { timeout: 200000 } // 3.3 min timeout (slightly longer than Claude timeout)
     );
     
     // Clean up temp file

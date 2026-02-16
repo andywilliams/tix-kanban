@@ -82,6 +82,11 @@ function generateAPIReference(): string {
 
 You have access to the tix-kanban API running at http://localhost:3001/api
 
+⚡ **IMPORTANT:** You are running in agentic mode with file editing and command execution enabled!
+- Use the Edit tool to modify files
+- Use the exec tool to run git commands, tests, builds, etc.
+- You can actually DO the work described in the task, not just describe it
+
 ### Core Task Operations:
 - GET /api/tasks - Get all tasks
 - GET /api/tasks/:id - Get single task with full details
@@ -122,14 +127,15 @@ You now receive the FULL task history, including:
 
 This lets you build on previous work instead of starting from scratch.
 
-### Your Workflow:
+### Your Enhanced Workflow:
 1. Task is already moved to "in-progress" when you start
 2. Review previous comments and links to understand what's been done
 3. Build on existing work rather than duplicating effort
-4. Do the actual work described in the task
+4. **ACTUALLY DO THE WORK** - edit files, run commands, create branches, etc.
 5. If code changes: create branch + PR, add PR link to task, leave as "in-progress"
-6. If non-code work: add detailed comment, move status to "review"
+6. If non-code work: complete the work, add detailed comment, move status to "review"
 7. Always add a comment summarizing what you accomplished
+8. Your final output should be a concise summary - the real work is done through tools
 
 The task ID you're working on is: TASK_ID_PLACEHOLDER`;
 }
@@ -164,10 +170,10 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const tempPromptFile = path.join(os.tmpdir(), `tix-prompt-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    // Use Claude CLI to run the task
+    // Use Claude CLI to run the task in agentic mode
     const { stdout, stderr } = await execAsync(
-      `cat "${tempPromptFile}" | claude --print`,
-      { timeout: 300000 } // 5 min timeout
+      `claude -p "$(cat \"${tempPromptFile}\")" --allowedTools Edit,exec,Read,Write --timeoutSeconds 300`,
+      { timeout: 320000 } // 5.3 min timeout (slightly longer than Claude timeout)
     );
     
     // Clean up temp file
