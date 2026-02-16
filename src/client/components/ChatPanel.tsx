@@ -80,9 +80,12 @@ export default function ChatPanel({
             const persona = personas.find(p => p.name === part);
             return (
               <span key={index} style={{
-                background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent)',
-                padding: '0 0.25rem', borderRadius: '0.2rem', fontWeight: 500
+                background: 'var(--accent)', color: 'white',
+                padding: '0.1rem 0.4rem', borderRadius: '0.3rem', fontWeight: 600,
+                fontSize: '0.85em', display: 'inline-flex', alignItems: 'center',
+                gap: '0.2rem', verticalAlign: 'baseline'
               }} title={persona ? `${persona.emoji} ${persona.description}` : undefined}>
+                {persona?.emoji && <span style={{ fontSize: '0.9em' }}>{persona.emoji}</span>}
                 @{part}
               </span>
             );
@@ -149,7 +152,7 @@ export default function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {!currentChannel && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
             <p>Select a channel to start chatting</p>
@@ -159,16 +162,16 @@ export default function ChatPanel({
         {currentChannel?.messages.map(message => (
           <div key={message.id} className="chat-message-group">
             {message.replyTo && (
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem', paddingLeft: '1rem', borderLeft: '2px solid var(--border)' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--accent)', opacity: 0.6 }}>
                 Replying to previous message
               </div>
             )}
             
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
               <div style={{
-                width: '2rem', height: '2rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem',
-                flexShrink: 0, color: 'var(--text-primary)'
+                width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
+                flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)', fontWeight: '500'
               }}>
                 {message.authorType === 'persona' 
                   ? personas.find(p => p.name === message.author)?.emoji || '🤖'
@@ -177,25 +180,27 @@ export default function ChatPanel({
               </div>
               
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
                     {message.authorType === 'persona' 
                       ? personas.find(p => p.name === message.author)?.name || message.author
                       : message.author
                     }
                   </span>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     {formatTimestamp(message.createdAt)}
                   </span>
                 </div>
-                <div style={{ fontSize: '0.85rem', marginTop: '0.2rem', color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', wordBreak: 'break-word', lineHeight: '1.5' }}>
                   {formatMessageContent(message.content)}
                 </div>
               </div>
               
               <button onClick={() => setReplyToMessage(message)} className="chat-reply-btn"
-                style={{ padding: '0.25rem', background: 'none', border: 'none', cursor: 'pointer', opacity: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}
-                title="Reply">
+                style={{ padding: '0.4rem', background: 'none', border: 'none', cursor: 'pointer', opacity: 0, fontSize: '0.8rem', color: 'var(--text-muted)', borderRadius: '0.25rem', transition: 'all 0.2s' }}
+                title="Reply"
+                onMouseEnter={(e) => { e.target.style.background = 'var(--bg-tertiary)'; e.target.style.color = 'var(--text-primary)'; }}
+                onMouseLeave={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-muted)'; }}>
                 ↩️
               </button>
             </div>
@@ -207,17 +212,28 @@ export default function ChatPanel({
       {/* Reply indicator */}
       {replyToMessage && (
         <div style={{
-          padding: '0.5rem 1rem', background: 'rgba(59, 130, 246, 0.1)',
-          borderTop: '1px solid var(--border)', fontSize: '0.8rem'
+          padding: '1rem', background: 'rgba(59, 130, 246, 0.08)',
+          borderTop: '1px solid var(--border)', borderLeft: '3px solid var(--accent)'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Replying to <strong>{replyToMessage.author}</strong></span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <span style={{ color: 'var(--text-primary)', fontSize: '0.875rem', fontWeight: 500 }}>
+              Replying to <strong style={{ color: 'var(--accent)' }}>{replyToMessage.author}</strong>
+            </span>
             <button onClick={() => setReplyToMessage(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.8rem' }}>
-              Cancel
+              style={{ 
+                background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', 
+                fontSize: '0.875rem', padding: '0.25rem 0.5rem', borderRadius: '0.25rem',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={(e) => { e.target.style.background = 'rgba(59, 130, 246, 0.1)'; }}
+              onMouseLeave={(e) => { e.target.style.background = 'none'; }}>
+              ✕ Cancel
             </button>
           </div>
-          <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ 
+            color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', 
+            whiteSpace: 'nowrap', fontSize: '0.8rem', fontStyle: 'italic'
+          }}>
             {formatMessageContent(replyToMessage.content)}
           </div>
         </div>
@@ -228,21 +244,24 @@ export default function ChatPanel({
         <div style={{ padding: '0 1rem' }}>
           <div style={{
             background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-            borderRadius: '0.5rem', maxHeight: '8rem', overflowY: 'auto',
-            boxShadow: '0 -4px 12px rgba(0,0,0,0.2)'
+            borderRadius: '0.75rem', maxHeight: '10rem', overflowY: 'auto',
+            boxShadow: '0 -8px 16px rgba(0,0,0,0.15)', marginBottom: '0.5rem'
           }}>
             {mentionSuggestions.map(persona => (
               <button key={persona.id} onClick={() => handleMentionSelect(persona)}
                 style={{
-                  width: '100%', padding: '0.5rem', textAlign: 'left',
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)'
+                  width: '100%', padding: '0.75rem', textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)',
+                  borderRadius: '0.5rem', margin: '0.25rem', transition: 'background 0.15s'
                 }}
-                className="chat-mention-option">
-                <span>{persona.emoji}</span>
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{persona.name}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                className="chat-mention-option"
+                onMouseEnter={(e) => { e.target.style.background = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.target.style.background = 'none'; }}>
+                <span style={{ fontSize: '1.1rem' }}>{persona.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{persona.name}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '0.1rem' }}>
                     {persona.description}
                   </div>
                 </div>
@@ -253,9 +272,9 @@ export default function ChatPanel({
       )}
 
       {/* Message Input */}
-      <div style={{ padding: '1rem', borderTop: '1px solid var(--border)' }}>
+      <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
         {currentChannel && (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
             <textarea ref={inputRef} value={messageInput}
               onChange={(e) => { setMessageInput(e.target.value); setCursorPosition(e.target.selectionStart); }}
               onKeyDown={handleKeyDown}
@@ -263,17 +282,24 @@ export default function ChatPanel({
               placeholder="Type a message... Use @name to mention"
               rows={2}
               style={{
-                flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: '0.5rem', padding: '0.5rem 0.75rem', resize: 'none',
-                color: 'var(--text-primary)', fontSize: '0.85rem', outline: 'none'
+                flex: 1, background: 'var(--bg-primary)', border: '2px solid var(--border)',
+                borderRadius: '0.75rem', padding: '0.75rem', resize: 'none',
+                color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+                transition: 'border-color 0.2s', lineHeight: '1.4'
               }}
+              onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; }}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
             />
             <button onClick={handleSendMessage} disabled={!messageInput.trim()}
               style={{
-                padding: '0.5rem 1rem', background: 'var(--accent)', color: '#fff',
-                borderRadius: '0.5rem', border: 'none', cursor: 'pointer', fontWeight: 500,
-                fontSize: '0.85rem', opacity: messageInput.trim() ? 1 : 0.5, alignSelf: 'flex-end'
-              }}>
+                padding: '0.75rem 1.25rem', background: messageInput.trim() ? 'var(--accent)' : 'var(--bg-tertiary)', 
+                color: messageInput.trim() ? '#fff' : 'var(--text-muted)',
+                borderRadius: '0.75rem', border: 'none', cursor: messageInput.trim() ? 'pointer' : 'not-allowed', 
+                fontWeight: 600, fontSize: '0.875rem', transition: 'all 0.2s',
+                minWidth: '4rem', height: '2.75rem'
+              }}
+              onMouseEnter={(e) => { if (messageInput.trim()) e.target.style.background = 'var(--accent-hover)'; }}
+              onMouseLeave={(e) => { if (messageInput.trim()) e.target.style.background = 'var(--accent)'; }}>
               Send
             </button>
           </div>
