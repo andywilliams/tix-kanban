@@ -4,10 +4,53 @@ import os from 'os';
 import { Task, Comment } from '../client/types/index.js';
 import { getPersona } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 
-const execAsync = promisify(exec);
+// Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const claudeArgs = ['-p', ...args];
+    const child = spawn('claude', claudeArgs, {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    // Set up timeout
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`Claude process timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      } else {
+        reject(new Error(`Claude process exited with code ${code}: ${stderr}`));
+      }
+    });
+    
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    
+    // Send prompt via stdin and close it
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
+
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const AUTO_REVIEW_CONFIG_FILE = path.join(STORAGE_DIR, 'auto-review-config.json');
 
@@ -168,18 +211,12 @@ async function spawnReviewSession(
     // Create specialized review prompt
     const reviewPrompt = await createReviewContext(task, reviewer.id, reviewState);
     
-    // Create temporary file with the review prompt
-    const tempPromptFile = path.join(os.tmpdir(), `tix-review-${task.id}.txt`);
-    await fs.writeFile(tempPromptFile, reviewPrompt, 'utf8');
-    
-    // Use Claude CLI to run the review session in agentic mode (using stdin to avoid shell injection)
-    const { stdout, stderr } = await execAsync(
-      `cat "${tempPromptFile}" | claude -p --allowedTools Read,web_search,web_fetch --timeoutSeconds 180`,
-      { timeout: 200000 } // 3.3 min timeout (slightly longer than Claude timeout)
+    // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
+    const { stdout, stderr } = await executeClaudeWithStdin(
+      reviewPrompt,
+      ['--allowedTools', 'Read,web_search,web_fetch', '--timeoutSeconds', '180'],
+      200000 // 3.3 min timeout (slightly longer than Claude timeout)
     );
-    
-    // Clean up temp file
-    await fs.unlink(tempPromptFile).catch(() => {});
     
     if (stderr) {
       console.error(`Review session stderr:`, stderr);

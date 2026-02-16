@@ -120,7 +120,11 @@ export function useChat(): UseChatReturn {
           await refreshMessages(channelId);
           
           if (pollCount >= maxPolls) {
-            clearInterval(mentionPollingRef.current!);
+            // Capture ref value to avoid race condition between check and clear
+            const interval = mentionPollingRef.current;
+            if (interval) {
+              clearInterval(interval);
+            }
             mentionPollingRef.current = null;
           }
         }, 500);
@@ -224,18 +228,24 @@ export function useChat(): UseChatReturn {
     initialize();
   }, [refreshChannels]);
 
-  // Cleanup polling on unmount
+  // Cleanup message polling when it changes
   useEffect(() => {
     return () => {
       if (messagePolling) {
         clearInterval(messagePolling);
       }
+    };
+  }, [messagePolling]);
+
+  // Cleanup mention polling only on component unmount
+  useEffect(() => {
+    return () => {
       if (mentionPollingRef.current) {
         clearInterval(mentionPollingRef.current);
         mentionPollingRef.current = null;
       }
     };
-  }, [messagePolling]);
+  }, []); // Empty dependency array = only runs on unmount
 
   return {
     channels,
