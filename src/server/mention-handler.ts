@@ -68,10 +68,10 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
     const tempPromptFile = path.join(os.tmpdir(), `tix-mention-${persona.id}-${Date.now()}.txt`);
     await fs.writeFile(tempPromptFile, contextPrompt, 'utf8');
     
-    // Use OpenClaw CLI with --print mode (no session persistence)
+    // Use Claude CLI with --print mode (no session persistence)
     const { stdout, stderr } = await execAsync(
-      `openclaw run --file "${tempPromptFile}" --print --timeout 60`,
-      { maxBuffer: 1024 * 1024 } // 1MB buffer for longer responses
+      `cat "${tempPromptFile}" | claude --print`,
+      { maxBuffer: 1024 * 1024, timeout: 60000 } // 1MB buffer, 60s timeout
     );
     
     // Clean up temp file

@@ -172,8 +172,11 @@ async function spawnReviewSession(
     const tempPromptFile = path.join(os.tmpdir(), `tix-review-${task.id}.txt`);
     await fs.writeFile(tempPromptFile, reviewPrompt, 'utf8');
     
-    // Use OpenClaw CLI to run the review session
-    const { stdout, stderr } = await execAsync(`openclaw run --file "${tempPromptFile}" --timeout 180`);
+    // Use Claude CLI to run the review session
+    const { stdout, stderr } = await execAsync(
+      `cat "${tempPromptFile}" | claude --print`,
+      { timeout: 180000 } // 3 min timeout
+    );
     
     // Clean up temp file
     await fs.unlink(tempPromptFile).catch(() => {});
