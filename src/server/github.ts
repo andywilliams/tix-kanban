@@ -80,7 +80,8 @@ export async function saveGitHubConfig(config: GitHubConfig): Promise<void> {
 export async function testGitHubAuth(): Promise<{ authenticated: boolean; username?: string }> {
   try {
     const { stdout } = await exec('gh auth status --show-token 2>&1');
-    const usernameMatch = stdout.match(/Logged in to github\.com as ([^\s]+)/);
+    // Updated regex to match the actual output format: "Logged in to github.com account USERNAME"
+    const usernameMatch = stdout.match(/Logged in to github\.com account ([^\s]+)/);
     return {
       authenticated: true,
       username: usernameMatch ? usernameMatch[1] : undefined,
