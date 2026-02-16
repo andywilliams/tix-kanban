@@ -7,6 +7,7 @@ import { PersonasPage } from './components/PersonasPage';
 import { PersonaDashboard } from './components/PersonaDashboard';
 import PipelinesPage from './components/PipelinesPage';
 import ChatPanel from './components/ChatPanel';
+import { SettingsPage } from './components/SettingsPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -16,24 +17,33 @@ import './github.css';
 import './dashboard.css';
 
 function AppContent() {
-  const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
-  const { personas, loading: personasLoading } = usePersonas();
-  const { 
-    channels, 
-    currentChannel, 
-    loading: chatLoading,
-    switchChannel, 
-    sendMessage, 
-    createTaskChannel 
-  } = useChat();
   const [darkMode, setDarkMode] = useState(true);
   const [githubSettingsOpen, setGithubSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [userName, setUserName] = useState('User');
+
+  const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
+  const { personas, loading: personasLoading } = usePersonas();
+  const {
+    channels,
+    currentChannel,
+    loading: chatLoading,
+    switchChannel,
+    sendMessage,
+    createTaskChannel
+  } = useChat(userName);
   const location = useLocation();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.settings?.userName) setUserName(data.settings.userName); })
+      .catch(() => {});
+  }, []);
 
   const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
     await updateTask(taskId, updates);
@@ -109,11 +119,17 @@ function AppContent() {
             >
               📊 Dashboard
             </Link>
-            <Link 
-              to="/pipelines" 
+            <Link
+              to="/pipelines"
               className={`nav-link ${location.pathname === '/pipelines' ? 'active' : ''}`}
             >
               📋 Pipelines
+            </Link>
+            <Link
+              to="/settings"
+              className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
+            >
+              ⚙️ Settings
             </Link>
           </nav>
         </div>
@@ -154,6 +170,7 @@ function AppContent() {
               <KanbanBoard
                 tasks={tasks}
                 personas={personas}
+                currentUser={userName}
                 onUpdateTask={handleUpdateTask}
                 onAddTask={handleAddTask}
               />
@@ -171,6 +188,14 @@ function AppContent() {
             path="/pipelines"
             element={<PipelinesPage />}
           />
+          <Route
+            path="/settings"
+            element={
+              <SettingsPage
+                onSettingsChange={(s) => setUserName(s.userName)}
+              />
+            }
+          />
         </Routes>
       </main>
 
@@ -180,7 +205,7 @@ function AppContent() {
         currentChannel={currentChannel}
         channels={channels}
         personas={personas}
-        currentUser="User" // TODO: Get actual user name
+        currentUser={userName}
         onSendMessage={sendMessage}
         onSwitchChannel={switchChannel}
         onCreateTaskChannel={createTaskChannel}

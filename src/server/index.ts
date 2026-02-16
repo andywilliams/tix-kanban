@@ -64,6 +64,11 @@ import {
   getTaskReviewState,
   executeReviewCycle
 } from './auto-review.js';
+import {
+  getUserSettings,
+  saveUserSettings,
+  UserSettings
+} from './user-settings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -888,6 +893,36 @@ app.post('/api/tasks/:taskId/review-cycle', async (req, res) => {
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.taskId}/review-cycle error:`, error);
     res.status(500).json({ error: 'Failed to execute review cycle' });
+  }
+});
+
+// User Settings API routes
+
+// GET /api/settings - Get user settings
+app.get('/api/settings', async (_req, res) => {
+  try {
+    const settings = await getUserSettings();
+    res.json({ settings });
+  } catch (error) {
+    console.error('GET /api/settings error:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// PUT /api/settings - Update user settings
+app.put('/api/settings', async (req, res) => {
+  try {
+    const settings = req.body as UserSettings;
+
+    if (!settings.userName || typeof settings.userName !== 'string') {
+      return res.status(400).json({ error: 'userName is required and must be a string' });
+    }
+
+    await saveUserSettings(settings);
+    res.json({ settings });
+  } catch (error) {
+    console.error('PUT /api/settings error:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 

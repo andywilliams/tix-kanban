@@ -10,6 +10,7 @@ const getRepoName = (repo: string | RepoConfig): string =>
 interface TaskModalProps {
   task: Task;
   personas: Persona[];
+  currentUser: string;
   onClose: () => void;
   onUpdate: (updates: Partial<Task>) => void;
 }
@@ -25,7 +26,7 @@ interface LinkFormData {
   type: 'pr' | 'attachment' | 'reference';
 }
 
-const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate }) => {
+const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onClose, onUpdate }) => {
   const [editing, setEditing] = useState(false);
   const [editedTask, setEditedTask] = useState(task);
   const [githubConfig, setGithubConfig] = useState<GitHubConfig | null>(null);
@@ -34,7 +35,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
   
   // Comment form state
   const [showCommentForm, setShowCommentForm] = useState(false);
-  const [commentForm, setCommentForm] = useState<CommentFormData>({ body: '', author: 'User' });
+  const [commentForm, setCommentForm] = useState<CommentFormData>({ body: '', author: currentUser });
   const [addingComment, setAddingComment] = useState(false);
   
   // Link form state
@@ -111,7 +112,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
       if (response.ok) {
         const data = await response.json();
         onUpdate(data.task);
-        setCommentForm({ body: '', author: 'User' });
+        setCommentForm({ body: '', author: currentUser });
         setShowCommentForm(false);
       } else {
         const error = await response.json();
@@ -181,7 +182,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
         body: JSON.stringify({ 
           rating, 
           comment,
-          ratedBy: 'User' // TODO: Get actual user identity
+          ratedBy: currentUser
         }),
       });
       

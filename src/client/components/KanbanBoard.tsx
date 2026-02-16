@@ -18,6 +18,7 @@ import FilterBar from './FilterBar';
 interface KanbanBoardProps {
   tasks: Task[];
   personas: Persona[];
+  currentUser: string;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
   onAddTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;
 }
@@ -32,6 +33,7 @@ const columns = [
 const KanbanBoard: React.FC<KanbanBoardProps> = ({
   tasks,
   personas,
+  currentUser,
   onUpdateTask,
   onAddTask,
 }) => {
@@ -122,6 +124,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
         <TaskModal
           task={selectedTask}
           personas={personas}
+          currentUser={currentUser}
           onClose={() => setSelectedTask(null)}
           onUpdate={(updates) => {
             onUpdateTask(selectedTask.id, updates);

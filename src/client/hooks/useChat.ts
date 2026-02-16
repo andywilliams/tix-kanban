@@ -13,7 +13,7 @@ interface UseChatReturn {
   refreshMessages: (channelId: string) => Promise<void>;
 }
 
-export function useChat(): UseChatReturn {
+export function useChat(currentUser: string = 'User'): UseChatReturn {
   const [channels, setChannels] = useState<ChatChannel[]>([]);
   const [currentChannel, setCurrentChannel] = useState<ChatChannel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,7 +89,7 @@ export function useChat(): UseChatReturn {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          author: 'User', // TODO: Get actual user name
+          author: currentUser,
           authorType: 'human',
           content,
           replyTo
@@ -133,7 +133,7 @@ export function useChat(): UseChatReturn {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       throw err;
     }
-  }, [refreshMessages]);
+  }, [refreshMessages, currentUser]);
 
   // Switch to a different channel
   const switchChannel = useCallback(async (channel: ChatChannel) => {
