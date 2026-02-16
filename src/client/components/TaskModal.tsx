@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Task, Persona, GitHubConfig } from '../types';
+import { Task, Persona, GitHubConfig, RepoConfig } from '../types';
 import { GitHubStatus } from './GitHubStatus';
 import TaskRating from './TaskRating';
+
+// Extract repo name from string or RepoConfig object
+const getRepoName = (repo: string | RepoConfig): string =>
+  typeof repo === 'string' ? repo : repo.name;
 
 interface TaskModalProps {
   task: Task;
@@ -52,7 +56,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
         const data = await response.json();
         setGithubConfig(data.config);
         if (data.config.repos.length > 0) {
-          setSelectedRepo(task.repo || data.config.repos[0]);
+          setSelectedRepo(task.repo || getRepoName(data.config.repos[0]));
         }
       }
     } catch (error) {
@@ -312,11 +316,14 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                   })}
                 >
                   <option value="">None</option>
-                  {githubConfig?.repos.map(repo => (
-                    <option key={repo} value={repo}>
-                      {repo}
+                  {githubConfig?.repos.map(repo => {
+                    const name = getRepoName(repo);
+                    return (
+                    <option key={name} value={name}>
+                      {name}
                     </option>
-                  ))}
+                  );
+                  })}
                 </select>
               </div>
             </>
@@ -522,11 +529,14 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, onClose, onUpdate
                         onChange={(e) => setSelectedRepo(e.target.value)}
                       >
                         <option value="">Select repository...</option>
-                        {githubConfig.repos.map(repo => (
-                          <option key={repo} value={repo}>
-                            {repo}
+                        {githubConfig.repos.map(repo => {
+                          const name = getRepoName(repo);
+                          return (
+                          <option key={name} value={name}>
+                            {name}
                           </option>
-                        ))}
+                          );
+                        })}
                       </select>
                       <button
                         className="btn btn-secondary"
