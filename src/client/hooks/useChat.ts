@@ -99,8 +99,24 @@ export function useChat(): UseChatReturn {
         throw new Error('Failed to send message');
       }
 
-      // Refresh messages for this channel
+      // Refresh messages for this channel immediately
       await refreshMessages(channelId);
+      
+      // If message contains @mentions, poll more frequently for persona responses
+      if (content.includes('@')) {
+        // Poll every 500ms for 10 seconds to catch persona responses quickly
+        let pollCount = 0;
+        const maxPolls = 20; // 10 seconds at 500ms intervals
+        
+        const mentionPolling = setInterval(async () => {
+          pollCount++;
+          await refreshMessages(channelId);
+          
+          if (pollCount >= maxPolls) {
+            clearInterval(mentionPolling);
+          }
+        }, 500);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       throw err;
@@ -116,10 +132,10 @@ export function useChat(): UseChatReturn {
       clearInterval(messagePolling);
     }
     
-    // Start polling new channel for updates
+    // Start polling new channel for updates (reduced from 2000ms to 1000ms)
     const interval = setInterval(() => {
       refreshMessages(channel.id);
-    }, 2000);
+    }, 1000);
     setMessagePolling(interval);
     
     // Initial refresh
