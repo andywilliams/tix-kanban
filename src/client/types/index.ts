@@ -82,9 +82,14 @@ export interface Filter {
   status?: Task['status'];
 }
 
+export interface RepoConfig {
+  name: string; // "owner/repo"
+  defaultBranch: string; // "main" or "master"
+}
+
 export interface GitHubConfig {
-  repos: string[]; // List of repo names like "owner/repo"
-  defaultBranch: string; // Default branch name (usually "main" or "master")
+  repos: (string | RepoConfig)[]; // List of repos — strings for backwards compat, or objects with per-repo settings
+  defaultBranch: string; // Fallback default branch for new repos
   branchPrefix: string; // Prefix for feature branches (e.g., "tix/")
   autoLink: boolean; // Auto-link tasks to PRs when created
 }
