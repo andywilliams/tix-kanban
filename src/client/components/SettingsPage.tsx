@@ -44,13 +44,21 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       const response = await fetch('/api/worker/status');
       if (response.ok) {
         const data = await response.json();
-        if (data.standupScheduler) {
-          // Parse cron time from status if available
-          setStandupConfig({
-            enabled: data.standupScheduler.enabled || false,
-            time: data.standupScheduler.time || '09:00',
-          });
+        const status = data.status || data;
+        // Parse cron expression "M H * * 1-5" back to HH:MM
+        let time = '09:00';
+        if (status.standupTime) {
+          const parts = status.standupTime.split(' ');
+          if (parts.length >= 2) {
+            const mins = parts[0].padStart(2, '0');
+            const hrs = parts[1].padStart(2, '0');
+            time = `${hrs}:${mins}`;
+          }
         }
+        setStandupConfig({
+          enabled: status.standupEnabled ?? false,
+          time,
+        });
       }
     } catch (error) {
       console.error('Failed to load standup config:', error);
@@ -74,7 +82,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       await fetch('/api/worker/standup/time', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedule: cronExpr }),
+        body: JSON.stringify({ cronExpression: cronExpr }),
       });
 
       setStandupSaved(true);
