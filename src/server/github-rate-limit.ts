@@ -216,7 +216,7 @@ export async function getCachedResponse<T>(
   }
   
   // Cache miss - fetch fresh data
-  console.log(`Cache miss for ${cacheKey} - fetching fresh data`);
+  // Cache miss - fetching fresh data for ${cacheKey}
   const data = await operation();
   
   const cachedResponse: CachedResponse = {
