@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { Task } from '../client/types/index.js';
+import { Task, Link } from '../client/types/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
@@ -231,6 +231,27 @@ export async function removeTask(taskId: string): Promise<boolean> {
   }
   
   return success;
+}
+
+// Add link to task
+export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 'taskId'>): Promise<Link | null> {
+  const existingTask = await readTask(taskId);
+  if (!existingTask) {
+    return null;
+  }
+  
+  const newLink: Link = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId: taskId,
+    ...linkData
+  };
+  
+  const existingLinks = existingTask.links || [];
+  const updatedLinks = [...existingLinks, newLink];
+  
+  await updateTask(taskId, { links: updatedLinks });
+  
+  return newLink;
 }
 
 // Initialize storage with mock data if empty

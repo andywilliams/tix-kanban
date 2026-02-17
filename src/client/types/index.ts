@@ -149,3 +149,26 @@ export interface ChatChannel {
   messages: ChatMessage[];
   lastActivity: Date;
 }
+
+export interface Report {
+  id: string;
+  title: string;
+  content: string;
+  summary?: string;
+  tags: string[];
+  taskId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  filename: string;
+}
+
+export interface ReportMetadata {
+  id: string;
+  title: string;
+  summary?: string;
+  tags: string[];
+  taskId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  filename: string;
+}

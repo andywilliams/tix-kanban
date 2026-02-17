@@ -8,6 +8,8 @@ import { PersonaDashboard } from './components/PersonaDashboard';
 import PipelinesPage from './components/PipelinesPage';
 import ChatPanel from './components/ChatPanel';
 import { SettingsPage } from './components/SettingsPage';
+import { ReportsPage } from './components/ReportsPage';
+import { ReportDetail } from './components/ReportDetail';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -126,6 +128,12 @@ function AppContent() {
               📋 Pipelines
             </Link>
             <Link
+              to="/reports"
+              className={`nav-link ${location.pathname.startsWith('/reports') ? 'active' : ''}`}
+            >
+              📄 Reports
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -187,6 +195,14 @@ function AppContent() {
           <Route
             path="/pipelines"
             element={<PipelinesPage />}
+          />
+          <Route
+            path="/reports"
+            element={<ReportsPage />}
+          />
+          <Route
+            path="/reports/:id"
+            element={<ReportDetail />}
           />
           <Route
             path="/settings"
