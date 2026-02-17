@@ -1274,7 +1274,7 @@ app.delete('/api/standup/:id', async (req, res) => {
 });
 
 // Full Sync API route
-app.post('/api/sync/full', async (_req, res) => {
+app.get('/api/sync/full', async (_req, res) => {
   try {
     // Set up Server-Sent Events for progress streaming
     res.writeHead(200, {
