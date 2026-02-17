@@ -1,7 +1,6 @@
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Task, Persona } from '../types';
-import { GitHubStatus } from './GitHubStatus';
 
 interface TaskCardProps {
   task: Task;
@@ -68,9 +67,11 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
             <span className="task-tag-more">+{task.tags.length - 3}</span>
           )}
         </div>
-        <div className="task-status">
-          <GitHubStatus taskId={task.id} repo={task.repo} compact />
-        </div>
+        {task.links && task.links.some(l => l.type === 'pr') && (
+          <div className="task-status">
+            <span className="github-status compact" title="Has linked PR">🔗</span>
+          </div>
+        )}
       </div>
     </div>
   );
