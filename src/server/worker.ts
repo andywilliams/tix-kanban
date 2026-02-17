@@ -13,6 +13,7 @@ import {
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
+import { getUserSettings } from './user-settings.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -33,11 +34,12 @@ function sanitizeForPrompt(content: string): string {
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000): Promise<{ stdout: string; stderr: string }> {
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const claudeArgs = ['-p', ...args];
     const child = spawn('claude', claudeArgs, {
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...(cwd && { cwd })
     });
     
     let stdout = '';
@@ -243,11 +245,36 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
     
+    // Determine working directory for Claude CLI
+    let cwd: string | undefined;
+    try {
+      const settings = await getUserSettings();
+      if (settings.workspaceDir) {
+        if (task.repo) {
+          // If task has a repo field (owner/repo format), extract repo name and use workspaceDir/repoName
+          const repoName = task.repo.split('/').pop(); // Extract repo name from "owner/repo"
+          if (repoName) {
+            cwd = path.join(settings.workspaceDir, repoName);
+          } else {
+            cwd = settings.workspaceDir;
+          }
+        } else {
+          // Otherwise just use workspaceDir
+          cwd = settings.workspaceDir;
+        }
+        console.log(`🗂️  Using workspace directory: ${cwd}`);
+      }
+    } catch (error) {
+      console.error('Failed to load workspace directory setting:', error);
+      // Fall back to default behavior (current directory)
+    }
+
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--allowedTools', 'Edit,exec,Read,Write'],
-      320000 // 5.3 min timeout (process-level timeout)
+      320000, // 5.3 min timeout (process-level timeout)
+      cwd
     );
     
     if (stderr) {

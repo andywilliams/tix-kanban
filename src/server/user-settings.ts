@@ -6,6 +6,7 @@ const SETTINGS_FILE = path.join(os.homedir(), '.tix-kanban', 'user-settings.json
 
 export interface UserSettings {
   userName: string;
+  workspaceDir?: string;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
