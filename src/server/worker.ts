@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { getAllTasks, updateTask, getTask } from './storage.js';
+import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
 import { 
   getPipeline, 
@@ -14,6 +14,7 @@ import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
+import { saveReport } from './reports-storage.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -291,6 +292,98 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
   }
 }
 
+// Check if task is a research task based on tags or keywords
+function isResearchTask(task: Task): boolean {
+  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation'];
+  const titleLower = task.title.toLowerCase();
+  const descriptionLower = task.description.toLowerCase();
+  const tags = task.tags || [];
+  
+  // Check if task is explicitly tagged as research
+  if (tags.some(tag => researchKeywords.includes(tag.toLowerCase()))) {
+    return true;
+  }
+  
+  // Check if title or description contains research keywords
+  return researchKeywords.some(keyword => 
+    titleLower.includes(keyword) || descriptionLower.includes(keyword)
+  );
+}
+
+// Handle research tasks by generating reports instead of code
+async function processResearchTask(task: Task, persona: Persona): Promise<{ success: boolean; reportId?: string }> {
+  try {
+    console.log(`🔍 Processing research task: ${task.title}`);
+    
+    // Create research-specific prompt context
+    let additionalContext = 'This is a RESEARCH task. Your goal is to produce a comprehensive markdown report that can be saved and referenced later.\n\n';
+    
+    if (task.comments?.length) {
+      additionalContext += `## Previous Comments (${task.comments.length})\n`;
+      task.comments.forEach((comment, index) => {
+        const sanitizedBody = sanitizeForPrompt(comment.body);
+        additionalContext += `Comment ${index + 1}: ${sanitizedBody}\n`;
+      });
+    }
+    
+    additionalContext += `\n## Research Task Instructions
+- Produce a well-structured markdown report
+- Include a brief summary/executive summary at the top
+- Use proper headings and organization
+- Include relevant links, references, or data sources
+- End with conclusions or recommendations if applicable
+- The report should be complete and self-contained
+`;
+    
+    const { prompt, tokenCount } = await createPersonaContext(
+      persona.id,
+      `Research Task: ${task.title}`,
+      task.description,
+      [...(task.tags || []), 'research'],
+      additionalContext
+    );
+    
+    console.log(`📊 Generated research prompt with ${tokenCount.toLocaleString()} tokens`);
+    
+    // Execute research with Claude CLI
+    const { stdout, stderr } = await executeClaudeWithStdin(
+      prompt,
+      ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
+      600000, // 10 min timeout for research tasks
+      undefined // No specific working directory needed for research
+    );
+    
+    if (stderr) {
+      console.error(`Research task stderr:`, stderr);
+    }
+    
+    const reportContent = stdout.trim();
+    if (!reportContent || reportContent.length < 100) {
+      console.error(`Research task produced insufficient output: ${reportContent.length} chars`);
+      return { success: false };
+    }
+    
+    // Generate title and summary from the task
+    const reportTitle = task.title.startsWith('Research:') ? task.title : `Research: ${task.title}`;
+    const reportSummary = `Research report generated for task: ${task.title}`;
+    
+    // Save report to filesystem
+    const report = await saveReport(reportTitle, reportContent, {
+      summary: reportSummary,
+      tags: [...(task.tags || []), 'research', 'ai-generated'],
+      taskId: task.id,
+      slug: task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    });
+    
+    console.log(`📄 Research report saved: ${report.filename}`);
+    return { success: true, reportId: report.id };
+    
+  } catch (error) {
+    console.error(`Failed to process research task ${task.id}:`, error);
+    return { success: false };
+  }
+}
+
 // Process a single task
 async function processTask(task: Task): Promise<void> {
   try {
@@ -313,8 +406,25 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
     
-    // Spawn AI session with full task context
-    const { output, success } = await spawnAISession(fullTask, persona);
+    // Check if this is a research task and handle differently
+    let output: string;
+    let success: boolean;
+    let reportId: string | undefined;
+    
+    if (isResearchTask(fullTask)) {
+      // Handle as research task - generate report
+      const researchResult = await processResearchTask(fullTask, persona);
+      success = researchResult.success;
+      reportId = researchResult.reportId;
+      output = success 
+        ? `✅ Research completed successfully. Report saved as: ${reportId}`
+        : `❌ Research task failed. Please check the task details and try again.`;
+    } else {
+      // Handle as regular development task
+      const aiResult = await spawnAISession(fullTask, persona);
+      output = aiResult.output;
+      success = aiResult.success;
+    }
     
     // Update persona memory with learnings from this task
     await updatePersonaMemoryAfterTask(
@@ -336,30 +446,54 @@ async function processTask(task: Task): Promise<void> {
     };
     const updatedComments = [...existingComments, aiComment];
     
+    // If this was a research task and succeeded, add link to the report
+    if (success && reportId && isResearchTask(fullTask)) {
+      try {
+        await addTaskLink(fullTask.id, {
+          url: `/reports/${reportId}`, // Local URL to the report
+          title: `📄 Research Report: ${fullTask.title}`,
+          type: 'attachment'
+        });
+        console.log(`🔗 Added report link to task ${fullTask.id}`);
+      } catch (error) {
+        console.error(`Failed to add report link to task ${fullTask.id}:`, error);
+      }
+    }
+    
     if (success) {
-      // Check if task is part of a pipeline
-      const pipelineState = await getTaskPipelineState(fullTask.id);
-      if (pipelineState && fullTask.pipelineId) {
-        await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
+      // Research tasks go directly to done - no review needed
+      if (isResearchTask(fullTask)) {
+        await updateTask(fullTask.id, { 
+          status: 'done',
+          comments: updatedComments
+        });
+        console.log(`🔍 Research task completed: ${fullTask.title}`);
       } else {
-        // No pipeline - try auto-review first, then fall back to manual review
-        const reviewState = await initiateAutoReview(fullTask, persona.id);
-        if (reviewState) {
-          // Auto-review initiated - move to auto-review status
-          await updateTask(fullTask.id, { 
-            status: 'auto-review',
-            comments: updatedComments
-          });
-          
-          // Execute the first review cycle
-          const reviewResult = await executeReviewCycle(fullTask.id);
-          console.log(`🔍 Auto-review result for ${fullTask.title}: ${reviewResult}`);
+        // Regular development tasks follow the normal review flow
+        // Check if task is part of a pipeline
+        const pipelineState = await getTaskPipelineState(fullTask.id);
+        if (pipelineState && fullTask.pipelineId) {
+          await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
         } else {
-          // Auto-review disabled or failed - move directly to human review
-          await updateTask(fullTask.id, { 
-            status: 'review',
-            comments: updatedComments
-          });
+          // No pipeline - try auto-review first, then fall back to manual review
+          const reviewState = await initiateAutoReview(fullTask, persona.id);
+          if (reviewState) {
+            // Auto-review initiated - move to auto-review status
+            await updateTask(fullTask.id, { 
+              status: 'auto-review',
+              comments: updatedComments
+            });
+            
+            // Execute the first review cycle
+            const reviewResult = await executeReviewCycle(fullTask.id);
+            console.log(`🔍 Auto-review result for ${fullTask.title}: ${reviewResult}`);
+          } else {
+            // Auto-review disabled or failed - move directly to human review
+            await updateTask(fullTask.id, { 
+              status: 'review',
+              comments: updatedComments
+            });
+          }
         }
       }
     } else {

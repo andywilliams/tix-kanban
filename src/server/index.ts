@@ -49,6 +49,13 @@ import {
 } from './chat-storage.js';
 import { processMentions } from './mention-handler.js';
 import {
+  getAllReports,
+  getReport,
+  saveReport,
+  deleteReport,
+  initializeReportsStorage
+} from './reports-storage.js';
+import {
   getAllPipelines,
   getPipeline,
   createPipeline,
@@ -314,6 +321,71 @@ app.post('/api/tasks/:id/rating', async (req, res) => {
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/rating error:`, error);
     res.status(500).json({ error: 'Failed to add rating' });
+  }
+});
+
+// Reports API routes
+
+// GET /api/reports - Get all reports (metadata only)
+app.get('/api/reports', async (_req, res) => {
+  try {
+    const reports = await getAllReports();
+    res.json({ reports });
+  } catch (error) {
+    console.error('GET /api/reports error:', error);
+    res.status(500).json({ error: 'Failed to fetch reports' });
+  }
+});
+
+// GET /api/reports/:id - Get single report with full content
+app.get('/api/reports/:id', async (req, res) => {
+  try {
+    const report = await getReport(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    res.json({ report });
+  } catch (error) {
+    console.error(`GET /api/reports/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch report' });
+  }
+});
+
+// POST /api/reports - Create new report
+app.post('/api/reports', async (req, res) => {
+  try {
+    const { title, content, summary, tags, taskId, slug } = req.body;
+    
+    // Validate required fields
+    if (!title || !content) {
+      return res.status(400).json({ error: 'Title and content are required' });
+    }
+    
+    const report = await saveReport(title, content, {
+      summary,
+      tags: tags || [],
+      taskId,
+      slug
+    });
+    
+    res.status(201).json({ report });
+  } catch (error) {
+    console.error('POST /api/reports error:', error);
+    res.status(500).json({ error: 'Failed to create report' });
+  }
+});
+
+// DELETE /api/reports/:id - Delete a report
+app.delete('/api/reports/:id', async (req, res) => {
+  try {
+    const success = await deleteReport(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/reports/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete report' });
   }
 });
 
@@ -938,6 +1010,7 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     initializeChatStorage();
+    await initializeReportsStorage();
     await startWorker();
     
     app.listen(PORT, () => {
