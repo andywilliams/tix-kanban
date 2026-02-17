@@ -12,6 +12,7 @@ import { ReportsPage } from './components/ReportsPage';
 import { ReportDetail } from './components/ReportDetail';
 import { KnowledgePage } from './components/KnowledgePage';
 import { KnowledgeDetail } from './components/KnowledgeDetail';
+import { StandupPage } from './components/StandupPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -142,6 +143,12 @@ function AppContent() {
               🧠 Knowledge
             </Link>
             <Link
+              to="/standups"
+              className={`nav-link ${location.pathname === '/standups' ? 'active' : ''}`}
+            >
+              📋 Standups
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -219,6 +226,10 @@ function AppContent() {
           <Route
             path="/knowledge/:id"
             element={<KnowledgeDetail />}
+          />
+          <Route
+            path="/standups"
+            element={<StandupPage />}
           />
           <Route
             path="/settings"

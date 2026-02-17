@@ -84,6 +84,15 @@ import {
   saveUserSettings,
   UserSettings
 } from './user-settings.js';
+import {
+  initializeStandupStorage,
+  generateStandupEntry,
+  saveStandupEntry,
+  getAllStandupEntries,
+  getRecentStandupEntries,
+  deleteStandupEntry,
+  StandupEntry
+} from './standup-storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1119,6 +1128,74 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
+// Standup API routes
+
+// GET /api/standup/generate - Generate a new standup from recent activity
+app.get('/api/standup/generate', async (req, res) => {
+  try {
+    const hours = parseInt(req.query.hours as string) || 24;
+    const entry = await generateStandupEntry(hours);
+    res.json({ standup: entry });
+  } catch (error) {
+    console.error('GET /api/standup/generate error:', error);
+    res.status(500).json({ error: 'Failed to generate standup' });
+  }
+});
+
+// POST /api/standup - Save a standup entry
+app.post('/api/standup', async (req, res) => {
+  try {
+    const entry = req.body as StandupEntry;
+    
+    if (!entry.date || !entry.yesterday || !entry.today || !entry.blockers) {
+      return res.status(400).json({ error: 'Invalid standup entry format' });
+    }
+    
+    await saveStandupEntry(entry);
+    res.status(201).json({ standup: entry });
+  } catch (error) {
+    console.error('POST /api/standup error:', error);
+    res.status(500).json({ error: 'Failed to save standup' });
+  }
+});
+
+// GET /api/standup/history - Get standup history
+app.get('/api/standup/history', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const entries = await getRecentStandupEntries(days);
+    res.json({ standups: entries });
+  } catch (error) {
+    console.error('GET /api/standup/history error:', error);
+    res.status(500).json({ error: 'Failed to fetch standup history' });
+  }
+});
+
+// GET /api/standup/all - Get all standups
+app.get('/api/standup/all', async (_req, res) => {
+  try {
+    const entries = await getAllStandupEntries();
+    res.json({ standups: entries });
+  } catch (error) {
+    console.error('GET /api/standup/all error:', error);
+    res.status(500).json({ error: 'Failed to fetch all standups' });
+  }
+});
+
+// DELETE /api/standup/:id - Delete a standup entry
+app.delete('/api/standup/:id', async (req, res) => {
+  try {
+    const deleted = await deleteStandupEntry(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Standup not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/standup/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete standup' });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
@@ -1133,6 +1210,7 @@ async function startServer() {
     initializeChatStorage();
     await initializeReportsStorage();
     await initializeKnowledgeStorage();
+    await initializeStandupStorage();
     await startWorker();
     
     app.listen(PORT, () => {
