@@ -212,16 +212,49 @@ export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'upda
 }
 
 // Update existing task
-export async function updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null> {
+export async function updateTask(taskId: string, updates: Partial<Task>, actor: string = 'system'): Promise<Task | null> {
   const existingTask = await readTask(taskId);
   if (!existingTask) {
     return null;
+  }
+  
+  // Track activities for significant changes
+  const existingActivity = existingTask.activity || [];
+  const newActivity: ActivityLog[] = [...existingActivity];
+  
+  // Track status changes
+  if (updates.status && updates.status !== existingTask.status) {
+    const statusActivity: ActivityLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId,
+      type: 'status_change',
+      description: `Status changed from '${existingTask.status}' to '${updates.status}'`,
+      actor,
+      timestamp: new Date(),
+      metadata: { from: existingTask.status, to: updates.status }
+    };
+    newActivity.push(statusActivity);
+  }
+  
+  // Track assignment changes
+  if (updates.assignee !== undefined && updates.assignee !== existingTask.assignee) {
+    const assignmentActivity: ActivityLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId,
+      type: 'assignment_changed',
+      description: `Assignment changed from '${existingTask.assignee || 'unassigned'}' to '${updates.assignee || 'unassigned'}'`,
+      actor,
+      timestamp: new Date(),
+      metadata: { from: existingTask.assignee, to: updates.assignee }
+    };
+    newActivity.push(assignmentActivity);
   }
   
   const updatedTask: Task = {
     ...existingTask,
     ...updates,
     id: taskId, // Ensure ID doesn't change
+    activity: newActivity,
     updatedAt: new Date(),
   };
   
@@ -248,7 +281,7 @@ export async function removeTask(taskId: string): Promise<boolean> {
 }
 
 // Add link to task
-export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 'taskId'>): Promise<Link | null> {
+export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 'taskId'>, actor: string = 'system'): Promise<Link | null> {
   const existingTask = await readTask(taskId);
   if (!existingTask) {
     return null;
@@ -263,7 +296,33 @@ export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 't
   const existingLinks = existingTask.links || [];
   const updatedLinks = [...existingLinks, newLink];
   
-  await updateTask(taskId, { links: updatedLinks });
+  // Log link addition activity
+  const existingActivity = existingTask.activity || [];
+  const linkActivity: ActivityLog = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId,
+    type: linkData.type === 'pr' ? 'pr_created' : 'link_added',
+    description: `${linkData.type === 'pr' ? 'PR' : 'Link'} added: ${linkData.title}`,
+    actor,
+    timestamp: new Date(),
+    metadata: { url: linkData.url, linkType: linkData.type }
+  };
+  
+  const newActivity = [...existingActivity, linkActivity];
+  
+  // Update the task with both new link and activity
+  const updatedTask: Task = {
+    ...existingTask,
+    links: updatedLinks,
+    activity: newActivity,
+    updatedAt: new Date(),
+  };
+  
+  await writeTask(updatedTask);
+  
+  // Update summary
+  const allTasks = await getAllTasks();
+  await updateSummary(allTasks);
   
   return newLink;
 }

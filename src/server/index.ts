@@ -7,7 +7,10 @@ import {
   createTask, 
   updateTask, 
   removeTask, 
-  initializeStorage 
+  initializeStorage,
+  getTaskActivity,
+  getAllActivity,
+  addTaskLink
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import { 
@@ -150,7 +153,7 @@ app.get('/api/tasks/:id', async (req, res) => {
 // POST /api/tasks - Create new task
 app.post('/api/tasks', async (req, res) => {
   try {
-    const taskData = req.body as Omit<Task, 'id' | 'createdAt' | 'updatedAt'>;
+    const { actor, ...taskData } = req.body as Omit<Task, 'id' | 'createdAt' | 'updatedAt'> & { actor?: string };
     
     // Validate required fields
     if (!taskData.title || !taskData.status) {
@@ -165,7 +168,7 @@ app.post('/api/tasks', async (req, res) => {
       ...taskData,
     };
     
-    const task = await createTask(newTaskData);
+    const task = await createTask(newTaskData, actor || 'api');
     res.status(201).json({ task });
   } catch (error) {
     console.error('POST /api/tasks error:', error);
@@ -176,8 +179,8 @@ app.post('/api/tasks', async (req, res) => {
 // PUT /api/tasks/:id - Update task
 app.put('/api/tasks/:id', async (req, res) => {
   try {
-    const updates = req.body as Partial<Task>;
-    const task = await updateTask(req.params.id, updates);
+    const { actor, ...updates } = req.body as Partial<Task> & { actor?: string };
+    const task = await updateTask(req.params.id, updates, actor || 'api');
     
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -203,6 +206,72 @@ app.delete('/api/tasks/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+// Activity API routes
+
+// GET /api/tasks/:id/activity - Get activity for a specific task
+app.get('/api/tasks/:id/activity', async (req, res) => {
+  try {
+    const activity = await getTaskActivity(req.params.id);
+    res.json({ activity });
+  } catch (error) {
+    console.error(`GET /api/tasks/${req.params.id}/activity error:`, error);
+    res.status(500).json({ error: 'Failed to fetch task activity' });
+  }
+});
+
+// GET /api/activity - Get activity across all tasks with optional filters
+app.get('/api/activity', async (req, res) => {
+  try {
+    const { start, end, tasks, hours } = req.query;
+    
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+    let taskIds: string[] | undefined;
+    
+    // Parse date filters
+    if (start) {
+      startDate = new Date(start as string);
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid start date format' });
+      }
+    }
+    
+    if (end) {
+      endDate = new Date(end as string);
+      if (isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid end date format' });
+      }
+    }
+    
+    // Support for "last X hours" query
+    if (hours && !start && !end) {
+      const hoursNum = parseInt(hours as string);
+      if (!isNaN(hoursNum)) {
+        startDate = new Date(Date.now() - hoursNum * 60 * 60 * 1000);
+        endDate = new Date();
+      }
+    }
+    
+    // Parse task ID filter
+    if (tasks) {
+      taskIds = (tasks as string).split(',');
+    }
+    
+    const activity = await getAllActivity(startDate, endDate, taskIds);
+    res.json({ 
+      activity,
+      filters: {
+        startDate: startDate?.toISOString(),
+        endDate: endDate?.toISOString(),
+        taskIds
+      }
+    });
+  } catch (error) {
+    console.error('GET /api/activity error:', error);
+    res.status(500).json({ error: 'Failed to fetch activity' });
   }
 });
 

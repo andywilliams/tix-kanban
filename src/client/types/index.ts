@@ -17,6 +17,22 @@ export interface Task {
   comments?: Comment[];
   links?: Link[];
   rating?: TaskRating; // Human feedback/rating for completed work
+  activity?: ActivityLog[]; // State change activity log
+}
+
+export interface ActivityLog {
+  id: string;
+  taskId: string;
+  type: 'status_change' | 'pr_created' | 'pr_merged' | 'pr_closed' | 'assignment_changed' | 'priority_changed' | 'comment_added' | 'link_added';
+  description: string;
+  actor: string; // Who performed the action
+  timestamp: Date;
+  metadata?: {
+    from?: string;
+    to?: string;
+    url?: string;
+    [key: string]: any;
+  };
 }
 
 export interface TaskRating {
