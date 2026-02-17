@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 interface UserSettings {
   userName: string;
+  workspaceDir?: string;
 }
 
 interface SettingsPageProps {
@@ -9,7 +10,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
-  const [settings, setSettings] = useState<UserSettings>({ userName: 'User' });
+  const [settings, setSettings] = useState<UserSettings>({ userName: 'User', workspaceDir: '' });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -75,6 +76,27 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               onChange={e => setSettings(prev => ({ ...prev, userName: e.target.value }))}
               placeholder="Enter your name"
             />
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>Workspace</h3>
+          <p className="settings-description">
+            Configure the root directory where your repositories are located. This allows AI agents to work on tasks in the correct project directory.
+          </p>
+
+          <div className="form-group">
+            <label htmlFor="workspaceDir">Workspace Directory</label>
+            <input
+              id="workspaceDir"
+              type="text"
+              value={settings.workspaceDir || ''}
+              onChange={e => setSettings(prev => ({ ...prev, workspaceDir: e.target.value }))}
+              placeholder="e.g., /Users/yourname/development or /root/clawd/repos"
+            />
+            <small className="form-help">
+              Path to the directory containing your Git repositories. If a task has a 'repo' field (owner/repo format), the agent will work in workspaceDir/repoName.
+            </small>
           </div>
         </div>
       </div>
