@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { Task, Link } from '../client/types/index.js';
+import { Task, Link, ActivityLog } from '../client/types/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
@@ -169,13 +169,27 @@ export async function getTask(taskId: string): Promise<Task | null> {
 }
 
 // Create new task
-export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
+export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>, actor: string = 'system'): Promise<Task> {
   const task: Task = {
     ...taskData,
     id: Math.random().toString(36).substr(2, 9),
     createdAt: new Date(),
     updatedAt: new Date(),
+    activity: [], // Initialize empty activity array
   };
+  
+  // Add creation activity
+  const creationActivity: ActivityLog = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId: task.id,
+    type: 'status_change',
+    description: `Task created with status '${task.status}'`,
+    actor,
+    timestamp: new Date(),
+    metadata: { to: task.status }
+  };
+  
+  task.activity = [creationActivity];
   
   await writeTask(task);
   
@@ -252,6 +266,82 @@ export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 't
   await updateTask(taskId, { links: updatedLinks });
   
   return newLink;
+}
+
+// Log activity for a task
+async function logActivity(
+  taskId: string,
+  type: ActivityLog['type'],
+  description: string,
+  actor: string = 'system',
+  metadata?: ActivityLog['metadata']
+): Promise<ActivityLog> {
+  const activity: ActivityLog = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId,
+    type,
+    description,
+    actor,
+    timestamp: new Date(),
+    metadata
+  };
+
+  // Read the task, add the activity, and save it back
+  const task = await readTask(taskId);
+  if (task) {
+    const existingActivity = task.activity || [];
+    const updatedActivity = [...existingActivity, activity];
+    
+    // Update the task with new activity (without triggering another activity log)
+    const updatedTask: Task = {
+      ...task,
+      activity: updatedActivity,
+      updatedAt: new Date(),
+    };
+    
+    await writeTask(updatedTask);
+  }
+
+  return activity;
+}
+
+// Get activity for a specific task
+export async function getTaskActivity(taskId: string): Promise<ActivityLog[]> {
+  const task = await readTask(taskId);
+  return task?.activity || [];
+}
+
+// Get activity across all tasks for a time range
+export async function getAllActivity(
+  startDate?: Date,
+  endDate?: Date,
+  taskIds?: string[]
+): Promise<ActivityLog[]> {
+  const allTasks = await getAllTasks();
+  const allActivity: ActivityLog[] = [];
+  
+  for (const task of allTasks) {
+    if (taskIds && !taskIds.includes(task.id)) {
+      continue; // Skip tasks not in the filter
+    }
+    
+    const taskActivity = task.activity || [];
+    for (const activity of taskActivity) {
+      const activityDate = activity.timestamp instanceof Date ? activity.timestamp : new Date(activity.timestamp);
+      
+      // Apply date filters
+      if (startDate && activityDate < startDate) continue;
+      if (endDate && activityDate > endDate) continue;
+      
+      allActivity.push({
+        ...activity,
+        timestamp: activityDate
+      });
+    }
+  }
+  
+  // Sort by timestamp (most recent first)
+  return allActivity.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 }
 
 // Initialize storage with mock data if empty
