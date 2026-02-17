@@ -1273,6 +1273,174 @@ app.delete('/api/standup/:id', async (req, res) => {
   }
 });
 
+// Full Sync API route
+app.post('/api/sync/full', async (_req, res) => {
+  try {
+    // Set up Server-Sent Events for progress streaming
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+
+    const sendProgress = (step: string, status: 'started' | 'progress' | 'completed' | 'error', message: string, data?: any) => {
+      res.write(`data: ${JSON.stringify({ step, status, message, data, timestamp: new Date().toISOString() })}\n\n`);
+    };
+
+    sendProgress('init', 'started', 'Starting full sync pipeline...');
+
+    try {
+      // Step 1: Sync from Notion
+      sendProgress('notion', 'started', 'Syncing tasks from Notion...');
+      
+      const notionConfig = await loadNotionConfig();
+      let notionSyncResult = null;
+      
+      if (notionConfig && notionConfig.syncEnabled) {
+        try {
+          const notionTasks = await syncTasksFromNotion(notionConfig);
+          
+          let tasksCreated = 0;
+          let tasksUpdated = 0;
+          
+          for (const notionTask of notionTasks) {
+            const existingTask = await getTask(notionTask.id);
+            
+            if (existingTask) {
+              const kanbanStatus = mapNotionStatusToKanban(notionTask.status, notionConfig.statusMappings);
+              await updateTask(notionTask.id, {
+                title: notionTask.title,
+                description: notionTask.description || '',
+                status: kanbanStatus,
+                priority: notionTask.priority || 100,
+                updatedAt: new Date(),
+              });
+              tasksUpdated++;
+            } else {
+              const kanbanStatus = mapNotionStatusToKanban(notionTask.status, notionConfig.statusMappings);
+              await createTask({
+                title: notionTask.title,
+                description: notionTask.description || '',
+                status: kanbanStatus,
+                priority: notionTask.priority || 100,
+                persona: 'general-developer',
+                tags: ['notion-sync'],
+                estimatedHours: undefined,
+                actualHours: undefined,
+                comments: [],
+                links: [{
+                  id: `link-${Date.now()}`,
+                  taskId: notionTask.id,
+                  url: notionTask.url,
+                  title: 'Notion Page',
+                  type: 'reference'
+                }],
+              });
+              tasksCreated++;
+            }
+          }
+          
+          notionSyncResult = {
+            totalFetched: notionTasks.length,
+            tasksCreated,
+            tasksUpdated
+          };
+          
+          sendProgress('notion', 'completed', 
+            `Notion sync complete: ${tasksCreated} created, ${tasksUpdated} updated`, 
+            notionSyncResult);
+        } catch (notionError) {
+          console.error('Notion sync error:', notionError);
+          sendProgress('notion', 'error', `Notion sync failed: ${notionError.message}`);
+        }
+      } else {
+        sendProgress('notion', 'progress', 'Notion sync skipped (not configured or disabled)');
+      }
+
+      // Step 2: Sync GitHub PRs
+      sendProgress('github', 'started', 'Syncing GitHub PRs...');
+      
+      try {
+        const githubConfig = await getGitHubConfig();
+        let prSyncCount = 0;
+        
+        if (githubConfig.repos.length > 0) {
+          const allTasks = await getAllTasks();
+          const tasksWithPRs = allTasks.filter(task => 
+            task.links && task.links.some(link => link.type === 'pr')
+          );
+          
+          for (const task of tasksWithPRs) {
+            const prLinks = task.links?.filter(link => link.type === 'pr') || [];
+            
+            for (const prLink of prLinks) {
+              try {
+                // Extract repo and PR number from GitHub URL
+                const match = prLink.url.match(/github\.com\/([^\/]+\/[^\/]+)\/pull\/(\d+)/);
+                if (match) {
+                  const [, repo, prNumber] = match;
+                  const prStatus = await getPRStatus(repo, parseInt(prNumber));
+                  
+                  // Update task status based on PR state
+                  let newStatus = task.status;
+                  if (prStatus.state === 'merged') {
+                    newStatus = 'done';
+                  } else if (prStatus.state === 'closed') {
+                    // Only move to done if explicitly merged
+                    // Closed without merge might mean cancelled
+                  } else if (prStatus.state === 'open' && !prStatus.draft) {
+                    newStatus = 'review';
+                  }
+                  
+                  if (newStatus !== task.status) {
+                    await updateTask(task.id, { status: newStatus });
+                    prSyncCount++;
+                  }
+                }
+              } catch (prError) {
+                console.error(`Failed to sync PR ${prLink.url}:`, prError);
+              }
+            }
+          }
+          
+          sendProgress('github', 'completed', `GitHub sync complete: ${prSyncCount} tasks updated from PR status`);
+        } else {
+          sendProgress('github', 'progress', 'GitHub sync skipped (no repos configured)');
+        }
+      } catch (githubError) {
+        console.error('GitHub sync error:', githubError);
+        sendProgress('github', 'error', `GitHub sync failed: ${githubError.message}`);
+      }
+
+      // Step 3: Update kanban board (refresh data)
+      sendProgress('kanban', 'started', 'Refreshing kanban board data...');
+      
+      try {
+        const refreshedTasks = await getAllTasks();
+        sendProgress('kanban', 'completed', `Kanban refresh complete: ${refreshedTasks.length} tasks loaded`, 
+          { taskCount: refreshedTasks.length });
+      } catch (kanbanError) {
+        console.error('Kanban refresh error:', kanbanError);
+        sendProgress('kanban', 'error', `Kanban refresh failed: ${kanbanError.message}`);
+      }
+
+      // Complete
+      sendProgress('complete', 'completed', 'Full sync pipeline completed successfully!');
+      
+    } catch (error) {
+      console.error('Full sync pipeline error:', error);
+      sendProgress('error', 'error', `Pipeline failed: ${error.message}`);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('POST /api/sync/full error:', error);
+    res.status(500).json({ error: 'Failed to start sync pipeline' });
+  }
+});
+
 // Notion Sync API routes
 
 // GET /api/notion/config - Get Notion configuration

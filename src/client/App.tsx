@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
+import { SyncButton } from './components/SyncButton';
 import { PersonasPage } from './components/PersonasPage';
 import { PersonaDashboard } from './components/PersonaDashboard';
 import PipelinesPage from './components/PipelinesPage';
@@ -27,7 +28,7 @@ function AppContent() {
   const [chatOpen, setChatOpen] = useState(false);
   const [userName, setUserName] = useState('User');
 
-  const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask } = useTasks();
+  const { tasks, loading: tasksLoading, error: tasksError, createTask, updateTask, refetch } = useTasks();
   const { personas, loading: personasLoading } = usePersonas();
   const {
     channels,
@@ -157,6 +158,7 @@ function AppContent() {
           </nav>
         </div>
         <div className="header-actions">
+          <SyncButton onSyncComplete={() => refetch()} />
           <button
             className="chat-toggle"
             onClick={() => setChatOpen(!chatOpen)}
