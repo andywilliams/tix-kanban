@@ -15,6 +15,7 @@ import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js
 import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
+import { clearExpiredCache } from './github-rate-limit.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -149,6 +150,14 @@ You have access to the tix-kanban API running at http://localhost:3001/api
 - Use the Edit tool to modify files
 - Use the exec tool to run git commands, tests, builds, etc.
 - You can actually DO the work described in the task, not just describe it
+
+🚨 **GITHUB RATE LIMIT AWARENESS:**
+- **PREFER LOCAL GIT COMMANDS** over GitHub API wherever possible
+- Use \`git log\`, \`git status\`, \`git branch\` instead of \`gh api\` calls
+- Only use GitHub API for things that require it: creating PRs, checking CI status, reviews
+- **Research tasks**: Read local files, use git history, avoid excessive \`gh\` commands
+- The system has automatic rate limiting and caching, but minimize API usage anyway
+- If you get rate limit errors, fall back to local alternatives
 
 ### Core Task Operations:
 - GET /api/tasks - Get all tasks
@@ -655,6 +664,13 @@ async function runWorker(): Promise<void> {
     await saveWorkerState();
     
     console.log('🔄 Worker cycle starting...');
+    
+    // Clean up expired cache entries periodically
+    try {
+      await clearExpiredCache();
+    } catch (error) {
+      console.warn('Failed to clear expired cache:', error);
+    }
     
     // First, process any auto-review tasks
     await processAutoReviewTasks();
