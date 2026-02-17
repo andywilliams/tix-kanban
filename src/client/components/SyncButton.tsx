@@ -161,20 +161,21 @@ export function SyncButton({ onSyncComplete }: SyncButtonProps) {
           <div
             className="sync-progress-modal"
             style={{
-              backgroundColor: 'var(--color-bg-primary, white)',
+              backgroundColor: '#1e1e2e',
+              color: '#e0e0e0',
               borderRadius: '12px',
               padding: '24px',
               maxWidth: '500px',
               width: '90%',
               maxHeight: '400px',
               overflowY: 'auto',
-              border: '1px solid var(--color-border, #e5e7eb)',
-              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
+              border: '1px solid #333',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)'
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#fff' }}>
                 Full Sync Progress
               </h3>
               <button
@@ -186,7 +187,7 @@ export function SyncButton({ onSyncComplete }: SyncButtonProps) {
                   cursor: 'pointer',
                   padding: '4px',
                   borderRadius: '4px',
-                  color: 'var(--color-text-secondary, #6b7280)'
+                  color: '#9ca3af'
                 }}
               >
                 ✕
@@ -199,7 +200,7 @@ export function SyncButton({ onSyncComplete }: SyncButtonProps) {
                   key={index}
                   style={{
                     padding: '8px 0',
-                    borderBottom: index < progress.length - 1 ? '1px solid var(--color-border, #e5e7eb)' : 'none',
+                    borderBottom: index < progress.length - 1 ? '1px solid #333' : 'none',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px'
@@ -213,7 +214,7 @@ export function SyncButton({ onSyncComplete }: SyncButtonProps) {
                   <div style={{ flex: 1 }}>
                     <div style={{ 
                       fontWeight: step.status === 'error' ? '600' : '500',
-                      color: step.status === 'error' ? 'var(--color-danger, #ef4444)' : 'inherit'
+                      color: step.status === 'error' ? '#ef4444' : '#e0e0e0'
                     }}>
                       {step.message}
                     </div>
@@ -227,7 +228,7 @@ export function SyncButton({ onSyncComplete }: SyncButtonProps) {
               ))}
               
               {isRunning && progress.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--color-text-secondary, #6b7280)' }}>
+                <div style={{ textAlign: 'center', padding: '20px', color: '#9ca3af' }}>
                   🔄 Starting sync pipeline...
                 </div>
               )}
