@@ -5,17 +5,26 @@ interface UserSettings {
   workspaceDir?: string;
 }
 
+interface StandupConfig {
+  enabled: boolean;
+  time: string; // HH:MM format
+}
+
 interface SettingsPageProps {
   onSettingsChange?: (settings: UserSettings) => void;
 }
 
 export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [settings, setSettings] = useState<UserSettings>({ userName: 'User', workspaceDir: '' });
+  const [standupConfig, setStandupConfig] = useState<StandupConfig>({ enabled: false, time: '09:00' });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [standupSaving, setStandupSaving] = useState(false);
+  const [standupSaved, setStandupSaved] = useState(false);
 
   useEffect(() => {
     loadSettings();
+    loadStandupConfig();
   }, []);
 
   const loadSettings = async () => {
@@ -27,6 +36,64 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
+    }
+  };
+
+  const loadStandupConfig = async () => {
+    try {
+      const response = await fetch('/api/worker/status');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.standupScheduler) {
+          // Parse cron time from status if available
+          setStandupConfig({
+            enabled: data.standupScheduler.enabled || false,
+            time: data.standupScheduler.time || '09:00',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load standup config:', error);
+    }
+  };
+
+  const saveStandupConfig = async () => {
+    setStandupSaving(true);
+    setStandupSaved(false);
+    try {
+      // Toggle enabled state
+      await fetch('/api/worker/standup/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: standupConfig.enabled }),
+      });
+
+      // Set time (convert HH:MM to cron expression)
+      const [hours, minutes] = standupConfig.time.split(':');
+      const cronExpr = `${minutes} ${hours} * * 1-5`; // Mon-Fri
+      await fetch('/api/worker/standup/time', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule: cronExpr }),
+      });
+
+      setStandupSaved(true);
+      setTimeout(() => setStandupSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save standup config:', error);
+    } finally {
+      setStandupSaving(false);
+    }
+  };
+
+  const triggerStandup = async () => {
+    try {
+      const response = await fetch('/api/worker/standup/trigger', { method: 'POST' });
+      if (response.ok) {
+        alert('Standup generated! Check the Standups page.');
+      }
+    } catch (error) {
+      console.error('Failed to trigger standup:', error);
     }
   };
 
@@ -97,6 +164,55 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             <small className="form-help">
               Path to the directory containing your Git repositories. If a task has a 'repo' field (owner/repo format), the agent will work in workspaceDir/repoName.
             </small>
+          </div>
+        </div>
+        <div className="settings-section">
+          <h3>Automated Standups</h3>
+          <p className="settings-description">
+            Generate daily standups automatically from git commits, GitHub PRs, and task activity. Runs Monday–Friday at the configured time.
+          </p>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={standupConfig.enabled}
+                onChange={e => setStandupConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              Enable automated standups
+            </label>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="standupTime">Standup Time</label>
+            <input
+              id="standupTime"
+              type="time"
+              value={standupConfig.time}
+              onChange={e => setStandupConfig(prev => ({ ...prev, time: e.target.value }))}
+              style={{ maxWidth: '160px' }}
+            />
+            <small className="form-help">
+              When to generate the daily standup (your local time). The server must be running at this time.
+            </small>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+            <button
+              className="save-btn"
+              onClick={saveStandupConfig}
+              disabled={standupSaving}
+            >
+              {standupSaving ? 'Saving...' : standupSaved ? 'Saved!' : 'Save Standup Settings'}
+            </button>
+            <button
+              className="save-btn"
+              onClick={triggerStandup}
+              style={{ backgroundColor: '#6366f1' }}
+            >
+              Generate Now
+            </button>
           </div>
         </div>
       </div>
