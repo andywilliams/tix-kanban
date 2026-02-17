@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Report, ReportMetadata } from '../types/index.js';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 export function useReports() {
   const [reports, setReports] = useState<ReportMetadata[]>([]);
