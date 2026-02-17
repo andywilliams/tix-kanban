@@ -16,6 +16,11 @@ import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
+import { 
+  generateStandupEntry, 
+  saveStandupEntry, 
+  getAllStandupEntries 
+} from './standup-storage.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -92,16 +97,22 @@ interface WorkerState {
   lastTaskId?: string;
   isRunning: boolean;
   workload: number; // number of active tasks
+  standupEnabled: boolean; // morning standup generation
+  standupTime: string; // cron expression for standup time
+  lastStandupRun?: string;
 }
 
 let workerState: WorkerState = {
   enabled: false,
   interval: '*/5 * * * *', // Default: every 5 minutes
   isRunning: false,
-  workload: 0
+  workload: 0,
+  standupEnabled: true, // Enable standup generation by default
+  standupTime: '0 9 * * 1-5', // 9 AM Monday-Friday
 };
 
 let cronJob: cron.ScheduledTask | null = null;
+let standupCronJob: cron.ScheduledTask | null = null;
 
 // Ensure worker directories exist
 async function ensureWorkerDirectories(): Promise<void> {
@@ -627,6 +638,50 @@ async function advanceTaskInPipeline(
   }
 }
 
+// Generate morning standup automatically
+async function generateMorningStandup(): Promise<void> {
+  try {
+    console.log('🌅 Generating morning standup...');
+    
+    // Check if we already generated a standup today
+    const today = new Date().toISOString().split('T')[0];
+    const existingStandups = await getAllStandupEntries();
+    const todayStandup = existingStandups.find(entry => entry.date === today);
+    
+    if (todayStandup) {
+      console.log('📋 Standup already generated for today, skipping');
+      return;
+    }
+    
+    // Generate standup from last 24 hours of activity
+    const standupEntry = await generateStandupEntry(24);
+    
+    // Save the generated standup
+    await saveStandupEntry(standupEntry);
+    
+    // Update last run time
+    workerState.lastStandupRun = new Date().toISOString();
+    await saveWorkerState();
+    
+    console.log(`✅ Morning standup generated for ${standupEntry.date}`);
+    console.log(`📊 Summary: ${standupEntry.yesterday.length} yesterday items, ${standupEntry.today.length} today items, ${standupEntry.blockers.length} blockers`);
+    
+    // Log key metrics for visibility
+    if (standupEntry.commits.length > 0) {
+      console.log(`💻 ${standupEntry.commits.length} commits from ${[...new Set(standupEntry.commits.map(c => c.repo))].join(', ')}`);
+    }
+    if (standupEntry.prs.length > 0) {
+      console.log(`🔀 ${standupEntry.prs.length} PR activities`);
+    }
+    if (standupEntry.issues.length > 0) {
+      console.log(`🐛 ${standupEntry.issues.length} issues closed`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to generate morning standup:', error);
+  }
+}
+
 // Process auto-review tasks
 async function processAutoReviewTasks(): Promise<void> {
   try {
@@ -720,10 +775,15 @@ export async function startWorker(): Promise<void> {
     await ensureWorkerDirectories();
     await loadWorkerState();
     
+    // Stop existing cron jobs if running
     if (cronJob) {
       cronJob.stop();
     }
+    if (standupCronJob) {
+      standupCronJob.stop();
+    }
     
+    // Start main worker if enabled
     if (workerState.enabled) {
       cronJob = cron.schedule(workerState.interval, runWorker, {
         scheduled: false
@@ -732,6 +792,17 @@ export async function startWorker(): Promise<void> {
       console.log(`🚀 Worker started with interval: ${workerState.interval}`);
     } else {
       console.log('💤 Worker is disabled');
+    }
+    
+    // Start standup cron job if enabled
+    if (workerState.standupEnabled) {
+      standupCronJob = cron.schedule(workerState.standupTime, generateMorningStandup, {
+        scheduled: false
+      });
+      standupCronJob.start();
+      console.log(`🌅 Standup scheduler started: ${workerState.standupTime} (${cron.validate(workerState.standupTime) ? 'valid' : 'INVALID'} cron expression)`);
+    } else {
+      console.log('💤 Standup scheduler is disabled');
     }
   } catch (error) {
     console.error('Failed to start worker:', error);
@@ -745,7 +816,11 @@ export function stopWorker(): void {
     cronJob.stop();
     cronJob = null;
   }
-  console.log('🛑 Worker stopped');
+  if (standupCronJob) {
+    standupCronJob.stop();
+    standupCronJob = null;
+  }
+  console.log('🛑 Worker and standup scheduler stopped');
 }
 
 // Enable/disable worker
@@ -768,6 +843,50 @@ export async function updateWorkerInterval(interval: string): Promise<void> {
   if (workerState.enabled) {
     await startWorker(); // Restart with new interval
   }
+}
+
+// Enable/disable standup scheduler
+export async function toggleStandupScheduler(enabled: boolean): Promise<void> {
+  workerState.standupEnabled = enabled;
+  await saveWorkerState();
+  
+  if (enabled) {
+    if (standupCronJob) {
+      standupCronJob.stop();
+    }
+    standupCronJob = cron.schedule(workerState.standupTime, generateMorningStandup, {
+      scheduled: false
+    });
+    standupCronJob.start();
+    console.log(`🌅 Standup scheduler enabled: ${workerState.standupTime}`);
+  } else {
+    if (standupCronJob) {
+      standupCronJob.stop();
+      standupCronJob = null;
+    }
+    console.log('💤 Standup scheduler disabled');
+  }
+}
+
+// Update standup time
+export async function updateStandupTime(cronExpression: string): Promise<void> {
+  if (!cron.validate(cronExpression)) {
+    throw new Error('Invalid cron expression');
+  }
+  
+  workerState.standupTime = cronExpression;
+  await saveWorkerState();
+  
+  if (workerState.standupEnabled) {
+    // Restart with new schedule
+    await toggleStandupScheduler(false);
+    await toggleStandupScheduler(true);
+  }
+}
+
+// Manually trigger standup generation (for testing)
+export async function triggerStandupGeneration(): Promise<void> {
+  await generateMorningStandup();
 }
 
 // Get worker status

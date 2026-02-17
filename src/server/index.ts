@@ -17,7 +17,10 @@ import {
   startWorker,
   toggleWorker,
   updateWorkerInterval,
-  getWorkerStatus
+  getWorkerStatus,
+  toggleStandupScheduler,
+  updateStandupTime,
+  triggerStandupGeneration
 } from './worker.js';
 import {
   getAllPersonas,
@@ -644,6 +647,55 @@ app.put('/api/worker/interval', async (req, res) => {
   } catch (error) {
     console.error('PUT /api/worker/interval error:', error);
     res.status(500).json({ error: 'Failed to update worker interval' });
+  }
+});
+
+// POST /api/worker/standup/toggle - Enable/disable standup scheduler
+app.post('/api/worker/standup/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+    
+    await toggleStandupScheduler(enabled);
+    const status = getWorkerStatus();
+    
+    res.json({ status });
+  } catch (error) {
+    console.error('POST /api/worker/standup/toggle error:', error);
+    res.status(500).json({ error: 'Failed to toggle standup scheduler' });
+  }
+});
+
+// PUT /api/worker/standup/time - Update standup generation time
+app.put('/api/worker/standup/time', async (req, res) => {
+  try {
+    const { cronExpression } = req.body;
+    
+    if (typeof cronExpression !== 'string') {
+      return res.status(400).json({ error: 'cronExpression must be a string' });
+    }
+    
+    await updateStandupTime(cronExpression);
+    const status = getWorkerStatus();
+    
+    res.json({ status });
+  } catch (error) {
+    console.error('PUT /api/worker/standup/time error:', error);
+    res.status(500).json({ error: 'Failed to update standup time' });
+  }
+});
+
+// POST /api/worker/standup/trigger - Manually trigger standup generation
+app.post('/api/worker/standup/trigger', async (req, res) => {
+  try {
+    await triggerStandupGeneration();
+    res.json({ success: true, message: 'Standup generation triggered' });
+  } catch (error) {
+    console.error('POST /api/worker/standup/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger standup generation' });
   }
 });
 
