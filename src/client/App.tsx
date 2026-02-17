@@ -10,6 +10,8 @@ import ChatPanel from './components/ChatPanel';
 import { SettingsPage } from './components/SettingsPage';
 import { ReportsPage } from './components/ReportsPage';
 import { ReportDetail } from './components/ReportDetail';
+import { KnowledgePage } from './components/KnowledgePage';
+import { KnowledgeDetail } from './components/KnowledgeDetail';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -134,6 +136,12 @@ function AppContent() {
               📄 Reports
             </Link>
             <Link
+              to="/knowledge"
+              className={`nav-link ${location.pathname.startsWith('/knowledge') ? 'active' : ''}`}
+            >
+              🧠 Knowledge
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -203,6 +211,14 @@ function AppContent() {
           <Route
             path="/reports/:id"
             element={<ReportDetail />}
+          />
+          <Route
+            path="/knowledge"
+            element={<KnowledgePage />}
+          />
+          <Route
+            path="/knowledge/:id"
+            element={<KnowledgeDetail />}
           />
           <Route
             path="/settings"

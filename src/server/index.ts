@@ -56,6 +56,14 @@ import {
   initializeReportsStorage
 } from './reports-storage.js';
 import {
+  getAllKnowledgeDocs,
+  getKnowledgeDoc,
+  saveKnowledgeDoc,
+  deleteKnowledgeDoc,
+  searchKnowledgeDocs,
+  initializeKnowledgeStorage
+} from './knowledge-storage.js';
+import {
   getAllPipelines,
   getPipeline,
   createPipeline,
@@ -386,6 +394,119 @@ app.delete('/api/reports/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/reports/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete report' });
+  }
+});
+
+// Knowledge API routes
+
+// GET /api/knowledge - Get all knowledge docs (metadata only)
+app.get('/api/knowledge', async (_req, res) => {
+  try {
+    const docs = await getAllKnowledgeDocs();
+    res.json({ docs });
+  } catch (error) {
+    console.error('GET /api/knowledge error:', error);
+    res.status(500).json({ error: 'Failed to fetch knowledge docs' });
+  }
+});
+
+// GET /api/knowledge/search - Search knowledge docs
+app.get('/api/knowledge/search', async (req, res) => {
+  try {
+    const { q, repo, area, tags, limit } = req.query;
+    
+    const query: any = {};
+    if (q) query.keywords = q as string;
+    if (repo) query.repo = repo as string;
+    if (area) query.area = area as string;
+    if (tags) query.tags = (tags as string).split(',');
+    if (limit) query.limit = parseInt(limit as string);
+    
+    const results = await searchKnowledgeDocs(query);
+    res.json({ results });
+  } catch (error) {
+    console.error('GET /api/knowledge/search error:', error);
+    res.status(500).json({ error: 'Failed to search knowledge docs' });
+  }
+});
+
+// GET /api/knowledge/:id - Get single knowledge doc with full content
+app.get('/api/knowledge/:id', async (req, res) => {
+  try {
+    const doc = await getKnowledgeDoc(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ error: 'Knowledge doc not found' });
+    }
+    res.json({ doc });
+  } catch (error) {
+    console.error(`GET /api/knowledge/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch knowledge doc' });
+  }
+});
+
+// POST /api/knowledge - Create new knowledge doc
+app.post('/api/knowledge', async (req, res) => {
+  try {
+    const { title, content, description, repo, area, topic, tags, slug } = req.body;
+    
+    // Validate required fields
+    if (!title || !content || !area || !topic) {
+      return res.status(400).json({ error: 'Title, content, area, and topic are required' });
+    }
+    
+    const doc = await saveKnowledgeDoc(title, content, {
+      description,
+      repo,
+      area,
+      topic,
+      tags,
+      slug
+    });
+    
+    res.status(201).json({ doc });
+  } catch (error) {
+    console.error('POST /api/knowledge error:', error);
+    res.status(500).json({ error: 'Failed to create knowledge doc' });
+  }
+});
+
+// PUT /api/knowledge/:id - Update existing knowledge doc
+app.put('/api/knowledge/:id', async (req, res) => {
+  try {
+    const { title, content, description, repo, area, topic, tags } = req.body;
+    
+    // Validate required fields
+    if (!title || !content || !area || !topic) {
+      return res.status(400).json({ error: 'Title, content, area, and topic are required' });
+    }
+    
+    const doc = await saveKnowledgeDoc(title, content, {
+      description,
+      repo,
+      area,
+      topic,
+      tags,
+      id: req.params.id
+    });
+    
+    res.json({ doc });
+  } catch (error) {
+    console.error(`PUT /api/knowledge/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to update knowledge doc' });
+  }
+});
+
+// DELETE /api/knowledge/:id - Delete a knowledge doc
+app.delete('/api/knowledge/:id', async (req, res) => {
+  try {
+    const success = await deleteKnowledgeDoc(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Knowledge doc not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/knowledge/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to delete knowledge doc' });
   }
 });
 
@@ -1011,6 +1132,7 @@ async function startServer() {
     await initializePipelines();
     initializeChatStorage();
     await initializeReportsStorage();
+    await initializeKnowledgeStorage();
     await startWorker();
     
     app.listen(PORT, () => {

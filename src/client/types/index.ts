@@ -172,3 +172,37 @@ export interface ReportMetadata {
   updatedAt: Date;
   filename: string;
 }
+
+export interface KnowledgeDoc {
+  id: string;
+  title: string;
+  content: string;
+  description?: string;
+  repo?: string;
+  area: 'frontend' | 'backend' | 'API' | 'infra' | 'general';
+  topic: string;
+  tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  lastVerified?: Date;
+  filename: string;
+}
+
+export interface KnowledgeMetadata {
+  id: string;
+  title: string;
+  description?: string;
+  repo?: string;
+  area: 'frontend' | 'backend' | 'API' | 'infra' | 'general';
+  topic: string;
+  tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  lastVerified?: Date;
+  filename: string;
+}
+
+export interface KnowledgeSearchResult {
+  doc: KnowledgeMetadata;
+  score: number;
+}
