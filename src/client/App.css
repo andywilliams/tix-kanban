@@ -1985,3 +1985,243 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Standup Page Styles */
+.standup-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.standup-entry {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: var(--shadow);
+}
+
+.standup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1rem;
+}
+
+.standup-header h3 {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.standup-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.generated-time {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.standup-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+  .standup-content {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.standup-section {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section-title.yesterday {
+  color: var(--success);
+}
+
+.section-title.today {
+  color: var(--warning);
+}
+
+.section-title.blockers {
+  color: var(--error);
+}
+
+.standup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.standup-list li {
+  padding: 0.5rem 0;
+  color: var(--text-primary);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+}
+
+.standup-list li:last-child {
+  border-bottom: none;
+}
+
+.raw-data {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.raw-data summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.activity-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.activity-stats span {
+  background: var(--bg-secondary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.standup-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.generate-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.filter-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.filter-controls select {
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.generate-btn, .save-btn, .cancel-btn, .delete-btn, .refresh-btn {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.generate-btn:hover, .save-btn:hover, .refresh-btn:hover {
+  background: var(--bg-secondary);
+}
+
+.generate-btn.primary, .save-btn.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.generate-btn.primary:hover, .save-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.delete-btn {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+  padding: 0.5rem 1rem;
+}
+
+.delete-btn:hover {
+  opacity: 0.9;
+}
+
+.cancel-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+}
+
+.empty-state p {
+  margin-bottom: 0.5rem;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+
+.error-message {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 2rem;
+}
