@@ -1291,152 +1291,54 @@ app.get('/api/sync/full', async (_req, res) => {
 
     sendProgress('init', 'started', 'Starting full sync pipeline...');
 
+    // Helper to run a CLI command and stream output
+    const { exec: execCmd } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(execCmd);
+
+    const runStep = async (stepName: string, command: string, description: string): Promise<boolean> => {
+      sendProgress(stepName, 'started', description);
+      try {
+        const { stdout, stderr } = await execAsync(command, { 
+          timeout: 120000, // 2 min timeout per step
+          env: { ...process.env, PATH: process.env.PATH }
+        });
+        const output = stdout.trim();
+        sendProgress(stepName, 'completed', output || `${stepName} completed`);
+        return true;
+      } catch (error: any) {
+        const errMsg = error.stderr?.trim() || error.stdout?.trim() || error.message;
+        console.error(`Sync step ${stepName} error:`, errMsg);
+        sendProgress(stepName, 'error', `${stepName} failed: ${errMsg}`);
+        return false;
+      }
+    };
+
     try {
-      // Step 1: Sync from Notion
-      sendProgress('notion', 'started', 'Syncing tasks from Notion...');
-      
-      const notionConfig = await loadNotionConfig();
-      let notionSyncResult = null;
-      
-      if (notionConfig && notionConfig.syncEnabled) {
-        try {
-          const notionTasks = await syncTasksFromNotion(notionConfig);
-          
-          let tasksCreated = 0;
-          let tasksUpdated = 0;
-          
-          for (const notionTask of notionTasks) {
-            const existingTask = await getTask(notionTask.id);
-            
-            if (existingTask) {
-              const kanbanStatus = mapNotionStatusToKanban(notionTask.status, notionConfig.statusMappings);
-              await updateTask(notionTask.id, {
-                title: notionTask.title,
-                description: notionTask.description || '',
-                status: kanbanStatus,
-                priority: notionTask.priority || 100,
-                updatedAt: new Date(),
-              });
-              tasksUpdated++;
-            } else {
-              const kanbanStatus = mapNotionStatusToKanban(notionTask.status, notionConfig.statusMappings);
-              await createTask({
-                title: notionTask.title,
-                description: notionTask.description || '',
-                status: kanbanStatus,
-                priority: notionTask.priority || 100,
-                persona: 'general-developer',
-                tags: ['notion-sync'],
-                estimatedHours: undefined,
-                actualHours: undefined,
-                comments: [],
-                links: [{
-                  id: `link-${Date.now()}`,
-                  taskId: notionTask.id,
-                  url: notionTask.url,
-                  title: 'Notion Page',
-                  type: 'reference'
-                }],
-              });
-              tasksCreated++;
-            }
-          }
-          
-          notionSyncResult = {
-            totalFetched: notionTasks.length,
-            tasksCreated,
-            tasksUpdated
-          };
-          
-          sendProgress('notion', 'completed', 
-            `Notion sync complete: ${tasksCreated} created, ${tasksUpdated} updated`, 
-            notionSyncResult);
-        } catch (notionError) {
-          console.error('Notion sync error:', notionError);
-          sendProgress('notion', 'error', `Notion sync failed: ${notionError.message}`);
-        }
-      } else {
-        sendProgress('notion', 'progress', 'Notion sync skipped (not configured or disabled)');
-      }
+      // Step 1: tix sync — fetch tickets from Notion via Claude MCP
+      await runStep('notion', 'tix sync', 'Syncing tickets from Notion (via Claude MCP)...');
 
-      // Step 2: Sync GitHub PRs
-      sendProgress('github', 'started', 'Syncing GitHub PRs...');
-      
-      try {
-        const githubConfig = await getGitHubConfig();
-        let prSyncCount = 0;
-        
-        if (githubConfig.repos.length > 0) {
-          const allTasks = await getAllTasks();
-          const tasksWithPRs = allTasks.filter(task => 
-            task.links && task.links.some(link => link.type === 'pr')
-          );
-          
-          for (const task of tasksWithPRs) {
-            const prLinks = task.links?.filter(link => link.type === 'pr') || [];
-            
-            for (const prLink of prLinks) {
-              try {
-                // Extract repo and PR number from GitHub URL
-                const match = prLink.url.match(/github\.com\/([^\/]+\/[^\/]+)\/pull\/(\d+)/);
-                if (match) {
-                  const [, repo, prNumber] = match;
-                  const prStatus = await getPRStatus(repo, parseInt(prNumber));
-                  
-                  // Update task status based on PR state
-                  let newStatus = task.status;
-                  if (prStatus.state === 'merged') {
-                    newStatus = 'done';
-                  } else if (prStatus.state === 'closed') {
-                    // Only move to done if explicitly merged
-                    // Closed without merge might mean cancelled
-                  } else if (prStatus.state === 'open' && !prStatus.draft) {
-                    newStatus = 'review';
-                  }
-                  
-                  if (newStatus !== task.status) {
-                    await updateTask(task.id, { status: newStatus });
-                    prSyncCount++;
-                  }
-                }
-              } catch (prError) {
-                console.error(`Failed to sync PR ${prLink.url}:`, prError);
-              }
-            }
-          }
-          
-          sendProgress('github', 'completed', `GitHub sync complete: ${prSyncCount} tasks updated from PR status`);
-        } else {
-          sendProgress('github', 'progress', 'GitHub sync skipped (no repos configured)');
-        }
-      } catch (githubError) {
-        console.error('GitHub sync error:', githubError);
-        sendProgress('github', 'error', `GitHub sync failed: ${githubError.message}`);
-      }
+      // Step 2: tix sync-gh — find GitHub PRs for each ticket
+      await runStep('github', 'tix sync-gh', 'Syncing GitHub PR data...');
 
-      // Step 3: Update kanban board (refresh data)
-      sendProgress('kanban', 'started', 'Refreshing kanban board data...');
-      
-      try {
-        const refreshedTasks = await getAllTasks();
-        sendProgress('kanban', 'completed', `Kanban refresh complete: ${refreshedTasks.length} tasks loaded`, 
-          { taskCount: refreshedTasks.length });
-      } catch (kanbanError) {
-        console.error('Kanban refresh error:', kanbanError);
-        sendProgress('kanban', 'error', `Kanban refresh failed: ${kanbanError.message}`);
-      }
+      // Step 3: tix kanban-sync — push synced data into tix-kanban
+      await runStep('kanban', 'tix kanban-sync', 'Syncing tickets to kanban board...');
+
+      // Step 4: Refresh task count
+      const refreshedTasks = await getAllTasks();
+      sendProgress('refresh', 'completed', `Board refreshed: ${refreshedTasks.length} tasks loaded`);
 
       // Complete
       sendProgress('complete', 'completed', 'Full sync pipeline completed successfully!');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Full sync pipeline error:', error);
       sendProgress('error', 'error', `Pipeline failed: ${error.message}`);
     }
 
     res.end();
   } catch (error) {
-    console.error('POST /api/sync/full error:', error);
+    console.error('GET /api/sync/full error:', error);
     res.status(500).json({ error: 'Failed to start sync pipeline' });
   }
 });
