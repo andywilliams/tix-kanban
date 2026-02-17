@@ -272,7 +272,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
-      ['--allowedTools', 'Edit,exec,Read,Write'],
+      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
       320000, // 5.3 min timeout (process-level timeout)
       cwd
     );
