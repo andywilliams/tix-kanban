@@ -22,6 +22,27 @@ npm run dev
 4. **Result posted** — Claude's output is added as a comment, task moves to Review
 5. **You review** — approve, request changes, or move to Done
 
+## Automated Standups 🌅
+
+Tix-Kanban automatically generates daily standups by scanning your:
+
+- **Git commits** from local repositories
+- **GitHub PR/issue activity** via `gh` CLI
+- **What you did yesterday** → generated from actual activity
+- **What you're doing today** → based on current in-progress tasks
+- **Blockers** → stale PRs, review dependencies, etc.
+
+### Configuration
+
+- **Default schedule:** 9 AM, Monday-Friday (`0 9 * * 1-5`)
+- **API Controls:**
+  - `POST /api/worker/standup/toggle` — enable/disable
+  - `PUT /api/worker/standup/time` — change schedule (cron expression)
+  - `POST /api/worker/standup/trigger` — manual generation
+- **View standups:** `GET /api/standup/all`
+
+Instead of manually writing "what I did yesterday," your standup is auto-generated from actual development activity. Perfect for daily standups and progress tracking!
+
 ## Personas
 
 Personas are markdown files in `~/.tix-kanban/personas/`. Each one defines an AI personality and system prompt.
