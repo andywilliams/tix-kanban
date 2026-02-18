@@ -229,7 +229,7 @@ export function KnowledgeDetail() {
             </div>
           )}
 
-          <div className="knowledge-dates">
+          <div className="knowledge-dates" style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', color: 'var(--text-muted, #666)', marginTop: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
             <span>Created: {formatDate(doc.createdAt)}</span>
             <span>Updated: {formatDate(doc.updatedAt)}</span>
             {doc.lastVerified && (
@@ -237,27 +237,61 @@ export function KnowledgeDetail() {
             )}
           </div>
 
-          <div className="knowledge-content markdown-body">
+          <div className="knowledge-content" style={{ marginTop: '2rem', lineHeight: '1.6', color: 'var(--text-primary)' }}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                code({ node, className, children, ...props }) {
+                h1: ({ children }) => (
+                  <h1 style={{ fontSize: '1.75rem', fontWeight: '700', marginTop: '2rem', marginBottom: '1rem', color: 'var(--text-primary)', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>{children}</h1>
+                ),
+                h2: ({ children }) => (
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginTop: '1.5rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>{children}</h2>
+                ),
+                h3: ({ children }) => (
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginTop: '1.25rem', marginBottom: '0.75rem', color: 'var(--text-primary)' }}>{children}</h3>
+                ),
+                p: ({ children }) => (
+                  <p style={{ marginBottom: '1rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>{children}</p>
+                ),
+                code: ({ node, className, children, ...props }) => {
                   const match = /language-(\w+)/.exec(className || '');
                   const inline = !match && !className;
                   return !inline ? (
-                    <SyntaxHighlighter
-                      style={tomorrow as any}
-                      language={match ? match[1] : 'text'}
-                      PreTag="div"
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
+                    <div style={{ margin: '1rem 0' }}>
+                      <SyntaxHighlighter style={tomorrow as any} language={match ? match[1] : 'text'} PreTag="div">
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    </div>
                   ) : (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
+                    <code style={{ background: 'var(--bg-tertiary)', padding: '0.125rem 0.375rem', borderRadius: '0.25rem', fontSize: '0.875rem', color: 'var(--text-primary)', fontFamily: 'Monaco, Menlo, monospace' }} {...props}>{children}</code>
                   );
-                }
+                },
+                a: ({ children, href }) => (
+                  <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>{children}</a>
+                ),
+                ul: ({ children }) => (
+                  <ul style={{ marginBottom: '1rem', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>{children}</ul>
+                ),
+                ol: ({ children }) => (
+                  <ol style={{ marginBottom: '1rem', paddingLeft: '1.5rem', color: 'var(--text-secondary)' }}>{children}</ol>
+                ),
+                li: ({ children }) => (
+                  <li style={{ marginBottom: '0.25rem' }}>{children}</li>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote style={{ borderLeft: '4px solid var(--accent)', paddingLeft: '1rem', margin: '1rem 0', background: 'var(--bg-secondary)', padding: '1rem', borderRadius: '0.375rem', fontStyle: 'italic' }}>{children}</blockquote>
+                ),
+                table: ({ children }) => (
+                  <div style={{ overflowX: 'auto', margin: '1rem 0' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', background: 'var(--bg-secondary)', borderRadius: '0.375rem', overflow: 'hidden' }}>{children}</table>
+                  </div>
+                ),
+                th: ({ children }) => (
+                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border)' }}>{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)' }}>{children}</td>
+                ),
               }}
             >
               {doc.content}
