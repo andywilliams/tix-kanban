@@ -1,5 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+
+interface NavDropdownItem {
+  to: string;
+  label: string;
+  active: boolean;
+}
+
+function NavDropdown({ label, active, items }: { label: string; active: boolean; items: NavDropdownItem[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  return (
+    <div className="nav-dropdown" ref={ref}>
+      <button
+        className={`nav-link nav-dropdown-trigger ${active ? 'active' : ''}`}
+        onClick={() => setOpen(!open)}
+      >
+        {label} ▾
+      </button>
+      {open && (
+        <div className="nav-dropdown-menu">
+          {items.map(item => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`nav-dropdown-item ${item.active ? 'active' : ''}`}
+              onClick={() => setOpen(false)}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 import KanbanBoard from './components/KanbanBoard';
 import { WorkerStatus } from './components/WorkerStatus';
 import { GitHubSettingsModal } from './components/GitHubSettingsModal';
@@ -114,48 +158,25 @@ function AppContent() {
             >
               📋 Board
             </Link>
-            <Link 
-              to="/personas" 
-              className={`nav-link ${location.pathname === '/personas' ? 'active' : ''}`}
-            >
-              🤖 Personas
-            </Link>
-            <Link 
-              to="/dashboard" 
-              className={`nav-link ${location.pathname === '/dashboard' ? 'active' : ''}`}
-            >
-              📊 Dashboard
-            </Link>
-            <Link
-              to="/pipelines"
-              className={`nav-link ${location.pathname === '/pipelines' ? 'active' : ''}`}
-            >
-              📋 Pipelines
-            </Link>
-            <Link
-              to="/reports"
-              className={`nav-link ${location.pathname.startsWith('/reports') ? 'active' : ''}`}
-            >
-              📄 Reports
-            </Link>
-            <Link
-              to="/knowledge"
-              className={`nav-link ${location.pathname.startsWith('/knowledge') ? 'active' : ''}`}
-            >
-              🧠 Knowledge
-            </Link>
-            <Link
-              to="/standups"
-              className={`nav-link ${location.pathname === '/standups' ? 'active' : ''}`}
-            >
-              📋 Standups
-            </Link>
-            <Link
-              to="/activity-log"
-              className={`nav-link ${location.pathname === '/activity-log' ? 'active' : ''}`}
-            >
-              📝 Activity Log
-            </Link>
+            <NavDropdown 
+              label="🔧 Work" 
+              active={['/pipelines', '/personas', '/dashboard'].some(p => location.pathname.startsWith(p))}
+              items={[
+                { to: '/dashboard', label: '📊 Dashboard', active: location.pathname === '/dashboard' },
+                { to: '/pipelines', label: '📋 Pipelines', active: location.pathname === '/pipelines' },
+                { to: '/personas', label: '🤖 Personas', active: location.pathname === '/personas' },
+              ]}
+            />
+            <NavDropdown 
+              label="📊 Insights" 
+              active={['/reports', '/knowledge', '/standups', '/activity-log'].some(p => location.pathname.startsWith(p))}
+              items={[
+                { to: '/standups', label: '📋 Standups', active: location.pathname === '/standups' },
+                { to: '/activity-log', label: '📝 Activity Log', active: location.pathname === '/activity-log' },
+                { to: '/reports', label: '📄 Reports', active: location.pathname.startsWith('/reports') },
+                { to: '/knowledge', label: '🧠 Knowledge', active: location.pathname.startsWith('/knowledge') },
+              ]}
+            />
             <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
