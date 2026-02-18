@@ -29,6 +29,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
       status: newTask.status,
       priority: newTask.priority,
       persona: newTask.persona || undefined,
+      model: (newTask as any).model || undefined,
       tags: newTask.tags,
       dueDate: newTask.dueDate,
       estimate: newTask.estimate.trim() || undefined,
@@ -111,6 +112,18 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
                     {persona.emoji} {persona.name}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>AI Model</label>
+              <select
+                value={(newTask as any).model || ''}
+                onChange={(e) => setNewTask({ ...newTask, model: e.target.value || undefined } as any)}
+              >
+                <option value="">Default (use persona/system default)</option>
+                <option value="claude-sonnet-4-20250514">Sonnet (fast, cheap)</option>
+                <option value="claude-opus-4-20250514">Opus (powerful, expensive)</option>
               </select>
             </div>
 
