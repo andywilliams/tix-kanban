@@ -333,7 +333,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
-      320000, // 5.3 min timeout (process-level timeout)
+      persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000, // 15 min for tech-writer, 5.3 min for others
       cwd
     );
     
@@ -351,9 +351,14 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
   }
 }
 
-// Check if task is a research task based on tags or keywords
-function isResearchTask(task: Task): boolean {
-  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation'];
+// Check if task is a research task based on tags, keywords, or persona
+function isResearchTask(task: Task, persona?: Persona): boolean {
+  // Tech-writer persona always gets research treatment (longer timeout, report output)
+  if (persona && persona.id.toLowerCase().includes('tech-writer')) {
+    return true;
+  }
+  
+  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation', 'knowledge', 'article', 'documentation', 'document', 'architecture'];
   const titleLower = task.title.toLowerCase();
   const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
@@ -470,7 +475,7 @@ async function processTask(task: Task): Promise<void> {
     let success: boolean;
     let reportId: string | undefined;
     
-    if (isResearchTask(fullTask)) {
+    if (isResearchTask(fullTask, persona)) {
       // Handle as research task - generate report
       const researchResult = await processResearchTask(fullTask, persona);
       success = researchResult.success;
@@ -506,7 +511,7 @@ async function processTask(task: Task): Promise<void> {
     const updatedComments = [...existingComments, aiComment];
     
     // If this was a research task and succeeded, add link to the report
-    if (success && reportId && isResearchTask(fullTask)) {
+    if (success && reportId && isResearchTask(fullTask, persona)) {
       try {
         await addTaskLink(fullTask.id, {
           url: `/reports/${reportId}`, // Local URL to the report
@@ -521,7 +526,7 @@ async function processTask(task: Task): Promise<void> {
     
     if (success) {
       // Research tasks go directly to done - no review needed
-      if (isResearchTask(fullTask)) {
+      if (isResearchTask(fullTask, persona)) {
         await updateTask(fullTask.id, { 
           status: 'done',
           comments: updatedComments
