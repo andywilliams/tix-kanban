@@ -3,6 +3,39 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { getUserSettings } from './user-settings.js';
+import os from 'os';
+
+interface LogEntry {
+  timestamp: string;
+  date: string;
+  entry: string;
+  author: string;
+}
+
+const LOG_DIR = path.join(os.homedir(), '.tix', 'logs');
+
+/**
+ * Read log entries from ~/.tix/logs for a date range
+ */
+async function getLogEntriesForRange(startDate: string, endDate: string): Promise<LogEntry[]> {
+  const entries: LogEntry[] = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    const logFile = path.join(LOG_DIR, `${dateStr}.json`);
+    try {
+      const content = await fs.readFile(logFile, 'utf-8');
+      const dayEntries: LogEntry[] = JSON.parse(content);
+      entries.push(...dayEntries);
+    } catch {
+      // No log file for this date, skip
+    }
+  }
+  
+  return entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -217,12 +250,19 @@ async function scanLocalRepos(hoursAgo: number): Promise<CommitInfo[]> {
 /**
  * Generate standup content from activity data
  */
-function generateStandup(commits: CommitInfo[], prs: PRActivity[], issues: IssueActivity[]): Omit<StandupEntry, 'id' | 'generatedAt'> {
+async function generateStandup(commits: CommitInfo[], prs: PRActivity[], issues: IssueActivity[]): Promise<Omit<StandupEntry, 'id' | 'generatedAt'>> {
   const today = new Date().toISOString().split('T')[0];
   
   const yesterday: string[] = [];
   const todayItems: string[] = [];
   const blockers: string[] = [];
+
+  // Process log entries first
+  const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const logEntries = await getLogEntriesForRange(yesterdayDate, today);
+  logEntries.forEach(entry => {
+    yesterday.push(`📝 ${entry.entry}`);
+  });
 
   // Process commits
   commits.forEach(commit => {
@@ -286,7 +326,7 @@ export async function generateStandupEntry(hoursAgo: number = 24): Promise<Stand
   const { prs, issues } = await getGitHubActivity(userName, hoursAgo);
   
   // Generate standup
-  const standupData = generateStandup(commits, prs, issues);
+  const standupData = await generateStandup(commits, prs, issues);
   
   const entry: StandupEntry = {
     id: `${standupData.date}-${Date.now()}`,

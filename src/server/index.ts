@@ -1556,6 +1556,106 @@ app.get('/api/notion/test', async (_req, res) => {
   }
 });
 
+// Activity Log API routes
+const ACTIVITY_LOG_DIR = path.join(process.env.HOME || '/root', '.tix', 'logs');
+
+async function ensureLogDir() {
+  const fsSync = await import('fs');
+  if (!fsSync.default.existsSync(ACTIVITY_LOG_DIR)) {
+    fsSync.default.mkdirSync(ACTIVITY_LOG_DIR, { recursive: true });
+  }
+}
+
+async function readLogFile(date: string): Promise<any[]> {
+  const { promises: fsp } = await import('fs');
+  const filePath = path.join(ACTIVITY_LOG_DIR, `${date}.json`);
+  try {
+    const content = await fsp.readFile(filePath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return [];
+  }
+}
+
+async function writeLogFile(date: string, entries: any[]) {
+  const { promises: fsp } = await import('fs');
+  await ensureLogDir();
+  const filePath = path.join(ACTIVITY_LOG_DIR, `${date}.json`);
+  await fsp.writeFile(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+}
+
+// GET /api/activity-log?days=7 — returns log entries
+app.get('/api/activity-log', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const allEntries: Record<string, any[]> = {};
+    
+    for (let i = 0; i < days; i++) {
+      const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const entries = await readLogFile(date);
+      if (entries.length > 0) {
+        allEntries[date] = entries;
+      }
+    }
+    
+    res.json({ entries: allEntries });
+  } catch (error) {
+    console.error('GET /api/activity-log error:', error);
+    res.status(500).json({ error: 'Failed to fetch activity log' });
+  }
+});
+
+// POST /api/activity-log — adds a new entry
+app.post('/api/activity-log', async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: 'message is required' });
+    }
+    
+    const settings = await getUserSettings();
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    
+    const entry = {
+      timestamp: now.toISOString(),
+      date,
+      entry: message,
+      author: settings.userName || 'unknown'
+    };
+    
+    const entries = await readLogFile(date);
+    entries.push(entry);
+    await writeLogFile(date, entries);
+    
+    res.status(201).json({ entry });
+  } catch (error) {
+    console.error('POST /api/activity-log error:', error);
+    res.status(500).json({ error: 'Failed to add log entry' });
+  }
+});
+
+// DELETE /api/activity-log/:date/:index — deletes an entry
+app.delete('/api/activity-log/:date/:index', async (req, res) => {
+  try {
+    const { date, index } = req.params;
+    const idx = parseInt(index);
+    
+    const entries = await readLogFile(date);
+    if (idx < 0 || idx >= entries.length) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+    
+    entries.splice(idx, 1);
+    await writeLogFile(date, entries);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('DELETE /api/activity-log error:', error);
+    res.status(500).json({ error: 'Failed to delete log entry' });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
