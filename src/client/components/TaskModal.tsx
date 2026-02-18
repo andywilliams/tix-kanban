@@ -380,6 +380,11 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                 <p><strong>Updated:</strong> {task.updatedAt.toLocaleString()}</p>
                 {task.dueDate && <p><strong>Due:</strong> {task.dueDate.toLocaleString()}</p>}
                 {task.repo && <p><strong>Repository:</strong> {task.repo}</p>}
+                <p><strong>Model:</strong> {
+                  task.model === 'claude-sonnet-4-20250514' ? '⚡ Sonnet' :
+                  task.model === 'claude-opus-4-20250514' ? '🧠 Opus' :
+                  '🔄 Default' + (persona?.model ? ` (${persona.model === 'claude-sonnet-4-20250514' ? 'Sonnet' : persona.model === 'claude-opus-4-20250514' ? 'Opus' : persona.model})` : '')
+                }</p>
               </div>
 
               {/* Comments Section */}
