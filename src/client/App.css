@@ -2515,3 +2515,207 @@ body {
   padding: 3rem;
   color: var(--text-secondary);
 }
+
+/* ============================================
+   Knowledge Detail Page
+   ============================================ */
+
+.knowledge-detail {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.knowledge-detail .knowledge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.knowledge-detail .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.knowledge-meta-header {
+  margin-bottom: 1.25rem;
+}
+
+.knowledge-meta-header .knowledge-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.knowledge-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.knowledge-detail .knowledge-description {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.knowledge-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.knowledge-content {
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.knowledge-content.markdown-body h1,
+.knowledge-content.markdown-body h2,
+.knowledge-content.markdown-body h3,
+.knowledge-content.markdown-body h4 {
+  color: var(--text-primary);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.knowledge-content.markdown-body p {
+  margin-bottom: 1em;
+}
+
+.knowledge-content.markdown-body ul,
+.knowledge-content.markdown-body ol {
+  margin-bottom: 1em;
+  padding-left: 1.5em;
+}
+
+.knowledge-content.markdown-body li {
+  margin-bottom: 0.25em;
+}
+
+.knowledge-content.markdown-body code {
+  background: var(--bg-tertiary);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+
+.knowledge-content.markdown-body pre {
+  margin-bottom: 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.knowledge-content.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.knowledge-content.markdown-body blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: 0 6px 6px 0;
+}
+
+.knowledge-content.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.knowledge-content.markdown-body th,
+.knowledge-content.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.knowledge-content.markdown-body th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.knowledge-content.markdown-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.knowledge-content.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+/* Edit form styles */
+.knowledge-edit .form-group {
+  margin-bottom: 1rem;
+}
+
+.knowledge-edit label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+
+.knowledge-edit .form-input,
+.knowledge-edit .form-select,
+.knowledge-edit .form-textarea {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  box-sizing: border-box;
+}
+
+.knowledge-edit .form-input:focus,
+.knowledge-edit .form-select:focus,
+.knowledge-edit .form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.knowledge-edit .form-textarea {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  resize: vertical;
+}
+
+.knowledge-edit .form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.knowledge-edit .form-row .form-group {
+  flex: 1;
+}
+
+.knowledge-detail .btn-danger {
+  background: var(--error, #ef4444);
+  color: white;
+  border-color: var(--error, #ef4444);
+}
+
+.knowledge-detail .btn-danger:hover {
+  opacity: 0.9;
+}

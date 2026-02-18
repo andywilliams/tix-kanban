@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
 import { useKnowledgeDoc, deleteKnowledgeDoc, saveKnowledgeDoc } from '../hooks/useKnowledge.js';
 import { KnowledgeDoc } from '../types/index.js';
 
@@ -233,8 +237,31 @@ export function KnowledgeDetail() {
             )}
           </div>
 
-          <div className="knowledge-content">
-            <pre className="markdown-content">{doc.content}</pre>
+          <div className="knowledge-content markdown-body">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ node, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  const inline = !match && !className;
+                  return !inline ? (
+                    <SyntaxHighlighter
+                      style={tomorrow as any}
+                      language={match ? match[1] : 'text'}
+                      PreTag="div"
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                }
+              }}
+            >
+              {doc.content}
+            </ReactMarkdown>
           </div>
         </div>
       ) : (
