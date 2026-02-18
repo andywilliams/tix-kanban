@@ -223,6 +223,33 @@ This lets you build on previous work instead of starting from scratch.
 The task ID you're working on is: TASK_ID_PLACEHOLDER`;
 }
 
+// Extract branch info from linked PRs using gh CLI
+async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string, branch: string, repo: string, number: number}>> {
+  const prLinks = (links || []).filter(l => l.type === 'pr' || l.url?.includes('/pull/'));
+  const results: Array<{url: string, branch: string, repo: string, number: number}> = [];
+
+  for (const link of prLinks) {
+    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (match) {
+      const repo = match[1];
+      const number = parseInt(match[2]);
+      try {
+        const { execSync } = await import('child_process');
+        const branch = execSync(
+          `gh pr view ${number} --repo ${repo} --json headRefName --jq .headRefName`,
+          { encoding: 'utf-8', stdio: 'pipe', timeout: 10000 }
+        ).trim();
+        if (branch) {
+          results.push({ url: link.url!, branch, repo, number });
+        }
+      } catch {
+        // PR might be closed/merged or gh not available
+      }
+    }
+  }
+  return results;
+}
+
 // Spawn AI session for a task using OpenClaw
 async function spawnAISession(task: Task, persona: Persona): Promise<{ output: string; success: boolean }> {
   try {
@@ -250,7 +277,19 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
         additionalContext += `Link ${index + 1}: ${sanitizedTitle} - ${sanitizedUrl}\n`;
       });
     }
-    
+
+    // Fetch branch info for linked PRs
+    const prBranches = await getPRBranchInfo(task.links);
+    if (prBranches.length > 0) {
+      additionalContext += `\n## ⚠️ EXISTING PR(S) — WORK ON THESE BRANCHES\n`;
+      additionalContext += `This task already has linked PR(s). You MUST work on the existing branch(es) rather than creating new ones.\n\n`;
+      for (const pr of prBranches) {
+        additionalContext += `- **PR #${pr.number}** (${pr.repo}): branch \`${pr.branch}\`\n`;
+        additionalContext += `  Checkout: \`git fetch origin && git checkout ${pr.branch} && git pull origin ${pr.branch}\`\n`;
+      }
+      additionalContext += `\nDo NOT create a new branch. Commit and push to the existing branch(es) above.\n`;
+    }
+
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
       persona.id,
       task.title,
