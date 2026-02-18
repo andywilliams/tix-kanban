@@ -311,6 +311,20 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
               </div>
 
               <div className="form-group">
+                <label>Timeout</label>
+                <select
+                  value={editedTask.timeoutMs || ''}
+                  onChange={(e) => setEditedTask({ ...editedTask, timeoutMs: e.target.value ? parseInt(e.target.value) : undefined })}
+                >
+                  <option value="">Default (auto by persona/task type)</option>
+                  <option value="320000">5 min (quick tasks)</option>
+                  <option value="600000">10 min (standard)</option>
+                  <option value="900000">15 min (complex)</option>
+                  <option value="1800000">30 min (large research/analysis)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
                 <label>Tags (comma-separated)</label>
                 <input
                   type="text"
@@ -384,6 +398,14 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                   task.model === 'claude-sonnet-4-20250514' ? '⚡ Sonnet' :
                   task.model === 'claude-opus-4-20250514' ? '🧠 Opus' :
                   '🔄 Default' + (persona?.model ? ` (${persona.model === 'claude-sonnet-4-20250514' ? 'Sonnet' : persona.model === 'claude-opus-4-20250514' ? 'Opus' : persona.model})` : '')
+                }</p>
+                <p><strong>Timeout:</strong> {
+                  task.timeoutMs === 320000 ? '⏱️ 5 min' :
+                  task.timeoutMs === 600000 ? '⏱️ 10 min' :
+                  task.timeoutMs === 900000 ? '⏱️ 15 min' :
+                  task.timeoutMs === 1800000 ? '⏱️ 30 min' :
+                  task.timeoutMs ? `⏱️ ${Math.round(task.timeoutMs / 60000)} min` :
+                  '⏱️ Default (auto)'
                 }</p>
               </div>
 

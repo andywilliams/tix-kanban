@@ -19,6 +19,7 @@ export interface Task {
   rating?: TaskRating; // Human feedback/rating for completed work
   activity?: ActivityLog[]; // State change activity log
   model?: string; // Override AI model for this task
+  timeoutMs?: number; // Custom timeout in ms for AI worker (default: 320000 dev, 600000 research)
 }
 
 export interface ActivityLog {
