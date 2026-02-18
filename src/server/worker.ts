@@ -49,6 +49,8 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: 
     }
     const child = spawn('claude', claudeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
+      shell: true,
       ...(cwd && { cwd })
     });
     
