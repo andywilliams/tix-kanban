@@ -46,12 +46,23 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: 
     const claudeArgs = ['-p', ...args];
     // Model flag disabled for now — claude CLI picks up default from config
     const fullCommand = `claude ${claudeArgs.map(a => `'${a}'`).join(' ')}`;
-    console.log(`[worker] Running: ${fullCommand}`);
+    
+    // Validate cwd exists, fall back to process.cwd() if not
+    let resolvedCwd = cwd;
+    if (cwd) {
+      const fs = require('fs');
+      if (!fs.existsSync(cwd)) {
+        console.warn(`[worker] Workspace directory does not exist: ${cwd}, falling back to ${process.cwd()}`);
+        resolvedCwd = undefined;
+      }
+    }
+    
+    console.log(`[worker] Running: ${fullCommand} (cwd: ${resolvedCwd || process.cwd()})`);
     const child = spawn(fullCommand, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
       shell: true,
-      ...(cwd && { cwd })
+      ...(resolvedCwd && { cwd: resolvedCwd })
     });
     
     let stdout = '';
