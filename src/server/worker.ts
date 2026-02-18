@@ -339,7 +339,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
-      persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000, // 15 min for tech-writer, 5.3 min for others
+      (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,
       model
     );
@@ -423,7 +423,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
-      600000, // 10 min timeout for research tasks
+      (task as any).timeoutMs || 600000, // task override > 10 min default for research
       undefined, // No specific working directory needed for research
       researchModel
     );

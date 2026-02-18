@@ -30,6 +30,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
       priority: newTask.priority,
       persona: newTask.persona || undefined,
       model: (newTask as any).model || undefined,
+      timeoutMs: (newTask as any).timeoutMs || undefined,
       tags: newTask.tags,
       dueDate: newTask.dueDate,
       estimate: newTask.estimate.trim() || undefined,
@@ -124,6 +125,20 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
                 <option value="">Default (use persona/system default)</option>
                 <option value="claude-sonnet-4-20250514">Sonnet (fast, cheap)</option>
                 <option value="claude-opus-4-20250514">Opus (powerful, expensive)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Timeout</label>
+              <select
+                value={(newTask as any).timeoutMs || ''}
+                onChange={(e) => setNewTask({ ...newTask, timeoutMs: e.target.value ? parseInt(e.target.value) : undefined } as any)}
+              >
+                <option value="">Default (auto by persona/task type)</option>
+                <option value="320000">5 min (quick tasks)</option>
+                <option value="600000">10 min (standard)</option>
+                <option value="900000">15 min (complex)</option>
+                <option value="1800000">30 min (large research/analysis)</option>
               </select>
             </div>
 
