@@ -97,6 +97,7 @@ import {
   getAllStandupEntries,
   getRecentStandupEntries,
   deleteStandupEntry,
+  updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
 import {
@@ -1308,6 +1309,22 @@ app.get('/api/standup/all', async (_req, res) => {
   } catch (error) {
     console.error('GET /api/standup/all error:', error);
     res.status(500).json({ error: 'Failed to fetch all standups' });
+  }
+});
+
+// PUT /api/standup/:id - Update a standup entry
+app.put('/api/standup/:id', async (req, res) => {
+  try {
+    const { yesterday, today, blockers } = req.body as { yesterday?: string[]; today?: string[]; blockers?: string[] };
+    
+    const updated = await updateStandupEntry(req.params.id, { yesterday, today, blockers });
+    if (!updated) {
+      return res.status(404).json({ error: 'Standup not found' });
+    }
+    res.json({ standup: updated });
+  } catch (error) {
+    console.error(`PUT /api/standup/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to update standup' });
   }
 });
 

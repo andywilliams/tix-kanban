@@ -45,6 +45,9 @@ export function StandupPage() {
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
   const [currentStandup, setCurrentStandup] = useState<StandupEntry | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState<{ yesterday: string[]; today: string[]; blockers: string[] } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // Load standup history
   const loadStandups = async (daysToLoad: number = days) => {
@@ -129,6 +132,62 @@ export function StandupPage() {
     }
   };
 
+  // Start editing a standup
+  const startEditing = (entry: StandupEntry) => {
+    setEditingId(entry.id);
+    setEditData({
+      yesterday: [...entry.yesterday],
+      today: [...entry.today],
+      blockers: [...entry.blockers],
+    });
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditData(null);
+  };
+
+  // Save edited standup
+  const saveEdited = async () => {
+    if (!editingId || !editData) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/standup/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editData),
+      });
+      if (!response.ok) throw new Error(`Failed to save: ${response.statusText}`);
+      cancelEditing();
+      await loadStandups();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Edit helpers
+  const updateEditItem = (section: 'yesterday' | 'today' | 'blockers', index: number, value: string) => {
+    if (!editData) return;
+    const updated = [...editData[section]];
+    updated[index] = value;
+    setEditData({ ...editData, [section]: updated });
+  };
+
+  const deleteEditItem = (section: 'yesterday' | 'today' | 'blockers', index: number) => {
+    if (!editData) return;
+    const updated = editData[section].filter((_, i) => i !== index);
+    setEditData({ ...editData, [section]: updated });
+  };
+
+  const addEditItem = (section: 'yesterday' | 'today' | 'blockers') => {
+    if (!editData) return;
+    setEditData({ ...editData, [section]: [...editData[section], ''] });
+  };
+
   // Load data on mount
   useEffect(() => {
     loadStandups();
@@ -150,85 +209,174 @@ export function StandupPage() {
     });
   };
 
-  const renderStandupEntry = (entry: StandupEntry, isGenerated: boolean = false) => (
-    <div key={entry.id} className="standup-entry">
-      <div className="standup-header">
-        <h3>📋 {formatDate(entry.date)}</h3>
-        <div className="standup-meta">
-          <span className="generated-time">
-            {isGenerated ? 'Generated now' : `Generated ${formatTime(entry.generatedAt)}`}
-          </span>
-          {!isGenerated && (
-            <button
-              className="delete-btn"
-              onClick={() => deleteStandup(entry.id)}
-              disabled={loading}
-            >
-              🗑️ Delete
-            </button>
+  const renderEditableSection = (section: 'yesterday' | 'today' | 'blockers', label: string, emoji: string) => {
+    if (!editData) return null;
+    const items = editData[section];
+    return (
+      <div className="standup-section">
+        <h4 className="section-title {section}">{emoji} {label}</h4>
+        <ul className="standup-list" style={{ listStyle: 'none', padding: 0 }}>
+          {items.map((item, idx) => (
+            <li key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.3rem' }}>
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => updateEditItem(section, idx, e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '0.3rem 0.5rem',
+                  borderRadius: 4,
+                  border: '1px solid var(--color-border, #333)',
+                  background: 'var(--color-bg-secondary, #1a1a2e)',
+                  color: 'inherit',
+                  fontSize: '0.9rem'
+                }}
+              />
+              <button
+                onClick={() => deleteEditItem(section, idx)}
+                style={{ background: 'none', border: 'none', color: 'var(--color-danger, #ef4444)', cursor: 'pointer', fontSize: '1rem' }}
+                title="Remove"
+              >✕</button>
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={() => addEditItem(section)}
+          style={{
+            background: 'none',
+            border: '1px dashed var(--color-border, #555)',
+            color: 'var(--color-text-secondary, #aaa)',
+            cursor: 'pointer',
+            padding: '0.2rem 0.6rem',
+            borderRadius: 4,
+            fontSize: '0.85rem'
+          }}
+        >+ Add item</button>
+      </div>
+    );
+  };
+
+  const renderStandupEntry = (entry: StandupEntry, isGenerated: boolean = false) => {
+    const isEditing = editingId === entry.id;
+
+    return (
+      <div key={entry.id} className="standup-entry">
+        <div className="standup-header">
+          <h3>📋 {formatDate(entry.date)}</h3>
+          <div className="standup-meta">
+            <span className="generated-time">
+              {isGenerated ? 'Generated now' : `Generated ${formatTime(entry.generatedAt)}`}
+            </span>
+            {!isGenerated && !isEditing && (
+              <>
+                <button
+                  className="edit-btn"
+                  onClick={() => startEditing(entry)}
+                  disabled={loading}
+                  style={{ marginRight: '0.3rem' }}
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  className="delete-btn"
+                  onClick={() => deleteStandup(entry.id)}
+                  disabled={loading}
+                >
+                  🗑️ Delete
+                </button>
+              </>
+            )}
+            {isEditing && (
+              <>
+                <button
+                  className="save-btn primary"
+                  onClick={saveEdited}
+                  disabled={saving}
+                  style={{ marginRight: '0.3rem' }}
+                >
+                  {saving ? '⏳' : '💾'} Save
+                </button>
+                <button
+                  className="cancel-btn"
+                  onClick={cancelEditing}
+                >
+                  ❌ Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        
+        <div className="standup-content">
+          {isEditing ? (
+            <>
+              {renderEditableSection('yesterday', 'Yesterday', '✅')}
+              {renderEditableSection('today', 'Today', '🎯')}
+              {renderEditableSection('blockers', 'Blockers', '🚫')}
+            </>
+          ) : (
+            <>
+              <div className="standup-section">
+                <h4 className="section-title yesterday">✅ Yesterday</h4>
+                <ul className="standup-list">
+                  {entry.yesterday.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="standup-section">
+                <h4 className="section-title today">🎯 Today</h4>
+                <ul className="standup-list">
+                  {entry.today.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="standup-section">
+                <h4 className="section-title blockers">🚫 Blockers</h4>
+                <ul className="standup-list">
+                  {entry.blockers.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+
+          {(entry.commits.length > 0 || entry.prs.length > 0 || entry.issues.length > 0) && (
+            <details className="raw-data">
+              <summary>📊 Raw Activity Data</summary>
+              <div className="activity-stats">
+                {entry.commits.length > 0 && <span>Commits: {entry.commits.length}</span>}
+                {entry.prs.length > 0 && <span>PR activity: {entry.prs.length}</span>}
+                {entry.issues.length > 0 && <span>Issues closed: {entry.issues.length}</span>}
+              </div>
+            </details>
           )}
         </div>
-      </div>
-      
-      <div className="standup-content">
-        <div className="standup-section">
-          <h4 className="section-title yesterday">✅ Yesterday</h4>
-          <ul className="standup-list">
-            {entry.yesterday.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </div>
 
-        <div className="standup-section">
-          <h4 className="section-title today">🎯 Today</h4>
-          <ul className="standup-list">
-            {entry.today.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="standup-section">
-          <h4 className="section-title blockers">🚫 Blockers</h4>
-          <ul className="standup-list">
-            {entry.blockers.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </div>
-
-        {(entry.commits.length > 0 || entry.prs.length > 0 || entry.issues.length > 0) && (
-          <details className="raw-data">
-            <summary>📊 Raw Activity Data</summary>
-            <div className="activity-stats">
-              {entry.commits.length > 0 && <span>Commits: {entry.commits.length}</span>}
-              {entry.prs.length > 0 && <span>PR activity: {entry.prs.length}</span>}
-              {entry.issues.length > 0 && <span>Issues closed: {entry.issues.length}</span>}
-            </div>
-          </details>
+        {isGenerated && (
+          <div className="standup-actions">
+            <button
+              className="save-btn primary"
+              onClick={saveStandup}
+              disabled={loading}
+            >
+              💾 Save Standup
+            </button>
+            <button
+              className="cancel-btn"
+              onClick={() => setCurrentStandup(null)}
+            >
+              ❌ Cancel
+            </button>
+          </div>
         )}
       </div>
-
-      {isGenerated && (
-        <div className="standup-actions">
-          <button
-            className="save-btn primary"
-            onClick={saveStandup}
-            disabled={loading}
-          >
-            💾 Save Standup
-          </button>
-          <button
-            className="cancel-btn"
-            onClick={() => setCurrentStandup(null)}
-          >
-            ❌ Cancel
-          </button>
-        </div>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="standup-page">

@@ -382,6 +382,32 @@ export async function getRecentStandupEntries(days: number = 7): Promise<Standup
 }
 
 /**
+ * Update a standup entry (yesterday, today, blockers)
+ */
+export async function updateStandupEntry(id: string, updates: { yesterday?: string[]; today?: string[]; blockers?: string[] }): Promise<StandupEntry | null> {
+  try {
+    const files = await fs.readdir(STORAGE_DIR);
+    const targetFile = files.find(f => f.includes(id));
+    
+    if (!targetFile) return null;
+    
+    const filepath = path.join(STORAGE_DIR, targetFile);
+    const content = await fs.readFile(filepath, 'utf-8');
+    const entry: StandupEntry = JSON.parse(content);
+    
+    if (updates.yesterday) entry.yesterday = updates.yesterday;
+    if (updates.today) entry.today = updates.today;
+    if (updates.blockers) entry.blockers = updates.blockers;
+    
+    await fs.writeFile(filepath, JSON.stringify(entry, null, 2), 'utf-8');
+    return entry;
+  } catch (error) {
+    console.error('Error updating standup entry:', error);
+    return null;
+  }
+}
+
+/**
  * Delete a standup entry
  */
 export async function deleteStandupEntry(id: string): Promise<boolean> {
