@@ -1,5 +1,6 @@
 import * as cron from 'node-cron';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
@@ -50,8 +51,7 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: 
     // Validate cwd exists, fall back to process.cwd() if not
     let resolvedCwd = cwd;
     if (cwd) {
-      const fs = require('fs');
-      if (!fs.existsSync(cwd)) {
+      if (!existsSync(cwd)) {
         console.warn(`[worker] Workspace directory does not exist: ${cwd}, falling back to ${process.cwd()}`);
         resolvedCwd = undefined;
       }
