@@ -14,6 +14,7 @@ import { ReportDetail } from './components/ReportDetail';
 import { KnowledgePage } from './components/KnowledgePage';
 import { KnowledgeDetail } from './components/KnowledgeDetail';
 import { StandupPage } from './components/StandupPage';
+import { ActivityLogPage } from './components/ActivityLogPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -150,6 +151,12 @@ function AppContent() {
               📋 Standups
             </Link>
             <Link
+              to="/activity-log"
+              className={`nav-link ${location.pathname === '/activity-log' ? 'active' : ''}`}
+            >
+              📝 Activity Log
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -232,6 +239,10 @@ function AppContent() {
           <Route
             path="/standups"
             element={<StandupPage />}
+          />
+          <Route
+            path="/activity-log"
+            element={<ActivityLogPage />}
           />
           <Route
             path="/settings"
