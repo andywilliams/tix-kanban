@@ -41,13 +41,13 @@ function sanitizeForPrompt(content: string): string {
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, model?: string): Promise<{ stdout: string; stderr: string }> {
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, _model?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const claudeArgs = ['-p', ...args];
-    if (model) {
-      claudeArgs.push('--model', model);
-    }
-    const child = spawn('claude', claudeArgs, {
+    // Model flag disabled for now — claude CLI picks up default from config
+    const fullCommand = `claude ${claudeArgs.map(a => `'${a}'`).join(' ')}`;
+    console.log(`[worker] Running: ${fullCommand}`);
+    const child = spawn(fullCommand, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
       shell: true,
