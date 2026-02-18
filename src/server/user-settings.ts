@@ -7,6 +7,7 @@ const SETTINGS_FILE = path.join(os.homedir(), '.tix-kanban', 'user-settings.json
 export interface UserSettings {
   userName: string;
   workspaceDir?: string;
+  repoPaths?: Record<string, string>; // e.g. { "andywilliams/em-transactions-api": "/Users/me/dev/equals/em-transactions-api" }
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

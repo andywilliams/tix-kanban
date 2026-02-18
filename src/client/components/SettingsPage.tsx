@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 interface UserSettings {
   userName: string;
   workspaceDir?: string;
+  repoPaths?: Record<string, string>;
 }
 
 interface StandupConfig {
@@ -15,8 +16,10 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
-  const [settings, setSettings] = useState<UserSettings>({ userName: 'User', workspaceDir: '' });
+  const [settings, setSettings] = useState<UserSettings>({ userName: 'User', workspaceDir: '', repoPaths: {} });
   const [standupConfig, setStandupConfig] = useState<StandupConfig>({ enabled: false, time: '09:00' });
+  const [newRepoKey, setNewRepoKey] = useState('');
+  const [newRepoPath, setNewRepoPath] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [standupSaving, setStandupSaving] = useState(false);
@@ -174,6 +177,72 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             </small>
           </div>
         </div>
+        <div className="settings-section">
+          <h3>Repository Paths</h3>
+          <p className="settings-description">
+            Map GitHub repositories to their local paths. The worker uses these to run in the correct directory. Falls back to workspaceDir/repoName if not mapped.
+          </p>
+
+          {Object.entries(settings.repoPaths || {}).map(([repo, localPath]) => (
+            <div key={repo} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <code style={{ minWidth: '200px', fontSize: '13px', color: '#94a3b8' }}>{repo}</code>
+              <input
+                type="text"
+                value={localPath}
+                onChange={e => {
+                  const updated = { ...settings.repoPaths };
+                  updated[repo] = e.target.value;
+                  setSettings(prev => ({ ...prev, repoPaths: updated }));
+                }}
+                style={{ flex: 1 }}
+              />
+              <button
+                onClick={() => {
+                  const updated = { ...settings.repoPaths };
+                  delete updated[repo];
+                  setSettings(prev => ({ ...prev, repoPaths: updated }));
+                }}
+                style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer', fontSize: '13px' }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <input
+              type="text"
+              value={newRepoKey}
+              onChange={e => setNewRepoKey(e.target.value)}
+              placeholder="owner/repo"
+              style={{ width: '200px' }}
+            />
+            <input
+              type="text"
+              value={newRepoPath}
+              onChange={e => setNewRepoPath(e.target.value)}
+              placeholder="/Users/you/dev/project"
+              style={{ flex: 1 }}
+            />
+            <button
+              onClick={() => {
+                if (newRepoKey.trim() && newRepoPath.trim()) {
+                  const updated = { ...(settings.repoPaths || {}), [newRepoKey.trim()]: newRepoPath.trim() };
+                  setSettings(prev => ({ ...prev, repoPaths: updated }));
+                  setNewRepoKey('');
+                  setNewRepoPath('');
+                }
+              }}
+              style={{ background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontSize: '13px' }}
+            >
+              Add
+            </button>
+          </div>
+          <small className="form-help" style={{ marginTop: '4px', display: 'block' }}>
+            Example: andywilliams/em-transactions-api → /Users/andrewwilliams/development/equals/em-transactions-api
+          </small>
+        </div>
+
         <div className="settings-section">
           <h3>Automated Standups</h3>
           <p className="settings-description">

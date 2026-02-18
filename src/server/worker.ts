@@ -325,24 +325,27 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     let cwd: string | undefined;
     try {
       const settings = await getUserSettings();
-      if (settings.workspaceDir) {
-        if (task.repo) {
-          // If task has a repo field (owner/repo format), extract repo name and use workspaceDir/repoName
-          const repoName = task.repo.split('/').pop(); // Extract repo name from "owner/repo"
+      if (task.repo) {
+        // 1. Check per-repo path mapping first
+        if (settings.repoPaths?.[task.repo]) {
+          cwd = settings.repoPaths[task.repo];
+        } else if (settings.workspaceDir) {
+          // 2. Fall back to workspaceDir/repoName
+          const repoName = task.repo.split('/').pop();
           if (repoName) {
             cwd = path.join(settings.workspaceDir, repoName);
           } else {
             cwd = settings.workspaceDir;
           }
-        } else {
-          // Otherwise just use workspaceDir
-          cwd = settings.workspaceDir;
         }
+      } else if (settings.workspaceDir) {
+        cwd = settings.workspaceDir;
+      }
+      if (cwd) {
         console.log(`🗂️  Using workspace directory: ${cwd}`);
       }
     } catch (error) {
       console.error('Failed to load workspace directory setting:', error);
-      // Fall back to default behavior (current directory)
     }
 
     // Resolve model: task model > persona model > system default
