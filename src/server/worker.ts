@@ -41,9 +41,12 @@ function sanitizeForPrompt(content: string): string {
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, model?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const claudeArgs = ['-p', ...args];
+    if (model) {
+      claudeArgs.push('--model', model);
+    }
     const child = spawn('claude', claudeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       ...(cwd && { cwd })
@@ -329,12 +332,16 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
       // Fall back to default behavior (current directory)
     }
 
+    // Resolve model: task model > persona model > system default
+    const model = (task as any).model || persona?.model || undefined;
+
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
       persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000, // 15 min for tech-writer, 5.3 min for others
-      cwd
+      cwd,
+      model
     );
     
     if (stderr) {
@@ -409,12 +416,16 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     
     console.log(`📊 Generated research prompt with ${tokenCount.toLocaleString()} tokens`);
     
+    // Resolve model: task model > persona model > system default
+    const researchModel = (task as any).model || persona?.model || undefined;
+
     // Execute research with Claude CLI
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
       600000, // 10 min timeout for research tasks
-      undefined // No specific working directory needed for research
+      undefined, // No specific working directory needed for research
+      researchModel
     );
     
     if (stderr) {

@@ -296,6 +296,21 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
               </div>
 
               <div className="form-group">
+                <label>AI Model</label>
+                <select
+                  value={editedTask.model || ''}
+                  onChange={(e) => setEditedTask({ 
+                    ...editedTask, 
+                    model: e.target.value || undefined 
+                  })}
+                >
+                  <option value="">Default (use persona/system default)</option>
+                  <option value="claude-sonnet-4-20250514">Sonnet (fast, cheap)</option>
+                  <option value="claude-opus-4-20250514">Opus (powerful, expensive)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
                 <label>Tags (comma-separated)</label>
                 <input
                   type="text"

@@ -23,7 +23,7 @@ const EMOJI_OPTIONS = [
 export function PersonaEditor({ persona, onSave, onCancel }: PersonaEditorProps) {
   const [formData, setFormData] = useState({
     name: '', emoji: '🤖', description: '', specialties: [] as string[],
-    prompt: '', stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 }
+    prompt: '', model: '' as string | undefined, stats: { tasksCompleted: 0, averageCompletionTime: 0, successRate: 0 }
   });
   const [customSpecialty, setCustomSpecialty] = useState('');
   const [saving, setSaving] = useState(false);
@@ -33,7 +33,7 @@ export function PersonaEditor({ persona, onSave, onCancel }: PersonaEditorProps)
     if (persona) {
       setFormData({
         name: persona.name, emoji: persona.emoji, description: persona.description,
-        specialties: [...persona.specialties], prompt: persona.prompt, stats: persona.stats
+        specialties: [...persona.specialties], prompt: persona.prompt, model: persona.model || '', stats: persona.stats
       });
     }
   }, [persona]);
@@ -103,6 +103,16 @@ export function PersonaEditor({ persona, onSave, onCancel }: PersonaEditorProps)
               <label className="editor-label">Description</label>
               <textarea value={formData.description} onChange={(e) => handleInputChange('description', e.target.value)}
                 rows={2} className="editor-input editor-textarea" placeholder="Brief description..." />
+            </div>
+
+            <div className="editor-field">
+              <label className="editor-label">Default AI Model</label>
+              <select value={formData.model || ''} onChange={(e) => handleInputChange('model', e.target.value || undefined)}
+                className="editor-input">
+                <option value="">System Default</option>
+                <option value="claude-sonnet-4-20250514">Sonnet (fast, cheap)</option>
+                <option value="claude-opus-4-20250514">Opus (powerful, expensive)</option>
+              </select>
             </div>
 
             <div className="editor-field">

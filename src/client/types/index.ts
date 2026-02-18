@@ -18,6 +18,7 @@ export interface Task {
   links?: Link[];
   rating?: TaskRating; // Human feedback/rating for completed work
   activity?: ActivityLog[]; // State change activity log
+  model?: string; // Override AI model for this task
 }
 
 export interface ActivityLog {
@@ -68,6 +69,7 @@ export interface Persona {
   prompt: string;
   specialties: string[]; // Areas of expertise (e.g., ["TypeScript", "React", "API Design"])
   stats: PersonaStats;
+  model?: string; // Default AI model for this persona
   createdAt: Date;
   updatedAt: Date;
 }
