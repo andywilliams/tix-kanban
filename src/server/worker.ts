@@ -298,27 +298,39 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
 
     // Fetch branch info for linked PRs
     const prBranches = await getPRBranchInfo(task.links);
-    if (prBranches.length > 0) {
-      // Check if this is a code review task
-      if (isCodeReviewTask(task, persona)) {
-        additionalContext += `\n## 📋 CODE REVIEW TASK - USE LGTM TOOL\n`;
-        additionalContext += `This is a code review task. You should use the lgtm tool to perform a thorough review.\n\n`;
+    // Check if this is a code review task (even without PR links)
+    if (isCodeReviewTask(task, persona)) {
+      additionalContext += `\n## 📋 CODE REVIEW TASK - USE LGTM TOOL\n`;
+      additionalContext += `This is a code review task. You should use the lgtm tool to perform a thorough review.\n\n`;
+
+      if (prBranches.length > 0) {
+        // We have specific PRs to review
         for (const pr of prBranches) {
           additionalContext += `- **PR #${pr.number}** (${pr.repo})\n`;
           additionalContext += `  Review command: \`lgtm review ${pr.number} --full-context --usage-context --dry-run\`\n`;
           additionalContext += `  Repository: ${pr.repo}\n`;
         }
-        additionalContext += `\nPerform a thorough code review using lgtm, analyze the output, and provide actionable feedback.\n`;
-        additionalContext += `Focus on: security issues, bugs, code quality, test coverage, and best practices.\n`;
       } else {
-        additionalContext += `\n## ⚠️ EXISTING PR(S) — WORK ON THESE BRANCHES\n`;
-        additionalContext += `This task already has linked PR(s). You MUST work on the existing branch(es) rather than creating new ones.\n\n`;
-        for (const pr of prBranches) {
-          additionalContext += `- **PR #${pr.number}** (${pr.repo}): branch \`${pr.branch}\`\n`;
-          additionalContext += `  Checkout: \`git fetch origin && git checkout ${pr.branch} && git pull origin ${pr.branch}\`\n`;
-        }
-        additionalContext += `\nDo NOT create a new branch. Commit and push to the existing branch(es) above.\n`;
+        // No PR links yet, provide general instructions
+        additionalContext += `No specific PR was provided. To use lgtm, you need:\n`;
+        additionalContext += `1. Navigate to the repository directory\n`;
+        additionalContext += `2. Run: \`lgtm review <PR_NUMBER> --full-context --usage-context --dry-run\`\n`;
+        additionalContext += `3. Replace <PR_NUMBER> with the actual pull request number\n\n`;
+        additionalContext += `If a PR number is mentioned in the task description or comments, use that.\n`;
+        additionalContext += `Otherwise, ask for clarification about which PR to review.\n`;
       }
+
+      additionalContext += `\nPerform a thorough code review using lgtm, analyze the output, and provide actionable feedback.\n`;
+      additionalContext += `Focus on: security issues, bugs, code quality, test coverage, and best practices.\n`;
+    } else if (prBranches.length > 0) {
+      // Not a code review task, but has linked PRs - work on existing branches
+      additionalContext += `\n## ⚠️ EXISTING PR(S) — WORK ON THESE BRANCHES\n`;
+      additionalContext += `This task already has linked PR(s). You MUST work on the existing branch(es) rather than creating new ones.\n\n`;
+      for (const pr of prBranches) {
+        additionalContext += `- **PR #${pr.number}** (${pr.repo}): branch \`${pr.branch}\`\n`;
+        additionalContext += `  Checkout: \`git fetch origin && git checkout ${pr.branch} && git pull origin ${pr.branch}\`\n`;
+      }
+      additionalContext += `\nDo NOT create a new branch. Commit and push to the existing branch(es) above.\n`;
     }
 
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
@@ -422,12 +434,22 @@ function isCodeReviewTask(task: Task, persona?: Persona): boolean {
     ) || false;
 
     const reviewKeywords = ['review', 'code review', 'pr review', 'pull request review', 'lgtm'];
+    const lgtmKeywords = ['lgtm', 'use lgtm', 'lgtm tool', 'lgtm review'];
     const titleLower = task.title.toLowerCase();
     const descriptionLower = task.description.toLowerCase();
     const tags = task.tags || [];
 
     // Check if task is explicitly tagged for review
     if (tags.some(tag => reviewKeywords.includes(tag.toLowerCase()))) {
+      return true;
+    }
+
+    // Check if task explicitly requests lgtm (regardless of PR links)
+    const hasLgtmRequest = lgtmKeywords.some(keyword =>
+      titleLower.includes(keyword) || descriptionLower.includes(keyword)
+    );
+
+    if (hasLgtmRequest) {
       return true;
     }
 
