@@ -81,6 +81,47 @@ export interface PersonaMemory {
   isLarge: boolean;
 }
 
+// Structured memory system
+export interface MemoryEntry {
+  id: string;
+  category: 'preference' | 'instruction' | 'context' | 'relationship' | 'learning' | 'reflection';
+  content: string;
+  source: string;
+  createdAt: Date;
+  updatedAt: Date;
+  tags: string[];
+  importance: 'high' | 'medium' | 'low';
+}
+
+export interface StructuredMemory {
+  version: 2;
+  personaId: string;
+  entries: MemoryEntry[];
+  preferences: { [key: string]: string };
+  relationships: { [personName: string]: string };
+  lastUpdated: string;
+}
+
+// Soul/Personality system
+export interface PersonaSoul {
+  version: 1;
+  personaId: string;
+  name: string;
+  emoji: string;
+  archetype: string;
+  traits: {
+    communication: 'formal' | 'casual' | 'technical' | 'friendly' | 'direct';
+    approach: 'methodical' | 'creative' | 'pragmatic' | 'thorough' | 'fast';
+    style: 'verbose' | 'concise' | 'balanced';
+  };
+  voicePatterns: string[];
+  catchphrases: string[];
+  values: string[];
+  dislikes: string[];
+  teamDynamics: { [personaName: string]: string };
+  notes: string;
+}
+
 export interface PersonaStats {
   tasksCompleted: number;
   averageCompletionTime: number; // in minutes

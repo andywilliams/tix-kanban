@@ -12,6 +12,14 @@ import {
   ChatMessage
 } from './chat-storage.js';
 import { Persona } from '../client/types/index.js';
+import {
+  processRememberCommand,
+  generateMemoryContext,
+  getPersonaSoul,
+  generateDefaultSoul,
+  savePersonaSoul,
+  addMemoryEntry,
+} from './persona-memory.js';
 
 const execAsync = promisify(exec);
 
@@ -59,11 +67,39 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
     
+    // Check for "remember" commands first
+    const rememberResult = await processRememberCommand(
+      persona.id,
+      originalMessage.content,
+      originalMessage.author
+    );
+    
+    if (rememberResult.processed && rememberResult.response) {
+      // Just post the acknowledgment
+      await addMessage(
+        originalMessage.channelId,
+        persona.name,
+        'persona',
+        rememberResult.response,
+        originalMessage.id
+      );
+      console.log(`📝 Persona ${persona.name} processed memory command`);
+      return;
+    }
+    
     // Get recent chat history for context (last 10 messages)
     const recentMessages = await getMessages(originalMessage.channelId, 10);
     
-    // Create context prompt for the persona
-    const contextPrompt = createChatContextPrompt(persona, originalMessage, recentMessages);
+    // Get or create soul for personality
+    let soul = await getPersonaSoul(persona.id);
+    if (!soul) {
+      console.log(`✨ Generating default soul for ${persona.name}`);
+      soul = await generateDefaultSoul(persona);
+      await savePersonaSoul(soul);
+    }
+    
+    // Create context prompt for the persona with memory
+    const contextPrompt = await createChatContextPrompt(persona, soul, originalMessage, recentMessages);
     
     // Create temporary file with the prompt
     const tempPromptFile = path.join(os.tmpdir(), `tix-mention-${persona.id}-${Date.now()}.txt`);
@@ -94,6 +130,15 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
         originalMessage.id // Reply to the original message
       );
       
+      // Log interaction to memory
+      await addMemoryEntry(
+        persona.id,
+        'context',
+        `Conversation with ${originalMessage.author}: "${originalMessage.content.slice(0, 100)}..."`,
+        'self',
+        { importance: 'low' }
+      );
+      
       console.log(`✅ Persona ${persona.name} responded in channel ${originalMessage.channelId}`);
     } else {
       console.log(`⚠️  Persona ${persona.name} generated empty response`);
@@ -116,8 +161,13 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
   }
 }
 
-// Create context prompt for chat responses
-function createChatContextPrompt(persona: Persona, originalMessage: ChatMessage, recentMessages: ChatMessage[]): string {
+// Create context prompt for chat responses with personality and memory
+async function createChatContextPrompt(
+  persona: Persona,
+  soul: any,
+  originalMessage: ChatMessage,
+  recentMessages: ChatMessage[]
+): Promise<string> {
   // Format recent chat history
   const chatHistory = recentMessages
     .slice(-10) // Last 10 messages
@@ -128,19 +178,42 @@ function createChatContextPrompt(persona: Persona, originalMessage: ChatMessage,
     })
     .join('\n');
   
-  // Extract persona memory if available (simplified - just use the prompt for now)
-  const memory = persona.prompt || '';
+  // Get memory context
+  const memoryContext = await generateMemoryContext(
+    persona.id,
+    originalMessage.content,
+    1500
+  );
+  
+  // Build personality section from soul
+  let personalitySection = '';
+  if (soul) {
+    personalitySection = `## Your Personality: ${soul.archetype}
+
+**Communication style:** ${soul.traits.communication}
+**Approach:** ${soul.traits.approach}
+
+${soul.voicePatterns.length > 0 ? `**Voice:** ${soul.voicePatterns.join('; ')}` : ''}
+${soul.catchphrases.length > 0 ? `**Catchphrases you might use:** "${soul.catchphrases.join('", "')}"` : ''}
+${soul.values.length > 0 ? `**What you care about:** ${soul.values.join(', ')}` : ''}
+${soul.dislikes.length > 0 ? `**Things you dislike:** ${soul.dislikes.join(', ')}` : ''}
+`;
+  }
   
   return `You are ${persona.name} ${persona.emoji}, an AI persona in a team chat system.
 
 ## Your Identity:
 ${persona.description}
 
+${personalitySection}
+
 ## Your Core Instructions:
-${memory}
+${persona.prompt || 'Be helpful and professional.'}
 
 ## Specialties:
 ${persona.specialties.join(', ') || 'General assistance'}
+
+${memoryContext}
 
 ## Chat Context:
 You were mentioned in this team chat. Here's the recent conversation:
@@ -148,16 +221,17 @@ You were mentioned in this team chat. Here's the recent conversation:
 ${chatHistory}
 
 ## Current Message:
-The user just said: "${originalMessage.content}"
+The user "${originalMessage.author}" just said: "${originalMessage.content}"
 
 ## Instructions:
 - Respond naturally and helpfully as ${persona.name}
 - Be conversational and contextual to the chat thread
-- Keep responses concise but useful (1-3 sentences typically)
+- Keep responses concise but useful (1-3 sentences typically, unless more detail is needed)
 - Don't repeat information already in the chat
-- Be helpful and engaging
-- If asked a technical question, use your specialties
-- Don't respond with meta-commentary about being an AI unless directly asked
+- Stay in character with your personality
+- If they ask you to remember something, acknowledge it warmly
+- Reference your memories when relevant
+- Be genuinely helpful, not performatively helpful
 
 Generate your response now:`;
 }
@@ -189,4 +263,25 @@ export async function shouldPersonaRespond(persona: Persona, message: ChatMessag
   );
   
   return mentioned;
+}
+
+// Get team awareness context for a persona
+export async function getTeamContext(personaId: string): Promise<string> {
+  const personas = await getAllPersonas();
+  const currentPersona = personas.find(p => p.id === personaId);
+  
+  if (!currentPersona) return '';
+  
+  const otherPersonas = personas.filter(p => p.id !== personaId);
+  
+  let context = `## Your Team\n\n`;
+  context += `You work alongside these AI teammates:\n\n`;
+  
+  for (const p of otherPersonas) {
+    context += `- **${p.emoji} ${p.name}**: ${p.description}. Specialties: ${p.specialties.join(', ')}\n`;
+  }
+  
+  context += `\nYou can refer to your teammates naturally when their expertise is relevant.\n`;
+  
+  return context;
 }

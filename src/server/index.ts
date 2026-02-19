@@ -819,6 +819,128 @@ app.put('/api/personas/:id/memory', async (req, res) => {
   }
 });
 
+// Structured Memory API routes (enhanced memory system)
+import {
+  getStructuredMemory,
+  saveStructuredMemory,
+  addMemoryEntry,
+  searchMemories,
+  getPersonaSoul,
+  savePersonaSoul,
+  generateDefaultSoul,
+  MemoryEntry,
+  PersonaSoul
+} from './persona-memory.js';
+
+// GET /api/personas/:id/memories - Get structured memories
+app.get('/api/personas/:id/memories', async (req, res) => {
+  try {
+    const memory = await getStructuredMemory(req.params.id);
+    res.json(memory);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/memories error:`, error);
+    res.status(500).json({ error: 'Failed to fetch persona memories' });
+  }
+});
+
+// POST /api/personas/:id/memories - Add a memory entry
+app.post('/api/personas/:id/memories', async (req, res) => {
+  try {
+    const { category, content, source, tags, importance } = req.body as {
+      category: MemoryEntry['category'];
+      content: string;
+      source: string;
+      tags?: string[];
+      importance?: MemoryEntry['importance'];
+    };
+    
+    if (!category || !content || !source) {
+      return res.status(400).json({ error: 'category, content, and source are required' });
+    }
+    
+    const entry = await addMemoryEntry(req.params.id, category, content, source, { tags, importance });
+    res.json(entry);
+  } catch (error) {
+    console.error(`POST /api/personas/${req.params.id}/memories error:`, error);
+    res.status(500).json({ error: 'Failed to add memory entry' });
+  }
+});
+
+// GET /api/personas/:id/memories/search - Search memories
+app.get('/api/personas/:id/memories/search', async (req, res) => {
+  try {
+    const { q, category, limit } = req.query;
+    const results = await searchMemories(req.params.id, q as string || '', {
+      category: category as MemoryEntry['category'],
+      limit: limit ? parseInt(limit as string) : undefined
+    });
+    res.json({ results });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/memories/search error:`, error);
+    res.status(500).json({ error: 'Failed to search memories' });
+  }
+});
+
+// DELETE /api/personas/:id/memories/:entryId - Delete a memory entry
+app.delete('/api/personas/:id/memories/:entryId', async (req, res) => {
+  try {
+    const memory = await getStructuredMemory(req.params.id);
+    const initialLength = memory.entries.length;
+    memory.entries = memory.entries.filter(e => e.id !== req.params.entryId);
+    
+    if (memory.entries.length === initialLength) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+    
+    await saveStructuredMemory(memory);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/personas/${req.params.id}/memories/${req.params.entryId} error:`, error);
+    res.status(500).json({ error: 'Failed to delete memory entry' });
+  }
+});
+
+// Soul API routes
+
+// GET /api/personas/:id/soul - Get persona soul/personality
+app.get('/api/personas/:id/soul', async (req, res) => {
+  try {
+    let soul = await getPersonaSoul(req.params.id);
+    
+    // Generate default soul if none exists
+    if (!soul) {
+      const persona = await getPersona(req.params.id);
+      if (!persona) {
+        return res.status(404).json({ error: 'Persona not found' });
+      }
+      soul = await generateDefaultSoul(persona);
+      await savePersonaSoul(soul);
+    }
+    
+    res.json(soul);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/soul error:`, error);
+    res.status(500).json({ error: 'Failed to fetch persona soul' });
+  }
+});
+
+// PUT /api/personas/:id/soul - Update persona soul
+app.put('/api/personas/:id/soul', async (req, res) => {
+  try {
+    const soul = req.body as PersonaSoul;
+    
+    if (!soul.personaId || soul.personaId !== req.params.id) {
+      soul.personaId = req.params.id;
+    }
+    
+    await savePersonaSoul(soul);
+    res.json(soul);
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id}/soul error:`, error);
+    res.status(500).json({ error: 'Failed to update persona soul' });
+  }
+});
+
 // Chat API routes
 
 // GET /api/chat/channels - Get all channels

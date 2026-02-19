@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Persona, Task } from '../types';
 import { usePersonas } from '../hooks/usePersonas';
 import { useTasks } from '../hooks/useTasks';
+import { PersonaMemoryPanel } from './PersonaMemoryPanel';
 
 interface DashboardStats {
   totalPersonas: number;
@@ -31,6 +32,7 @@ export function PersonaDashboard() {
   const { tasks, loading: tasksLoading } = useTasks();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<'week' | 'month' | 'all'>('week');
+  const [selectedPersonaForMemory, setSelectedPersonaForMemory] = useState<Persona | null>(null);
 
   useEffect(() => {
     if (personas.length > 0 && tasks.length > 0) {
@@ -312,6 +314,34 @@ export function PersonaDashboard() {
                     : 'No recent activity'
                   }
                 </div>
+                
+                <button
+                  onClick={() => setSelectedPersonaForMemory(persona)}
+                  className="view-mind-btn"
+                  style={{
+                    marginTop: '0.75rem',
+                    width: '100%',
+                    padding: '0.5rem',
+                    background: 'var(--bg-tertiary)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.target as HTMLElement).style.background = 'var(--accent)';
+                    (e.target as HTMLElement).style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLElement).style.background = 'var(--bg-tertiary)';
+                    (e.target as HTMLElement).style.color = 'var(--text-secondary)';
+                  }}
+                >
+                  🧠 View Mind & Memory
+                </button>
               </div>
             ))}
           </div>
@@ -362,6 +392,36 @@ export function PersonaDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Persona Memory Panel Modal */}
+      {selectedPersonaForMemory && (
+        <div 
+          className="memory-panel-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: '2rem',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedPersonaForMemory(null);
+          }}
+        >
+          <div style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <PersonaMemoryPanel
+              persona={selectedPersonaForMemory}
+              onClose={() => setSelectedPersonaForMemory(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
