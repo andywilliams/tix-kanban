@@ -122,6 +122,25 @@ export interface PersonaMood {
   }>;
 }
 
+// Achievement system
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+  category: 'milestone' | 'streak' | 'quality' | 'special' | 'social';
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+  unlockedAt?: Date;
+}
+
+export interface PersonaAchievements {
+  personaId: string;
+  unlocked: Achievement[];
+  progress: { [achievementId: string]: number };
+  totalPoints: number;
+  rank: string;
+}
+
 // Soul/Personality system
 export interface PersonaSoul {
   version: 1;

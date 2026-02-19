@@ -994,6 +994,9 @@ import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';
 // Auto-tagging
 import { suggestTags, autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
 
+// Achievements
+import { calculateAchievements, getAllAchievements, getRarityColor } from './persona-achievements.js';
+
 // GET /api/personas/:id/mood - Get persona's current mood
 app.get('/api/personas/:id/mood', async (req, res) => {
   try {
@@ -1013,6 +1016,39 @@ app.get('/api/personas/:id/mood', async (req, res) => {
 // GET /api/moods - Get all mood types (for UI)
 app.get('/api/moods', (_req, res) => {
   res.json({ moods: getAllMoodTypes() });
+});
+
+// Achievement API routes
+
+// GET /api/personas/:id/achievements - Get persona achievements
+app.get('/api/personas/:id/achievements', async (req, res) => {
+  try {
+    const persona = await getPersona(req.params.id);
+    if (!persona) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+    
+    const achievements = await calculateAchievements(persona);
+    res.json(achievements);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/achievements error:`, error);
+    res.status(500).json({ error: 'Failed to fetch achievements' });
+  }
+});
+
+// GET /api/achievements - Get all available achievements
+app.get('/api/achievements', (_req, res) => {
+  const achievements = getAllAchievements();
+  res.json({ 
+    achievements,
+    rarityColors: {
+      common: getRarityColor('common'),
+      uncommon: getRarityColor('uncommon'),
+      rare: getRarityColor('rare'),
+      epic: getRarityColor('epic'),
+      legendary: getRarityColor('legendary'),
+    }
+  });
 });
 
 // Chat API routes
