@@ -53,9 +53,10 @@ Personas are markdown files in `~/.tix-kanban/personas/`. Each one defines an AI
 |---------|-------|---------|
 | Tech Writer | 📝 | Documentation, READMEs, guides |
 | Bug Fixer | 🐛 | Debugging, error investigation |
-| QA Engineer | 🔍 | Testing, quality assurance |
+| QA Engineer | 🔍 | Testing, quality assurance, code reviews with lgtm |
 | Security Reviewer | 🔒 | Security audits, vulnerability checks |
 | General Developer | 💻 | Full-stack coding tasks |
+| Code Reviewer | 🔍 | PR reviews using lgtm tool for thorough analysis |
 
 ### Creating Custom Personas
 
@@ -106,11 +107,19 @@ The persona ID is the filename without `.md` (e.g., `my-persona`).
 - Link tasks to PRs
 - View PR status (checks, reviews, merge state)
 
+### LGTM Code Review Integration
+- **Automated PR reviews** using the `lgtm` tool
+- **Dedicated personas** for code review tasks (Code Reviewer, QA Engineer)
+- **Smart detection** of review tasks based on PR links and keywords
+- **Comprehensive analysis** covering security, quality, and best practices
+- See [docs/lgtm-integration.md](./docs/lgtm-integration.md) for detailed setup
+
 ## Prerequisites
 
 - **Node.js** 18+
 - **Claude Code CLI** — install via `npm install -g @anthropic-ai/claude-code`
 - **GitHub CLI** (optional) — for PR creation and status checks
+- **lgtm** (optional) — for automated code reviews, install via `npm install -g lgtm`
 
 ## Configuration
 
