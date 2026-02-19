@@ -1673,6 +1673,133 @@ app.delete('/api/activity-log/:date/:index', async (req, res) => {
   }
 });
 
+// Daily Notes API routes
+const DAILY_NOTES_DIR = path.join(process.env.HOME || '/root', '.tix', 'notes');
+
+async function ensureNotesDir() {
+  const fsSync = await import('fs');
+  if (!fsSync.default.existsSync(DAILY_NOTES_DIR)) {
+    fsSync.default.mkdirSync(DAILY_NOTES_DIR, { recursive: true });
+  }
+}
+
+async function readNotesFile(date: string): Promise<any[]> {
+  const { promises: fsp } = await import('fs');
+  const filePath = path.join(DAILY_NOTES_DIR, `${date}.json`);
+  try {
+    const content = await fsp.readFile(filePath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return [];
+  }
+}
+
+async function writeNotesFile(date: string, entries: any[]) {
+  const { promises: fsp } = await import('fs');
+  await ensureNotesDir();
+  const filePath = path.join(DAILY_NOTES_DIR, `${date}.json`);
+  await fsp.writeFile(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+}
+
+// GET /api/daily-notes?days=14 — returns notes grouped by date
+app.get('/api/daily-notes', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const allNotes: Record<string, any[]> = {};
+
+    for (let i = 0; i < days; i++) {
+      const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const notes = await readNotesFile(date);
+      if (notes.length > 0) {
+        allNotes[date] = notes;
+      }
+    }
+
+    res.json({ notes: allNotes });
+  } catch (error) {
+    console.error('GET /api/daily-notes error:', error);
+    res.status(500).json({ error: 'Failed to fetch daily notes' });
+  }
+});
+
+// POST /api/daily-notes — adds a new note
+app.post('/api/daily-notes', async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    const settings = await getUserSettings();
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+
+    const note = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: now.toISOString(),
+      date,
+      content,
+      author: settings.userName || 'unknown'
+    };
+
+    const notes = await readNotesFile(date);
+    notes.push(note);
+    await writeNotesFile(date, notes);
+
+    res.status(201).json({ note });
+  } catch (error) {
+    console.error('POST /api/daily-notes error:', error);
+    res.status(500).json({ error: 'Failed to add note' });
+  }
+});
+
+// PUT /api/daily-notes/:date/:id — updates a note
+app.put('/api/daily-notes/:date/:id', async (req, res) => {
+  try {
+    const { date, id } = req.params;
+    const { content } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    const notes = await readNotesFile(date);
+    const idx = notes.findIndex((n: any) => n.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    notes[idx].content = content;
+    notes[idx].timestamp = new Date().toISOString();
+    await writeNotesFile(date, notes);
+
+    res.json({ note: notes[idx] });
+  } catch (error) {
+    console.error('PUT /api/daily-notes error:', error);
+    res.status(500).json({ error: 'Failed to update note' });
+  }
+});
+
+// DELETE /api/daily-notes/:date/:id — deletes a note
+app.delete('/api/daily-notes/:date/:id', async (req, res) => {
+  try {
+    const { date, id } = req.params;
+
+    const notes = await readNotesFile(date);
+    const idx = notes.findIndex((n: any) => n.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    notes.splice(idx, 1);
+    await writeNotesFile(date, notes);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('DELETE /api/daily-notes error:', error);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));

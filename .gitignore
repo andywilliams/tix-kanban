@@ -46,3 +46,4 @@ Thumbs.db
 # Local data (should be in ~/.tix-kanban/)
 tasks/
 runs/
+data/

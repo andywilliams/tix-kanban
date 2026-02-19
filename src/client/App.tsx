@@ -59,6 +59,7 @@ import { KnowledgePage } from './components/KnowledgePage';
 import { KnowledgeDetail } from './components/KnowledgeDetail';
 import { StandupPage } from './components/StandupPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
+import { DailyNotesPage } from './components/DailyNotesPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -169,10 +170,11 @@ function AppContent() {
             />
             <NavDropdown 
               label="📊 Insights" 
-              active={['/reports', '/knowledge', '/standups', '/activity-log'].some(p => location.pathname.startsWith(p))}
+              active={['/reports', '/knowledge', '/standups', '/activity-log', '/daily-notes'].some(p => location.pathname.startsWith(p))}
               items={[
                 { to: '/standups', label: '📋 Standups', active: location.pathname === '/standups' },
                 { to: '/activity-log', label: '📝 Activity Log', active: location.pathname === '/activity-log' },
+                { to: '/daily-notes', label: '🗒️ Daily Notes', active: location.pathname === '/daily-notes' },
                 { to: '/reports', label: '📄 Reports', active: location.pathname.startsWith('/reports') },
                 { to: '/knowledge', label: '🧠 Knowledge', active: location.pathname.startsWith('/knowledge') },
               ]}
@@ -264,6 +266,10 @@ function AppContent() {
           <Route
             path="/activity-log"
             element={<ActivityLogPage />}
+          />
+          <Route
+            path="/daily-notes"
+            element={<DailyNotesPage />}
           />
           <Route
             path="/settings"
