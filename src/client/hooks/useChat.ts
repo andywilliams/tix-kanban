@@ -9,6 +9,7 @@ interface UseChatReturn {
   switchChannel: (channel: ChatChannel) => void;
   sendMessage: (channelId: string, content: string, replyTo?: string) => Promise<void>;
   createTaskChannel: (taskId: string, taskTitle: string) => Promise<ChatChannel>;
+  createPersonaChannel: (personaId: string, personaName: string, personaEmoji: string) => Promise<ChatChannel>;
   refreshChannels: () => Promise<void>;
   refreshMessages: (channelId: string) => Promise<void>;
 }
@@ -188,6 +189,41 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
     }
   }, []);
 
+  // Create a direct persona channel (DM with a persona)
+  const createPersonaChannel = useCallback(async (personaId: string, personaName: string, personaEmoji: string): Promise<ChatChannel> => {
+    try {
+      const channelId = `persona-${personaId}`;
+      const channelName = `${personaEmoji} ${personaName}`;
+      const response = await fetch(`/api/chat/${channelId}?type=persona&personaId=${personaId}&name=${encodeURIComponent(channelName)}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to create persona channel');
+      }
+      
+      const data = await response.json();
+      const channel = {
+        ...data.channel,
+        lastActivity: new Date(data.channel.lastActivity),
+        messages: data.channel.messages.map((msg: any) => ({
+          ...msg,
+          createdAt: new Date(msg.createdAt)
+        }))
+      };
+      
+      // Add to channels list if not already present
+      setChannels(prev => {
+        const exists = prev.find(c => c.id === channelId);
+        if (exists) return prev;
+        return [channel, ...prev];
+      });
+      
+      return channel;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create persona channel');
+      throw err;
+    }
+  }, []);
+
   // Initialize - fetch channels and create/switch to general channel
   useEffect(() => {
     const initialize = async () => {
@@ -255,6 +291,7 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
     switchChannel,
     sendMessage,
     createTaskChannel,
+    createPersonaChannel,
     refreshChannels,
     refreshMessages
   };

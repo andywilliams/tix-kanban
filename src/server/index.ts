@@ -958,17 +958,18 @@ app.get('/api/chat/channels', async (_req, res) => {
 app.get('/api/chat/:channelId', async (req, res) => {
   try {
     const { channelId } = req.params;
-    const { type = 'general', taskId, name } = req.query;
+    const { type = 'general', taskId, name, personaId } = req.query;
     
-    if (!['task', 'general'].includes(type as string)) {
-      return res.status(400).json({ error: 'type must be "task" or "general"' });
+    if (!['task', 'general', 'persona'].includes(type as string)) {
+      return res.status(400).json({ error: 'type must be "task", "general", or "persona"' });
     }
     
     const channel = await createOrGetChannel(
       channelId, 
-      type as 'task' | 'general', 
+      type as 'task' | 'general' | 'persona', 
       taskId as string, 
-      name as string
+      name as string,
+      personaId as string
     );
     
     res.json({ channel });
@@ -1021,6 +1022,19 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
       // Don't await - let persona responses happen in background
       processMentions(message).catch(error => {
         console.error('Error processing mentions:', error);
+      });
+    }
+    
+    // Auto-respond in persona DM channels (even without @mention)
+    if (channel.type === 'persona' && channel.personaId && authorType === 'human') {
+      // Inject the persona's name as a mention so processMentions handles it
+      const personaMessage = {
+        ...message,
+        mentions: [channel.personaId],
+      };
+      console.log(`Persona DM channel - auto-triggering ${channel.personaId}`);
+      processMentions(personaMessage).catch(error => {
+        console.error('Error processing persona DM:', error);
       });
     }
     

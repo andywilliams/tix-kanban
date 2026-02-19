@@ -11,12 +11,14 @@ interface ChatPanelProps {
   onSendMessage: (channelId: string, content: string, replyTo?: string) => void;
   onSwitchChannel: (channel: ChatChannel) => void;
   onCreateTaskChannel: (taskId: string, taskTitle: string) => void;
+  onCreatePersonaChannel?: (personaId: string, personaName: string, personaEmoji: string) => Promise<ChatChannel>;
 }
 
 export default function ChatPanel({ 
   isOpen, onClose, currentChannel, channels, personas, currentUser,
-  onSendMessage, onSwitchChannel, onCreateTaskChannel 
+  onSendMessage, onSwitchChannel, onCreateTaskChannel, onCreatePersonaChannel 
 }: ChatPanelProps) {
+  const [showPersonaList, setShowPersonaList] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
   const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
@@ -125,6 +127,7 @@ export default function ChatPanel({
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
               {currentChannel.name}
               {currentChannel.type === 'task' && ' • Task Discussion'}
+              {currentChannel.type === 'persona' && ' • Direct Message'}
             </p>
           )}
         </div>
@@ -136,20 +139,81 @@ export default function ChatPanel({
 
       {/* Channel Switcher */}
       <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
-          {channels.map(channel => (
-            <button key={channel.id} onClick={() => onSwitchChannel(channel)}
+        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', alignItems: 'center' }}>
+          {/* DM with Persona button */}
+          {onCreatePersonaChannel && (
+            <button
+              onClick={() => setShowPersonaList(!showPersonaList)}
               style={{
                 padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.8rem',
-                whiteSpace: 'nowrap', border: 'none', cursor: 'pointer',
-                background: currentChannel?.id === channel.id ? 'var(--accent)' : 'var(--bg-tertiary)',
-                color: currentChannel?.id === channel.id ? '#fff' : 'var(--text-secondary)'
-              }}>
-              {channel.type === 'general' ? '🏠' : '📋'} {channel.name}
+                whiteSpace: 'nowrap', border: '1px dashed var(--border)', cursor: 'pointer',
+                background: showPersonaList ? 'var(--accent)' : 'transparent',
+                color: showPersonaList ? '#fff' : 'var(--text-muted)',
+              }}
+              title="Start a direct conversation with a persona"
+            >
+              ➕ DM
             </button>
-          ))}
+          )}
+          {channels.map(channel => {
+            const icon = channel.type === 'general' ? '🏠' : channel.type === 'persona' ? '💬' : '📋';
+            return (
+              <button key={channel.id} onClick={() => { onSwitchChannel(channel); setShowPersonaList(false); }}
+                style={{
+                  padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.8rem',
+                  whiteSpace: 'nowrap', border: 'none', cursor: 'pointer',
+                  background: currentChannel?.id === channel.id ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: currentChannel?.id === channel.id ? '#fff' : 'var(--text-secondary)'
+                }}>
+                {icon} {channel.name}
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {/* Persona DM List */}
+      {showPersonaList && onCreatePersonaChannel && (
+        <div style={{
+          padding: '0.75rem',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-tertiary)',
+        }}>
+          <div style={{ marginBottom: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+            Start a direct conversation:
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {personas.map(persona => (
+              <button
+                key={persona.id}
+                onClick={async () => {
+                  const channel = await onCreatePersonaChannel(persona.id, persona.name, persona.emoji);
+                  onSwitchChannel(channel);
+                  setShowPersonaList(false);
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.4rem 0.75rem', borderRadius: '0.5rem',
+                  background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                  cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-primary)',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent)';
+                  (e.target as HTMLElement).style.background = 'var(--bg-secondary)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLElement).style.borderColor = 'var(--border)';
+                  (e.target as HTMLElement).style.background = 'var(--bg-primary)';
+                }}
+              >
+                <span style={{ fontSize: '1rem' }}>{persona.emoji}</span>
+                <span>{persona.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>

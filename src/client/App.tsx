@@ -82,7 +82,8 @@ function AppContent() {
     loading: chatLoading,
     switchChannel,
     sendMessage,
-    createTaskChannel
+    createTaskChannel,
+    createPersonaChannel
   } = useChat(userName);
   const location = useLocation();
 
@@ -292,6 +293,7 @@ function AppContent() {
         onSendMessage={sendMessage}
         onSwitchChannel={switchChannel}
         onCreateTaskChannel={createTaskChannel}
+        onCreatePersonaChannel={createPersonaChannel}
       />
 
       <GitHubSettingsModal

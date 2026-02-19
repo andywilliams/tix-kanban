@@ -203,8 +203,9 @@ export interface ChatMessage {
 
 export interface ChatChannel {
   id: string;
-  type: 'task' | 'general';
+  type: 'task' | 'general' | 'persona';
   taskId?: string; // Only set for task channels
+  personaId?: string; // Only set for persona DM channels
   name: string;
   messages: ChatMessage[];
   lastActivity: Date;

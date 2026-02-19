@@ -17,8 +17,9 @@ export interface ChatMessage {
 
 export interface ChatChannel {
   id: string;
-  type: 'task' | 'general';
+  type: 'task' | 'general' | 'persona';
   taskId?: string; // Only set for task channels
+  personaId?: string; // Only set for persona DM channels
   name: string;
   messages: ChatMessage[];
   lastActivity: Date;
@@ -74,15 +75,20 @@ async function saveChannel(channel: ChatChannel): Promise<void> {
 }
 
 // Create or get a channel
-export async function createOrGetChannel(channelId: string, type: 'task' | 'general', taskId?: string, name?: string): Promise<ChatChannel> {
+export async function createOrGetChannel(channelId: string, type: 'task' | 'general' | 'persona', taskId?: string, name?: string, personaId?: string): Promise<ChatChannel> {
   let channel = await getChannel(channelId);
   
   if (!channel) {
+    let defaultName = 'General';
+    if (type === 'task') defaultName = `Task ${taskId}`;
+    if (type === 'persona') defaultName = `Persona ${personaId}`;
+    
     channel = {
       id: channelId,
       type,
-      taskId,
-      name: name || (type === 'general' ? 'General' : `Task ${taskId}`),
+      taskId: type === 'task' ? taskId : undefined,
+      personaId: type === 'persona' ? personaId : undefined,
+      name: name || defaultName,
       messages: [],
       lastActivity: new Date(),
     };
