@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
-import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask } from './persona-storage.js';
+import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -620,11 +620,17 @@ async function processTask(task: Task): Promise<void> {
     if (success) {
       // Research tasks go directly to done - no review needed
       if (isResearchTask(fullTask, persona)) {
-        await updateTask(fullTask.id, { 
+        await updateTask(fullTask.id, {
           status: 'done',
           comments: updatedComments
         });
         console.log(`🔍 Research task completed: ${fullTask.title}`);
+
+        // Update persona stats
+        const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
+        const completionTimeMinutes = completionTimeMs / (1000 * 60);
+        await updatePersonaStats(persona.id, completionTimeMinutes, true);
+        console.log(`📊 Updated stats for persona ${persona.name}`);
       } else {
         // Regular development tasks follow the normal review flow
         // Check if task is part of a pipeline
