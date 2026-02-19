@@ -279,6 +279,53 @@ app.get('/api/activity', async (req, res) => {
   }
 });
 
+// Auto-tagging API routes
+
+// GET /api/tasks/:id/tags/suggest - Get tag suggestions for a task
+app.get('/api/tasks/:id/tags/suggest', async (req, res) => {
+  try {
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const analysis = analyzeTaskTags(task);
+    res.json(analysis);
+  } catch (error) {
+    console.error(`GET /api/tasks/${req.params.id}/tags/suggest error:`, error);
+    res.status(500).json({ error: 'Failed to suggest tags' });
+  }
+});
+
+// POST /api/tasks/:id/tags/auto-apply - Auto-apply high-confidence tags
+app.post('/api/tasks/:id/tags/auto-apply', async (req, res) => {
+  try {
+    const task = await getTask(req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const { threshold = 0.7 } = req.body;
+    const newTags = autoApplyTags(task, threshold);
+    
+    if (newTags.length > 0) {
+      const updatedTags = [...new Set([...task.tags, ...newTags])];
+      await updateTask(req.params.id, { tags: updatedTags });
+      res.json({ applied: newTags, allTags: updatedTags });
+    } else {
+      res.json({ applied: [], allTags: task.tags, message: 'No high-confidence tags to apply' });
+    }
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.id}/tags/auto-apply error:`, error);
+    res.status(500).json({ error: 'Failed to auto-apply tags' });
+  }
+});
+
+// GET /api/tags/available - Get all available auto-tags
+app.get('/api/tags/available', (_req, res) => {
+  res.json({ tags: getAllAutoTags() });
+});
+
 // Comments API routes
 
 // POST /api/tasks/:id/comments - Add comment to task
@@ -943,6 +990,9 @@ app.put('/api/personas/:id/soul', async (req, res) => {
 
 // Mood API routes
 import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';
+
+// Auto-tagging
+import { suggestTags, autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
 
 // GET /api/personas/:id/mood - Get persona's current mood
 app.get('/api/personas/:id/mood', async (req, res) => {
