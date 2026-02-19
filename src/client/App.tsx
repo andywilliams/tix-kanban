@@ -52,7 +52,7 @@ import { PersonasPage } from './components/PersonasPage';
 import { PersonaDashboard } from './components/PersonaDashboard';
 import { PersonaMemoriesPage } from './components/PersonaMemoriesPage';
 import PipelinesPage from './components/PipelinesPage';
-import ChatPanel from './components/ChatPanel';
+import TeamChatPanel from './components/TeamChatPanel';
 import { SettingsPage } from './components/SettingsPage';
 import { ReportsPage } from './components/ReportsPage';
 import { ReportDetail } from './components/ReportDetail';
@@ -195,13 +195,13 @@ function AppContent() {
           <button
             className="chat-toggle"
             onClick={() => setChatOpen(!chatOpen)}
-            aria-label="Toggle chat"
+            aria-label="Toggle team chat"
             style={{ 
               backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : 'transparent',
               color: chatOpen ? 'white' : 'inherit'
             }}
           >
-            💬 Chat
+            🤝 Team Chat
           </button>
           <button
             className="github-settings-btn"
@@ -289,7 +289,7 @@ function AppContent() {
         </Routes>
       </main>
 
-      <ChatPanel
+      <TeamChatPanel
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}
         currentChannel={currentChannel}
@@ -300,6 +300,25 @@ function AppContent() {
         onSwitchChannel={switchChannel}
         onCreateTaskChannel={createTaskChannel}
         onCreatePersonaChannel={createPersonaChannel}
+        onStartDirectChat={async (personaId: string) => {
+          // Start a direct chat with a persona
+          try {
+            const response = await fetch(`/api/personas/${personaId}/chat/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: 'User' })
+            });
+            if (response.ok) {
+              const data = await response.json();
+              // Switch to the new channel
+              if (data.channel) {
+                switchChannel(data.channel);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to start direct chat:', error);
+          }
+        }}
       />
 
       <GitHubSettingsModal

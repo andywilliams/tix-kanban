@@ -229,6 +229,7 @@ export interface GitHubAuthStatus {
   username?: string;
 }
 
+// Chat types
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -242,9 +243,9 @@ export interface ChatMessage {
 
 export interface ChatChannel {
   id: string;
-  type: 'task' | 'general' | 'persona';
+  type: 'task' | 'general' | 'persona' | 'direct';
   taskId?: string; // Only set for task channels
-  personaId?: string; // Only set for persona DM channels
+  personaId?: string; // Only set for persona DM or direct persona chats
   name: string;
   messages: ChatMessage[];
   lastActivity: Date;
@@ -305,4 +306,65 @@ export interface KnowledgeMetadata {
 export interface KnowledgeSearchResult {
   doc: KnowledgeMetadata;
   score: number;
+}
+
+// Agent Memory types
+export interface AgentMemoryEntry {
+  id: string;
+  category: 'preferences' | 'context' | 'instructions' | 'relationships';
+  content: string;
+  keywords: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  source: 'explicit' | 'inferred' | 'feedback';
+  importance: number;
+}
+
+export interface AgentMemory {
+  personaId: string;
+  userId: string;
+  entries: AgentMemoryEntry[];
+  lastInteraction: Date;
+  interactionCount: number;
+}
+
+// Agent Soul/Personality types
+export interface PersonalityTrait {
+  name: string;
+  intensity: number;
+  description: string;
+}
+
+export interface CommunicationStyle {
+  formality: 'casual' | 'balanced' | 'formal';
+  verbosity: 'concise' | 'moderate' | 'detailed';
+  emoji: boolean;
+  humor: 'none' | 'occasional' | 'frequent';
+  technicalDepth: 'simple' | 'moderate' | 'deep';
+}
+
+export interface TeamRelationship {
+  personaId: string;
+  relationship: 'collaborator' | 'mentor' | 'mentee' | 'peer' | 'specialist';
+  dynamicNote: string;
+}
+
+export interface AgentSoul {
+  personaId: string;
+  corePurpose: string;
+  values: string[];
+  expertise: string[];
+  traits: PersonalityTrait[];
+  communicationStyle: CommunicationStyle;
+  quirks: string[];
+  catchphrases: string[];
+  teamRole: string;
+  relationships: TeamRelationship[];
+  alwaysDo: string[];
+  neverDo: string[];
+  greetings: string[];
+  acknowledgments: string[];
+  uncertainResponses: string[];
+  createdAt: Date;
+  updatedAt: Date;
 }

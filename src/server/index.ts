@@ -53,7 +53,22 @@ import {
   getMessages,
   getAllChannels
 } from './chat-storage.js';
-import { processMentions } from './mention-handler.js';
+import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import {
+  getAgentMemory,
+  addMemoryEntry,
+  updateMemoryEntry,
+  deleteMemoryEntry,
+  searchMemories,
+  getMemoriesByCategory,
+  clearMemories
+} from './agent-memory.js';
+import {
+  getAgentSoul,
+  updateAgentSoul,
+  initializeSoulForPersona,
+  getAllSouls
+} from './agent-soul.js';
 import {
   getAllReports,
   getReport,
@@ -911,8 +926,8 @@ app.put('/api/personas/:id/memory', async (req, res) => {
 import {
   getStructuredMemory,
   saveStructuredMemory,
-  addMemoryEntry,
-  searchMemories,
+  addMemoryEntry as addStructuredMemoryEntry,
+  searchMemories as searchStructuredMemories,
   getPersonaSoul,
   savePersonaSoul,
   generateDefaultSoul,
@@ -941,15 +956,54 @@ app.post('/api/personas/:id/memories', async (req, res) => {
       tags?: string[];
       importance?: MemoryEntry['importance'];
     };
-    
+
     if (!category || !content || !source) {
       return res.status(400).json({ error: 'category, content, and source are required' });
     }
-    
-    const entry = await addMemoryEntry(req.params.id, category, content, source, { tags, importance });
+
+    const entry = await addStructuredMemoryEntry(req.params.id, category, content, source, { tags, importance });
     res.json(entry);
   } catch (error) {
     console.error(`POST /api/personas/${req.params.id}/memories error:`, error);
+    res.status(500).json({ error: 'Failed to add memory entry' });
+  }
+});
+
+// Agent Memory API routes
+
+// GET /api/personas/:id/agent-memory - Get agent memory for a user
+app.get('/api/personas/:id/agent-memory', async (req, res) => {
+  try {
+    const userId = (req.query.userId as string) || 'default';
+    const memory = await getAgentMemory(req.params.id, userId);
+    res.json({ memory });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/agent-memory error:`, error);
+    res.status(500).json({ error: 'Failed to fetch agent memory' });
+  }
+});
+
+// POST /api/personas/:id/agent-memory - Add a memory entry
+app.post('/api/personas/:id/agent-memory', async (req, res) => {
+  try {
+    const userId = req.body.userId || 'default';
+    const { category, content, keywords, importance } = req.body;
+
+    if (!category || !content) {
+      return res.status(400).json({ error: 'category and content are required' });
+    }
+
+    const entry = await addMemoryEntry(req.params.id, userId, {
+      category,
+      content,
+      keywords: keywords || [],
+      source: 'explicit',
+      importance: importance || 5
+    });
+
+    res.status(201).json({ entry });
+  } catch (error) {
+    console.error(`POST /api/personas/${req.params.id}/agent-memory error:`, error);
     res.status(500).json({ error: 'Failed to add memory entry' });
   }
 });
@@ -958,7 +1012,7 @@ app.post('/api/personas/:id/memories', async (req, res) => {
 app.get('/api/personas/:id/memories/search', async (req, res) => {
   try {
     const { q, category, limit } = req.query;
-    const results = await searchMemories(req.params.id, q as string || '', {
+    const results = await searchStructuredMemories(req.params.id, q as string || '', {
       category: category as MemoryEntry['category'],
       limit: limit ? parseInt(limit as string) : undefined
     });
@@ -975,15 +1029,52 @@ app.delete('/api/personas/:id/memories/:entryId', async (req, res) => {
     const memory = await getStructuredMemory(req.params.id);
     const initialLength = memory.entries.length;
     memory.entries = memory.entries.filter(e => e.id !== req.params.entryId);
-    
+
     if (memory.entries.length === initialLength) {
       return res.status(404).json({ error: 'Memory entry not found' });
     }
-    
+
     await saveStructuredMemory(memory);
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/personas/${req.params.id}/memories/${req.params.entryId} error:`, error);
+    res.status(500).json({ error: 'Failed to delete memory entry' });
+  }
+});
+
+// PUT /api/personas/:id/agent-memory/:entryId - Update a memory entry
+app.put('/api/personas/:id/agent-memory/:entryId', async (req, res) => {
+  try {
+    const userId = req.body.userId || 'default';
+    const updates = req.body;
+    delete updates.userId;
+
+    const entry = await updateMemoryEntry(req.params.id, userId, req.params.entryId, updates);
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+
+    res.json({ entry });
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id}/agent-memory/${req.params.entryId} error:`, error);
+    res.status(500).json({ error: 'Failed to update memory entry' });
+  }
+});
+
+// DELETE /api/personas/:id/agent-memory/:entryId - Delete a memory entry
+app.delete('/api/personas/:id/agent-memory/:entryId', async (req, res) => {
+  try {
+    const userId = (req.query.userId as string) || 'default';
+    const success = await deleteMemoryEntry(req.params.id, userId, req.params.entryId);
+
+    if (!success) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/personas/${req.params.id}/agent-memory/${req.params.entryId} error:`, error);
     res.status(500).json({ error: 'Failed to delete memory entry' });
   }
 });
@@ -1090,6 +1181,127 @@ app.get('/api/achievements', (_req, res) => {
       legendary: getRarityColor('legendary'),
     }
   });
+// GET /api/personas/:id/agent-memory/search - Search memories
+app.get('/api/personas/:id/agent-memory/search', async (req, res) => {
+  try {
+    const userId = (req.query.userId as string) || 'default';
+    const query = req.query.q as string;
+    const category = req.query.category as string;
+    const limit = parseInt(req.query.limit as string) || 10;
+    
+    if (!query) {
+      return res.status(400).json({ error: 'query (q) is required' });
+    }
+    
+    const entries = await searchMemories(req.params.id, userId, query, {
+      category: category as any,
+      limit
+    });
+    
+    res.json({ entries });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/agent-memory/search error:`, error);
+    res.status(500).json({ error: 'Failed to search memories' });
+  }
+});
+
+// DELETE /api/personas/:id/agent-memory - Clear all memories for a user
+app.delete('/api/personas/:id/agent-memory', async (req, res) => {
+  try {
+    const userId = (req.query.userId as string) || 'default';
+    await clearMemories(req.params.id, userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/personas/${req.params.id}/agent-memory error:`, error);
+    res.status(500).json({ error: 'Failed to clear memories' });
+  }
+});
+
+// Agent Soul API routes
+
+// GET /api/personas/:id/soul - Get agent soul/personality
+app.get('/api/personas/:id/soul', async (req, res) => {
+  try {
+    let soul = await getAgentSoul(req.params.id);
+    
+    if (!soul) {
+      // Initialize a default soul for this persona
+      soul = await initializeSoulForPersona(req.params.id);
+    }
+    
+    res.json({ soul });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/soul error:`, error);
+    res.status(500).json({ error: 'Failed to fetch agent soul' });
+  }
+});
+
+// PUT /api/personas/:id/soul - Update agent soul/personality
+app.put('/api/personas/:id/soul', async (req, res) => {
+  try {
+    const updates = req.body;
+    let soul = await updateAgentSoul(req.params.id, updates);
+    
+    if (!soul) {
+      // Create new soul with provided data
+      soul = await initializeSoulForPersona(req.params.id);
+      soul = await updateAgentSoul(req.params.id, updates);
+    }
+    
+    res.json({ soul });
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id}/soul error:`, error);
+    res.status(500).json({ error: 'Failed to update agent soul' });
+  }
+});
+
+// GET /api/souls - Get all agent souls
+app.get('/api/souls', async (_req, res) => {
+  try {
+    const souls = await getAllSouls();
+    res.json({ souls });
+  } catch (error) {
+    console.error('GET /api/souls error:', error);
+    res.status(500).json({ error: 'Failed to fetch souls' });
+  }
+});
+
+// Direct chat API routes
+
+// POST /api/personas/:id/chat/start - Start a direct conversation
+app.post('/api/personas/:id/chat/start', async (req, res) => {
+  try {
+    const userId = req.body.userId || 'default';
+    const result = await startDirectConversation(req.params.id, userId);
+    
+    // Create/get the direct chat channel
+    const channel = await createOrGetChannel(
+      result.channelId,
+      'general', // Using 'general' type since 'direct' might not be supported yet
+      undefined,
+      `Chat with ${req.params.id}`
+    );
+    
+    res.json({ 
+      channelId: result.channelId,
+      greeting: result.greeting,
+      channel
+    });
+  } catch (error) {
+    console.error(`POST /api/personas/${req.params.id}/chat/start error:`, error);
+    res.status(500).json({ error: 'Failed to start direct conversation' });
+  }
+});
+
+// GET /api/team/overview - Get team overview
+app.get('/api/team/overview', async (_req, res) => {
+  try {
+    const overview = await getTeamOverview();
+    res.json({ overview });
+  } catch (error) {
+    console.error('GET /api/team/overview error:', error);
+    res.status(500).json({ error: 'Failed to get team overview' });
+  }
 });
 
 // Chat API routes
@@ -1111,13 +1323,13 @@ app.get('/api/chat/:channelId', async (req, res) => {
     const { channelId } = req.params;
     const { type = 'general', taskId, name, personaId } = req.query;
     
-    if (!['task', 'general', 'persona'].includes(type as string)) {
-      return res.status(400).json({ error: 'type must be "task", "general", or "persona"' });
+    if (!['task', 'general', 'persona', 'direct'].includes(type as string)) {
+      return res.status(400).json({ error: 'type must be "task", "general", "persona", or "direct"' });
     }
     
     const channel = await createOrGetChannel(
       channelId, 
-      type as 'task' | 'general' | 'persona', 
+      type as 'task' | 'general' | 'persona' | 'direct', 
       taskId as string, 
       name as string,
       personaId as string
@@ -1171,7 +1383,7 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
     if (message.mentions.length > 0) {
       console.log(`Message mentions personas: ${message.mentions.join(', ')}`);
       // Don't await - let persona responses happen in background
-      processMentions(message).catch(error => {
+      processChatMention(message).catch(error => {
         console.error('Error processing mentions:', error);
       });
     }
