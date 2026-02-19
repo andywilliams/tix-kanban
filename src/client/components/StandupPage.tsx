@@ -48,6 +48,7 @@ export function StandupPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<{ yesterday: string[]; today: string[]; blockers: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Load standup history
   const loadStandups = async (daysToLoad: number = days) => {
@@ -188,6 +189,25 @@ export function StandupPage() {
     setEditData({ ...editData, [section]: [...editData[section], ''] });
   };
 
+  // Copy standup to clipboard as plain text
+  const copyToClipboard = async (entry: StandupEntry) => {
+    const lines: string[] = [];
+    lines.push(`Standup - ${formatDate(entry.date)}`);
+    lines.push('');
+    lines.push('Yesterday:');
+    entry.yesterday.forEach(item => lines.push(`- ${item}`));
+    lines.push('');
+    lines.push('Today:');
+    entry.today.forEach(item => lines.push(`- ${item}`));
+    lines.push('');
+    lines.push('Blockers:');
+    entry.blockers.forEach(item => lines.push(`- ${item}`));
+
+    await navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedId(entry.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   // Load data on mount
   useEffect(() => {
     loadStandups();
@@ -269,6 +289,13 @@ export function StandupPage() {
             </span>
             {!isGenerated && !isEditing && (
               <>
+                <button
+                  className="copy-btn"
+                  onClick={() => copyToClipboard(entry)}
+                  style={{ marginRight: '0.3rem' }}
+                >
+                  {copiedId === entry.id ? '✅ Copied!' : '📋 Copy'}
+                </button>
                 <button
                   className="edit-btn"
                   onClick={() => startEditing(entry)}
@@ -365,6 +392,12 @@ export function StandupPage() {
               disabled={loading}
             >
               💾 Save Standup
+            </button>
+            <button
+              className="copy-btn"
+              onClick={() => copyToClipboard(entry)}
+            >
+              {copiedId === entry.id ? '✅ Copied!' : '📋 Copy'}
             </button>
             <button
               className="cancel-btn"
