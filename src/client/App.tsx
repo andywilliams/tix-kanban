@@ -50,6 +50,7 @@ import { GitHubSettingsModal } from './components/GitHubSettingsModal';
 import { SyncButton } from './components/SyncButton';
 import { PersonasPage } from './components/PersonasPage';
 import { PersonaDashboard } from './components/PersonaDashboard';
+import { PersonaMemoriesPage } from './components/PersonaMemoriesPage';
 import PipelinesPage from './components/PipelinesPage';
 import ChatPanel from './components/ChatPanel';
 import { SettingsPage } from './components/SettingsPage';
@@ -162,11 +163,12 @@ function AppContent() {
             </Link>
             <NavDropdown 
               label="🔧 Work" 
-              active={['/pipelines', '/personas', '/dashboard'].some(p => location.pathname.startsWith(p))}
+              active={['/pipelines', '/personas', '/dashboard', '/memories'].some(p => location.pathname.startsWith(p))}
               items={[
                 { to: '/dashboard', label: '📊 Dashboard', active: location.pathname === '/dashboard' },
                 { to: '/pipelines', label: '📋 Pipelines', active: location.pathname === '/pipelines' },
                 { to: '/personas', label: '🤖 Personas', active: location.pathname === '/personas' },
+                { to: '/memories', label: '🧠 Memories', active: location.pathname === '/memories' },
               ]}
             />
             <NavDropdown 
@@ -239,6 +241,10 @@ function AppContent() {
           <Route
             path="/dashboard"
             element={<PersonaDashboard />}
+          />
+          <Route
+            path="/memories"
+            element={<PersonaMemoriesPage />}
           />
           <Route
             path="/pipelines"
