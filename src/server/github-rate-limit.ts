@@ -351,4 +351,4 @@ export async function getLocalBranches(repoPath: string = '.'): Promise<{
   }
 }
 
-export { RateLimit, RateLimitResponse };
+export type { RateLimit, RateLimitResponse };

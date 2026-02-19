@@ -1,16 +1,15 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { 
-  getAllTasks, 
-  getTask, 
-  createTask, 
-  updateTask, 
-  removeTask, 
+import {
+  getAllTasks,
+  getTask,
+  createTask,
+  updateTask,
+  removeTask,
   initializeStorage,
   getTaskActivity,
-  getAllActivity,
-  addTaskLink
+  getAllActivity
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import { 
@@ -109,6 +108,13 @@ import {
   getDefaultStatusMappings,
   NotionConfig
 } from './notion-sync.js';
+import {
+  runPRCommentResolver,
+  startPRResolver,
+  togglePRResolver,
+  updatePRResolverFrequency,
+  getPRResolverStatus
+} from './pr-comment-resolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -725,7 +731,7 @@ app.put('/api/worker/standup/time', async (req, res) => {
 });
 
 // POST /api/worker/standup/trigger - Manually trigger standup generation
-app.post('/api/worker/standup/trigger', async (req, res) => {
+app.post('/api/worker/standup/trigger', async (_req, res) => {
   try {
     await triggerStandupGeneration();
     res.json({ success: true, message: 'Standup generation triggered' });
@@ -1293,6 +1299,101 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
+// PR Comment Resolver API routes
+
+// GET /api/pr-resolver/status - Get PR resolver status
+app.get('/api/pr-resolver/status', async (_req, res) => {
+  try {
+    const settings = await getUserSettings();
+    const prStatus = await getPRResolverStatus();
+    const status = {
+      enabled: settings.prResolver?.enabled || false,
+      frequency: settings.prResolver?.frequency || '0 */6 * * *',
+      lastRun: settings.prResolver?.lastRun,
+      githubUsername: settings.githubUsername,
+      isRunning: prStatus.isRunning
+    };
+    res.json({ status });
+  } catch (error) {
+    console.error('GET /api/pr-resolver/status error:', error);
+    res.status(500).json({ error: 'Failed to get PR resolver status' });
+  }
+});
+
+// POST /api/pr-resolver/toggle - Enable/disable PR resolver
+app.post('/api/pr-resolver/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    const settings = await getUserSettings();
+    if (!settings.githubUsername) {
+      return res.status(400).json({ error: 'GitHub username must be configured first' });
+    }
+
+    await togglePRResolver(enabled);
+    const status = await getUserSettings();
+
+    res.json({
+      enabled: status.prResolver?.enabled || false,
+      frequency: status.prResolver?.frequency || '0 */6 * * *'
+    });
+  } catch (error) {
+    console.error('POST /api/pr-resolver/toggle error:', error);
+    res.status(500).json({ error: 'Failed to toggle PR resolver' });
+  }
+});
+
+// PUT /api/pr-resolver/frequency - Update PR resolver frequency
+app.put('/api/pr-resolver/frequency', async (req, res) => {
+  try {
+    const { frequency } = req.body;
+
+    if (typeof frequency !== 'string') {
+      return res.status(400).json({ error: 'frequency must be a string' });
+    }
+
+    await updatePRResolverFrequency(frequency);
+    const settings = await getUserSettings();
+
+    res.json({
+      enabled: settings.prResolver?.enabled || false,
+      frequency: settings.prResolver?.frequency
+    });
+  } catch (error) {
+    console.error('PUT /api/pr-resolver/frequency error:', error);
+    res.status(500).json({ error: 'Failed to update PR resolver frequency' });
+  }
+});
+
+// POST /api/pr-resolver/run - Manually trigger PR comment resolution
+app.post('/api/pr-resolver/run', async (req, res) => {
+  try {
+    const { dryRun = false } = req.body;
+
+    const settings = await getUserSettings();
+    if (!settings.githubUsername) {
+      return res.status(400).json({ error: 'GitHub username must be configured first' });
+    }
+
+    // Run in background and return immediately
+    runPRCommentResolver(dryRun).catch(error => {
+      console.error('PR resolver run failed:', error);
+    });
+
+    res.json({
+      success: true,
+      message: `PR comment resolution ${dryRun ? 'dry run' : 'run'} started`
+    });
+  } catch (error) {
+    console.error('POST /api/pr-resolver/run error:', error);
+    res.status(500).json({ error: 'Failed to trigger PR resolution' });
+  }
+});
+
 // Standup API routes
 
 // GET /api/standup/generate - Generate a new standup from recent activity
@@ -1403,7 +1504,7 @@ app.get('/api/sync/full', async (_req, res) => {
     const runStep = async (stepName: string, command: string, description: string): Promise<boolean> => {
       sendProgress(stepName, 'started', description);
       try {
-        const { stdout, stderr } = await execAsync(command, { 
+        const { stdout } = await execAsync(command, { 
           timeout: 120000, // 2 min timeout per step
           env: { ...process.env, PATH: process.env.PATH }
         });
@@ -1532,17 +1633,12 @@ app.post('/api/notion/sync', async (_req, res) => {
           // Create new task
           const kanbanStatus = mapNotionStatusToKanban(notionTask.status, config.statusMappings);
           await createTask({
-            id: notionTask.id,
             title: notionTask.title,
             description: notionTask.description || '',
             status: kanbanStatus,
             priority: notionTask.priority || 100,
             persona: 'general-developer',
             tags: ['notion-sync'],
-            estimatedHours: undefined,
-            actualHours: undefined,
-            createdAt: new Date(),
-            updatedAt: new Date(),
             comments: [],
             links: [{
               id: `link-${Date.now()}`,
@@ -1851,7 +1947,8 @@ async function startServer() {
     await initializeKnowledgeStorage();
     await initializeStandupStorage();
     await startWorker();
-    
+    await startPRResolver();
+
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
       console.log(`📁 Serving static files from: ${clientBuildPath}`);

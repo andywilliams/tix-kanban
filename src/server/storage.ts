@@ -334,6 +334,8 @@ export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 't
 }
 
 // Log activity for a task
+// TODO: This function is not currently used but may be needed for future activity tracking
+/*
 async function logActivity(
   taskId: string,
   type: ActivityLog['type'],
@@ -356,19 +358,20 @@ async function logActivity(
   if (task) {
     const existingActivity = task.activity || [];
     const updatedActivity = [...existingActivity, activity];
-    
+
     // Update the task with new activity (without triggering another activity log)
     const updatedTask: Task = {
       ...task,
       activity: updatedActivity,
       updatedAt: new Date(),
     };
-    
+
     await writeTask(updatedTask);
   }
 
   return activity;
 }
+*/
 
 // Get activity for a specific task
 export async function getTaskActivity(taskId: string): Promise<ActivityLog[]> {
