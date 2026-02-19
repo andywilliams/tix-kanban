@@ -170,13 +170,19 @@ export async function getTask(taskId: string): Promise<Task | null> {
 
 // Create new task
 export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>, actor: string = 'system'): Promise<Task> {
+  const taskId = Math.random().toString(36).substr(2, 9);
   const task: Task = {
     ...taskData,
-    id: Math.random().toString(36).substr(2, 9),
+    id: taskId,
     createdAt: new Date(),
     updatedAt: new Date(),
     activity: [], // Initialize empty activity array
   };
+
+  // Fix up link taskIds if links were provided during creation
+  if (task.links && task.links.length > 0) {
+    task.links = task.links.map(link => ({ ...link, taskId }));
+  }
   
   // Add creation activity
   const creationActivity: ActivityLog = {

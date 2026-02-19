@@ -7,6 +7,13 @@ import TaskRating from './TaskRating';
 const getRepoName = (repo: string | RepoConfig): string =>
   typeof repo === 'string' ? repo : repo.name;
 
+function getPriorityColor(priority: number): string {
+  if (priority >= 150) return '#ef4444';
+  if (priority >= 100) return '#f59e0b';
+  if (priority >= 50) return '#10b981';
+  return '#6b7280';
+}
+
 interface TaskModalProps {
   task: Task;
   personas: Persona[];
@@ -363,7 +370,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                 <div className="task-meta">
                   <span className="task-id">#{task.id}</span>
                   <span className="task-status">{task.status}</span>
-                  <span className="task-priority">Priority: {task.priority}</span>
+                  <span className="task-priority" style={{ backgroundColor: getPriorityColor(task.priority), color: 'white' }}>Priority: {task.priority}</span>
                 </div>
                 {persona && (
                   <div className="task-assignee-badge">

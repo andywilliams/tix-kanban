@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { Task, Persona } from '../types';
+import { Task, Persona, Link } from '../types';
+
+interface LinkFormData {
+  url: string;
+  title: string;
+  type: 'pr' | 'attachment' | 'reference';
+}
 
 interface CreateTaskModalProps {
   personas: Persona[];
@@ -19,6 +25,10 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
     estimate: '',
   });
 
+  const [links, setLinks] = useState<Omit<Link, 'taskId'>[]>([]);
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkForm, setLinkForm] = useState<LinkFormData>({ url: '', title: '', type: 'reference' });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTask.title.trim()) return;
@@ -34,6 +44,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
       tags: newTask.tags,
       dueDate: newTask.dueDate,
       estimate: newTask.estimate.trim() || undefined,
+      links: links.length > 0 ? links.map(l => ({ ...l, taskId: '' })) : undefined,
     });
   };
 
@@ -172,11 +183,100 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
               <input
                 type="datetime-local"
                 value={newTask.dueDate?.toISOString().slice(0, 16) || ''}
-                onChange={(e) => setNewTask({ 
-                  ...newTask, 
-                  dueDate: e.target.value ? new Date(e.target.value) : undefined 
+                onChange={(e) => setNewTask({
+                  ...newTask,
+                  dueDate: e.target.value ? new Date(e.target.value) : undefined
                 })}
               />
+            </div>
+
+            {/* Links Section */}
+            <div className="links-section">
+              <div className="section-header">
+                <h4>Links ({links.length})</h4>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowLinkForm(!showLinkForm)}
+                >
+                  Add Link
+                </button>
+              </div>
+
+              {showLinkForm && (
+                <div className="link-form">
+                  <input
+                    type="text"
+                    placeholder="URL"
+                    value={linkForm.url}
+                    onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })}
+                    style={{ width: '100%', marginBottom: '10px' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Title"
+                    value={linkForm.title}
+                    onChange={(e) => setLinkForm({ ...linkForm, title: e.target.value })}
+                    style={{ width: '100%', marginBottom: '10px' }}
+                  />
+                  <select
+                    value={linkForm.type}
+                    onChange={(e) => setLinkForm({ ...linkForm, type: e.target.value as 'pr' | 'attachment' | 'reference' })}
+                    style={{ width: '100%', marginBottom: '10px' }}
+                  >
+                    <option value="reference">Reference</option>
+                    <option value="pr">Pull Request</option>
+                    <option value="attachment">Attachment</option>
+                  </select>
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowLinkForm(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        if (!linkForm.url.trim() || !linkForm.title.trim()) return;
+                        setLinks([...links, {
+                          id: Math.random().toString(36).substr(2, 9),
+                          url: linkForm.url.trim(),
+                          title: linkForm.title.trim(),
+                          type: linkForm.type,
+                        }]);
+                        setLinkForm({ url: '', title: '', type: 'reference' });
+                        setShowLinkForm(false);
+                      }}
+                      disabled={!linkForm.url.trim() || !linkForm.title.trim()}
+                    >
+                      Add Link
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="links-list">
+                {links.map(link => (
+                  <div key={link.id} className="link-item">
+                    <div className="link-info">
+                      <a href={link.url} target="_blank" rel="noopener noreferrer">
+                        {link.title}
+                      </a>
+                      <span className="link-type">{link.type}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => setLinks(links.filter(l => l.id !== link.id))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
