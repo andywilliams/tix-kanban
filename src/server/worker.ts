@@ -299,13 +299,26 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     // Fetch branch info for linked PRs
     const prBranches = await getPRBranchInfo(task.links);
     if (prBranches.length > 0) {
-      additionalContext += `\n## ⚠️ EXISTING PR(S) — WORK ON THESE BRANCHES\n`;
-      additionalContext += `This task already has linked PR(s). You MUST work on the existing branch(es) rather than creating new ones.\n\n`;
-      for (const pr of prBranches) {
-        additionalContext += `- **PR #${pr.number}** (${pr.repo}): branch \`${pr.branch}\`\n`;
-        additionalContext += `  Checkout: \`git fetch origin && git checkout ${pr.branch} && git pull origin ${pr.branch}\`\n`;
+      // Check if this is a code review task
+      if (isCodeReviewTask(task, persona)) {
+        additionalContext += `\n## 📋 CODE REVIEW TASK - USE LGTM TOOL\n`;
+        additionalContext += `This is a code review task. You should use the lgtm tool to perform a thorough review.\n\n`;
+        for (const pr of prBranches) {
+          additionalContext += `- **PR #${pr.number}** (${pr.repo})\n`;
+          additionalContext += `  Review command: \`lgtm review ${pr.number} --full-context --usage-context --dry-run\`\n`;
+          additionalContext += `  Repository: ${pr.repo}\n`;
+        }
+        additionalContext += `\nPerform a thorough code review using lgtm, analyze the output, and provide actionable feedback.\n`;
+        additionalContext += `Focus on: security issues, bugs, code quality, test coverage, and best practices.\n`;
+      } else {
+        additionalContext += `\n## ⚠️ EXISTING PR(S) — WORK ON THESE BRANCHES\n`;
+        additionalContext += `This task already has linked PR(s). You MUST work on the existing branch(es) rather than creating new ones.\n\n`;
+        for (const pr of prBranches) {
+          additionalContext += `- **PR #${pr.number}** (${pr.repo}): branch \`${pr.branch}\`\n`;
+          additionalContext += `  Checkout: \`git fetch origin && git checkout ${pr.branch} && git pull origin ${pr.branch}\`\n`;
+        }
+        additionalContext += `\nDo NOT create a new branch. Commit and push to the existing branch(es) above.\n`;
       }
-      additionalContext += `\nDo NOT create a new branch. Commit and push to the existing branch(es) above.\n`;
     }
 
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
@@ -382,21 +395,51 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
   if (persona && persona.id.toLowerCase().includes('tech-writer')) {
     return true;
   }
-  
+
   const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation', 'knowledge', 'article', 'documentation', 'document', 'architecture'];
   const titleLower = task.title.toLowerCase();
   const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
-  
+
   // Check if task is explicitly tagged as research
   if (tags.some(tag => researchKeywords.includes(tag.toLowerCase()))) {
     return true;
   }
-  
+
   // Check if title or description contains research keywords
-  return researchKeywords.some(keyword => 
+  return researchKeywords.some(keyword =>
     titleLower.includes(keyword) || descriptionLower.includes(keyword)
   );
+}
+
+// Check if task is a code review task that should use lgtm
+function isCodeReviewTask(task: Task, persona?: Persona): boolean {
+  // QA-Engineer and Code-Reviewer personas can perform code reviews
+  if (persona && (persona.id.toLowerCase().includes('qa-engineer') || persona.id.toLowerCase().includes('code-reviewer'))) {
+    // Check if task has PR links or review keywords
+    const hasLinkedPR = task.links?.some(link =>
+      link.type === 'pr' || link.url?.includes('/pull/')
+    ) || false;
+
+    const reviewKeywords = ['review', 'code review', 'pr review', 'pull request review', 'lgtm'];
+    const titleLower = task.title.toLowerCase();
+    const descriptionLower = task.description.toLowerCase();
+    const tags = task.tags || [];
+
+    // Check if task is explicitly tagged for review
+    if (tags.some(tag => reviewKeywords.includes(tag.toLowerCase()))) {
+      return true;
+    }
+
+    // Check if title or description contains review keywords and has PR
+    const hasReviewKeyword = reviewKeywords.some(keyword =>
+      titleLower.includes(keyword) || descriptionLower.includes(keyword)
+    );
+
+    return hasLinkedPR && hasReviewKeyword;
+  }
+
+  return false;
 }
 
 // Handle research tasks by generating reports instead of code
