@@ -1,5 +1,5 @@
-import React from 'react';
-import { Persona } from '../types/index';
+import React, { useState, useEffect } from 'react';
+import { Persona, PersonaMood } from '../types/index';
 
 interface PersonaCardProps {
   persona: Persona;
@@ -8,6 +8,14 @@ interface PersonaCardProps {
 }
 
 export function PersonaCard({ persona, onEdit, onDelete }: PersonaCardProps) {
+  const [mood, setMood] = useState<PersonaMood | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/personas/${persona.id}/mood`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setMood(data))
+      .catch(() => {});
+  }, [persona.id]);
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
@@ -29,6 +37,26 @@ export function PersonaCard({ persona, onEdit, onDelete }: PersonaCardProps) {
             <p className="persona-card-id">ID: {persona.id}</p>
           </div>
         </div>
+        {mood && (
+          <div 
+            className="persona-card-mood"
+            title={`${mood.statusMessage}\n${mood.affectsResponse}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.25rem 0.5rem',
+              background: 'var(--bg-tertiary)',
+              borderRadius: '0.5rem',
+              fontSize: '0.8rem',
+            }}
+          >
+            <span>{mood.emoji}</span>
+            <span style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+              {mood.current}
+            </span>
+          </div>
+        )}
         <div className="persona-card-actions">
           <button onClick={onEdit} className="persona-card-btn" title="Edit persona">✏️</button>
           <button onClick={onDelete} className="persona-card-btn" title="Delete persona">🗑️</button>

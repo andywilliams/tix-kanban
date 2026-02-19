@@ -102,6 +102,26 @@ export interface StructuredMemory {
   lastUpdated: string;
 }
 
+// Mood system
+export type MoodType = 
+  | 'happy' | 'confident' | 'focused' | 'tired' 
+  | 'frustrated' | 'bored' | 'proud' | 'curious' | 'neutral';
+
+export interface PersonaMood {
+  current: MoodType;
+  intensity: number;
+  emoji: string;
+  statusMessage: string;
+  affectsResponse: string;
+  lastUpdated: Date;
+  recentEvents: Array<{
+    type: string;
+    timestamp: Date;
+    impact: number;
+    description: string;
+  }>;
+}
+
 // Soul/Personality system
 export interface PersonaSoul {
   version: 1;

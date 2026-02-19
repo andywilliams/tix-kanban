@@ -20,6 +20,10 @@ import {
   savePersonaSoul,
   addMemoryEntry,
 } from './persona-memory.js';
+import {
+  calculatePersonaMood,
+  getMoodPromptAddition,
+} from './persona-mood.js';
 
 const execAsync = promisify(exec);
 
@@ -185,6 +189,10 @@ async function createChatContextPrompt(
     1500
   );
   
+  // Calculate current mood
+  const mood = await calculatePersonaMood(persona);
+  const moodSection = getMoodPromptAddition(mood);
+  
   // Build personality section from soul
   let personalitySection = '';
   if (soul) {
@@ -197,6 +205,7 @@ ${soul.voicePatterns.length > 0 ? `**Voice:** ${soul.voicePatterns.join('; ')}` 
 ${soul.catchphrases.length > 0 ? `**Catchphrases you might use:** "${soul.catchphrases.join('", "')}"` : ''}
 ${soul.values.length > 0 ? `**What you care about:** ${soul.values.join(', ')}` : ''}
 ${soul.dislikes.length > 0 ? `**Things you dislike:** ${soul.dislikes.join(', ')}` : ''}
+${moodSection}
 `;
   }
   

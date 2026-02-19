@@ -941,6 +941,30 @@ app.put('/api/personas/:id/soul', async (req, res) => {
   }
 });
 
+// Mood API routes
+import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';
+
+// GET /api/personas/:id/mood - Get persona's current mood
+app.get('/api/personas/:id/mood', async (req, res) => {
+  try {
+    const persona = await getPersona(req.params.id);
+    if (!persona) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+    
+    const mood = await calculatePersonaMood(persona);
+    res.json(mood);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/mood error:`, error);
+    res.status(500).json({ error: 'Failed to fetch persona mood' });
+  }
+});
+
+// GET /api/moods - Get all mood types (for UI)
+app.get('/api/moods', (_req, res) => {
+  res.json({ moods: getAllMoodTypes() });
+});
+
 // Chat API routes
 
 // GET /api/chat/channels - Get all channels
