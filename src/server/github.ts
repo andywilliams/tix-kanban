@@ -238,6 +238,8 @@ export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merge
       const prStatuses: PRStatus[] = [];
       for (const pr of prs) {
         try {
+          // Yield to event loop between PR fetches to avoid blocking the server
+          await new Promise(resolve => setImmediate(resolve));
           const status = await getPRStatus(repo, pr.number);
           prStatuses.push(status);
         } catch (error) {
@@ -326,6 +328,8 @@ export async function getTaskGitHubData(taskId: string): Promise<{
   for (const repoEntry of config.repos) {
     const repoName = getRepoName(repoEntry);
     try {
+      // Yield to event loop between repo checks to avoid blocking the server
+      await new Promise(resolve => setImmediate(resolve));
       const prs = await getRepoPRs(repoName, 'all');
       const taskPRs = prs.filter(pr => pr.title.includes(`[${taskId}]`));
       linkedPRs.push(...taskPRs);
