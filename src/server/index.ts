@@ -1181,6 +1181,8 @@ app.get('/api/achievements', (_req, res) => {
       legendary: getRarityColor('legendary'),
     }
   });
+});
+
 // GET /api/personas/:id/agent-memory/search - Search memories
 app.get('/api/personas/:id/agent-memory/search', async (req, res) => {
   try {
