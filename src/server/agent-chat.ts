@@ -490,7 +490,7 @@ async function generateAIResponse(prompt: string, persona: Persona): Promise<str
       const { spawn } = await import('child_process');
       
       // Use spawn to pipe prompt via stdin — avoids shell escaping issues
-      const claude = spawn('claude', ['-p', '-', '--max-turns', '1', '--allowedTools', 'Read'], {
+      const claude = spawn('claude', ['-p', '-', '--max-turns', '3'], {
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 60000
