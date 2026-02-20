@@ -17,9 +17,9 @@ export interface ChatMessage {
 
 export interface ChatChannel {
   id: string;
-  type: 'task' | 'general' | 'persona';
+  type: 'task' | 'general' | 'persona' | 'direct';
   taskId?: string; // Only set for task channels
-  personaId?: string; // Only set for persona DM channels
+  personaId?: string; // Only set for persona DM or direct persona chats
   name: string;
   messages: ChatMessage[];
   lastActivity: Date;
@@ -75,20 +75,24 @@ async function saveChannel(channel: ChatChannel): Promise<void> {
 }
 
 // Create or get a channel
-export async function createOrGetChannel(channelId: string, type: 'task' | 'general' | 'persona', taskId?: string, name?: string, personaId?: string): Promise<ChatChannel> {
+export async function createOrGetChannel(channelId: string, type: 'task' | 'general' | 'persona' | 'direct', taskId?: string, name?: string, personaId?: string): Promise<ChatChannel> {
   let channel = await getChannel(channelId);
-  
+
   if (!channel) {
-    let defaultName = 'General';
-    if (type === 'task') defaultName = `Task ${taskId}`;
-    if (type === 'persona') defaultName = `Persona ${personaId}`;
+    let defaultName = name;
+    if (!defaultName) {
+      if (type === 'general') defaultName = 'General';
+      else if (type === 'task') defaultName = `Task ${taskId}`;
+      else if (type === 'persona') defaultName = `Persona ${personaId}`;
+      else if (type === 'direct') defaultName = `Chat with ${personaId || 'Persona'}`;
+    }
     
     channel = {
       id: channelId,
       type,
-      taskId: type === 'task' ? taskId : undefined,
-      personaId: type === 'persona' ? personaId : undefined,
-      name: name || defaultName,
+      taskId,
+      personaId,
+      name: defaultName!,
       messages: [],
       lastActivity: new Date(),
     };
