@@ -54,6 +54,7 @@ import {
   getAllChannels
 } from './chat-storage.js';
 import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import { startPRCacheAutoRefresh, invalidatePRCache } from './pr-cache.js';
 import {
   getAgentMemory,
   addMemoryEntry,
@@ -2416,6 +2417,7 @@ async function startServer() {
     await initializeStandupStorage();
     await startWorker();
     await startPRResolver();
+    startPRCacheAutoRefresh();
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);

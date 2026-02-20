@@ -27,7 +27,7 @@ import {
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks, createTask } from './storage.js';
-import { getGitHubConfig, getRepoPRs } from './github.js';
+import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
 
 
@@ -216,33 +216,8 @@ async function generatePersonaResponse(
       })
       .join('\n');
     
-    // Get open PRs from configured repos (non-blocking — skip if GitHub not configured)
-    let prContext = 'GitHub not configured or no repos set up.';
-    try {
-      const ghConfig = await getGitHubConfig();
-      if (ghConfig.repos.length > 0) {
-        const prLines: string[] = [];
-        for (const repo of ghConfig.repos.slice(0, 5)) { // Limit to 5 repos
-          const repoName = typeof repo === 'string' ? repo : repo.name;
-          try {
-            const prs = await getRepoPRs(repoName, 'open');
-            if (prs.length > 0) {
-              prLines.push(`**${repoName}:**`);
-              for (const pr of prs.slice(0, 10)) { // Limit to 10 PRs per repo
-                prLines.push(`  - #${pr.number}: ${pr.title} (${pr.state})${pr.author ? ` by ${pr.author}` : ''}`);
-              }
-            }
-          } catch { /* skip repos that fail */ }
-        }
-        if (prLines.length > 0) {
-          prContext = prLines.join('\n');
-        } else {
-          prContext = 'No open PRs found.';
-        }
-      }
-    } catch {
-      // GitHub not available — that's fine
-    }
+    // Get open PRs from cache (fast — no API calls during chat)
+    const prContext = await getCachedPRs();
     
     // Create the full prompt
     const prompt = buildChatPrompt({
