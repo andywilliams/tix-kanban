@@ -1279,9 +1279,10 @@ app.post('/api/personas/:id/chat/start', async (req, res) => {
     // Create/get the direct chat channel
     const channel = await createOrGetChannel(
       result.channelId,
-      'general', // Using 'general' type since 'direct' might not be supported yet
+      'direct',
       undefined,
-      `Chat with ${req.params.id}`
+      `Chat with ${req.params.id}`,
+      req.params.id  // personaId
     );
     
     res.json({ 
@@ -1390,17 +1391,23 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
       });
     }
     
-    // Auto-respond in persona DM channels (even without @mention)
-    if (channel.type === 'persona' && channel.personaId && authorType === 'human') {
-      // Inject the persona's name as a mention so processMentions handles it
-      const personaMessage = {
-        ...message,
-        mentions: [channel.personaId],
-      };
-      console.log(`Persona DM channel - auto-triggering ${channel.personaId}`);
-      processMentions(personaMessage).catch(error => {
-        console.error('Error processing persona DM:', error);
-      });
+    // Auto-respond in direct/persona DM channels (even without @mention)
+    const isDirectChannel = (channel.type === 'persona' || channel.type === 'direct' || 
+      channel.id.startsWith('direct-')) && authorType === 'human';
+    if (isDirectChannel && message.mentions.length === 0) {
+      // Figure out which persona this channel belongs to
+      const personaId = channel.personaId || channel.id.replace('direct-', '').replace(/-user$/, '');
+      if (personaId) {
+        // Inject the persona as a mention so processChatMention handles it
+        const personaMessage = {
+          ...message,
+          mentions: [personaId],
+        };
+        console.log(`📨 Direct channel - auto-triggering ${personaId} (no @mention needed)`);
+        processChatMention(personaMessage).catch(error => {
+          console.error('Error processing direct chat:', error);
+        });
+      }
     }
     
     res.status(201).json({ message });
