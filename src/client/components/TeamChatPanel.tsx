@@ -98,6 +98,8 @@ export default function TeamChatPanel({
   const handlePersonaClick = (persona: Persona) => {
     setSelectedPersona(persona);
     onStartDirectChat(persona.id);
+    // Switch to channels view to show the conversation
+    setViewMode('channels');
   };
 
   const formatMessageContent = (content: string): JSX.Element => {
