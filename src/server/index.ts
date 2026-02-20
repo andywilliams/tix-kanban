@@ -946,6 +946,10 @@ app.get('/api/personas/:id/memories', async (req, res) => {
     const preferences: { [key: string]: string } = {};
     const relationships: { [personName: string]: string } = {};
 
+    // Load persona names for relationship matching
+    const allPersonas = await getAllPersonas();
+    const personaNames = new Set(allPersonas.map(p => p.name.toLowerCase()));
+
     // Aggregate entries from all users
     for (const agentMemory of agentMemories) {
       for (const entry of agentMemory.entries) {
@@ -967,10 +971,13 @@ app.get('/api/personas/:id/memories', async (req, res) => {
             break;
           case 'relationships':
             category = 'relationship';
-            // Try to extract person name from content
-            const personMatch = entry.content.match(/(?:with|and)\s+(\w+)/i);
-            if (personMatch) {
-              relationships[personMatch[1]] = entry.content;
+            // Match against known persona names in the content
+            const contentLower = entry.content.toLowerCase();
+            for (const name of personaNames) {
+              if (contentLower.includes(name)) {
+                relationships[name] = entry.content;
+                break;
+              }
             }
             break;
           default:
@@ -992,7 +999,7 @@ app.get('/api/personas/:id/memories', async (req, res) => {
           id: entry.id,
           category,
           content: entry.content,
-          source: `${agentMemory.userId} (${entry.source})`,
+          source: entry.source || 'agent-chat',
           createdAt: entry.createdAt,
           updatedAt: entry.updatedAt,
           tags: entry.keywords || [],
@@ -1115,8 +1122,8 @@ app.delete('/api/personas/:id/memories/:entryId', async (req, res) => {
     for (const agentMemory of agentMemories) {
       const hasEntry = agentMemory.entries.some(e => e.id === req.params.entryId);
       if (hasEntry) {
-        // Found the user who has this entry
-        const success = await deleteMemoryEntry(req.params.id, agentMemory.userId, req.params.entryId);
+        // Found the user who has this entry — pass pre-loaded memory to avoid double read
+        const success = await deleteMemoryEntry(req.params.id, agentMemory.userId, req.params.entryId, agentMemory);
         if (success) {
           found = true;
           break;
