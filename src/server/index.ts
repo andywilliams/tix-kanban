@@ -1396,7 +1396,8 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
       channel.id.startsWith('direct-')) && authorType === 'human';
     if (isDirectChannel && message.mentions.length === 0) {
       // Figure out which persona this channel belongs to
-      const personaId = channel.personaId || channel.id.replace('direct-', '').replace(/-user$/, '');
+      // Channel ID format: "direct-{personaId}-{userId}" — extract persona part
+      const personaId = channel.personaId || channel.id.replace(/^direct-/, '').replace(/-[^-]+$/, '');
       if (personaId) {
         // Inject the persona as a mention so processChatMention handles it
         const personaMessage = {
