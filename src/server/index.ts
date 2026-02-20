@@ -31,7 +31,8 @@ import {
   initializePersonas,
   getPersonaMemoryWithTokens,
   setPersonaMemory,
-  updatePersonaRating
+  updatePersonaRating,
+  updatePersonaStats
 } from './persona-storage.js';
 import {
   getGitHubConfig,
@@ -184,12 +185,46 @@ app.post('/api/tasks', async (req, res) => {
 app.put('/api/tasks/:id', async (req, res) => {
   try {
     const { actor, ...updates } = req.body as Partial<Task> & { actor?: string };
+
+    // Get the current task state before updating
+    const previousTask = await getTask(req.params.id);
+    if (!previousTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Update the task
     const task = await updateTask(req.params.id, updates, actor || 'api');
-    
+
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
-    
+
+    // If task is being marked as done and has a persona, update persona stats
+    if (updates.status === 'done' && previousTask.status !== 'done' && task.persona) {
+      // Find the persona by name to get its ID
+      const personas = await getAllPersonas();
+      const persona = personas.find(p => p.name === task.persona);
+
+      if (persona) {
+        // Calculate completion time (difference between creation and completion)
+        const completionTimeMs = new Date(task.updatedAt).getTime() - new Date(task.createdAt).getTime();
+        const completionTimeMinutes = completionTimeMs / (1000 * 60); // Convert to minutes
+
+        // Determine if task was successful (no redo rating)
+        const wasSuccessful = !task.rating || task.rating.rating !== 'redo';
+
+        try {
+          await updatePersonaStats(persona.id, completionTimeMinutes, wasSuccessful);
+          console.log(`Updated persona stats for ${task.persona} after task completion`);
+        } catch (error) {
+          console.error(`Failed to update persona stats:`, error);
+          // Don't fail the request if stats update fails
+        }
+      } else {
+        console.error(`Persona not found for name: ${task.persona}`);
+      }
+    }
+
     res.json({ task });
   } catch (error) {
     console.error(`PUT /api/tasks/${req.params.id} error:`, error);

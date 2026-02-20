@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { Task, Comment } from '../client/types/index.js';
-import { getPersona } from './persona-storage.js';
+import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 
@@ -484,10 +484,18 @@ async function handleMaxCyclesReached(
     });
   } else {
     // Auto-approve
-    await updateTask(task.id, { 
+    await updateTask(task.id, {
       status: 'done',
-      comments: updatedComments 
+      comments: updatedComments
     });
+
+    // Update persona stats for successful completion
+    if (reviewState.workerId) {
+      const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
+      const completionTimeMinutes = completionTimeMs / (1000 * 60);
+      await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
+      console.log(`📊 Updated stats for persona after auto-approval`);
+    }
   }
   
   // Clean up review state
