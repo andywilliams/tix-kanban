@@ -124,17 +124,18 @@ export async function updateMemoryEntry(
   return entry;
 }
 
-// Delete a memory entry
+// Delete a memory entry. Accepts an optional pre-loaded memory to avoid redundant file reads.
 export async function deleteMemoryEntry(
   personaId: string,
   userId: string,
-  entryId: string
+  entryId: string,
+  preloadedMemory?: AgentMemory
 ): Promise<boolean> {
-  const memory = await getAgentMemory(personaId, userId);
+  const memory = preloadedMemory ?? await getAgentMemory(personaId, userId);
   const index = memory.entries.findIndex(e => e.id === entryId);
-  
+
   if (index === -1) return false;
-  
+
   memory.entries.splice(index, 1);
   await saveAgentMemory(memory);
   return true;

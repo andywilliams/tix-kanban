@@ -54,15 +54,15 @@ import {
   getAllChannels
 } from './chat-storage.js';
 import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
-import { startPRCacheAutoRefresh, invalidatePRCache } from './pr-cache.js';
+import { startPRCacheAutoRefresh } from './pr-cache.js';
 import {
   getAgentMemory,
   addMemoryEntry,
   updateMemoryEntry,
   deleteMemoryEntry,
   searchMemories,
-  getMemoriesByCategory,
-  clearMemories
+  clearMemories,
+  getAllPersonaMemories
 } from './agent-memory.js';
 import {
   getAgentSoul,
@@ -925,22 +925,110 @@ app.put('/api/personas/:id/memory', async (req, res) => {
 
 // Structured Memory API routes (enhanced memory system)
 import {
-  getStructuredMemory,
-  saveStructuredMemory,
   addMemoryEntry as addStructuredMemoryEntry,
   searchMemories as searchStructuredMemories,
   getPersonaSoul,
   savePersonaSoul,
   generateDefaultSoul,
   MemoryEntry,
-  PersonaSoul
+  PersonaSoul,
+  StructuredMemory
 } from './persona-memory.js';
 
 // GET /api/personas/:id/memories - Get structured memories
 app.get('/api/personas/:id/memories', async (req, res) => {
   try {
-    const memory = await getStructuredMemory(req.params.id);
-    res.json(memory);
+    // Get all agent memories for this persona (from all users)
+    const agentMemories = await getAllPersonaMemories(req.params.id);
+
+    // Transform agent memories to structured memory format
+    const allEntries: MemoryEntry[] = [];
+    const preferences: { [key: string]: string } = {};
+    const relationships: { [personName: string]: string } = {};
+
+    // Load persona names for relationship matching
+    const allPersonas = await getAllPersonas();
+    const personaNames = new Set(allPersonas.map(p => p.name.toLowerCase()));
+
+    // Aggregate entries from all users
+    for (const agentMemory of agentMemories) {
+      for (const entry of agentMemory.entries) {
+        // Map agent memory categories to structured memory categories
+        let category: MemoryEntry['category'];
+        switch (entry.category) {
+          case 'preferences':
+            category = 'preference';
+            // Add to preferences map
+            if (entry.keywords && entry.keywords.length > 0) {
+              preferences[entry.keywords[0]] = entry.content;
+            }
+            break;
+          case 'instructions':
+            category = 'instruction';
+            break;
+          case 'context':
+            category = 'context';
+            break;
+          case 'relationships':
+            category = 'relationship';
+            // Match against known persona names in the content
+            const contentLower = entry.content.toLowerCase();
+            for (const name of personaNames) {
+              if (contentLower.includes(name)) {
+                relationships[name] = entry.content;
+                break;
+              }
+            }
+            break;
+          default:
+            category = 'context';
+        }
+
+        // Map importance from number to high/medium/low
+        let importance: 'high' | 'medium' | 'low';
+        if (entry.importance >= 8) {
+          importance = 'high';
+        } else if (entry.importance >= 5) {
+          importance = 'medium';
+        } else {
+          importance = 'low';
+        }
+
+        // Create structured memory entry
+        const structuredEntry: MemoryEntry = {
+          id: entry.id,
+          category,
+          content: entry.content,
+          source: entry.source || 'agent-chat',
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+          tags: entry.keywords || [],
+          importance
+        };
+
+        allEntries.push(structuredEntry);
+      }
+    }
+
+    // Sort entries by importance and date
+    allEntries.sort((a, b) => {
+      const importanceOrder = { high: 0, medium: 1, low: 2 };
+      const impDiff = importanceOrder[a.importance] - importanceOrder[b.importance];
+      if (impDiff !== 0) return impDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    // Create structured memory response
+    const structuredMemory: StructuredMemory = {
+      version: 2,
+      personaId: req.params.id,
+      entries: allEntries,
+      preferences,
+      relationships,
+      lastUpdated: new Date().toISOString()
+    };
+
+    res.json(structuredMemory);
   } catch (error) {
     console.error(`GET /api/personas/${req.params.id}/memories error:`, error);
     res.status(500).json({ error: 'Failed to fetch persona memories' });
@@ -1027,15 +1115,26 @@ app.get('/api/personas/:id/memories/search', async (req, res) => {
 // DELETE /api/personas/:id/memories/:entryId - Delete a memory entry
 app.delete('/api/personas/:id/memories/:entryId', async (req, res) => {
   try {
-    const memory = await getStructuredMemory(req.params.id);
-    const initialLength = memory.entries.length;
-    memory.entries = memory.entries.filter(e => e.id !== req.params.entryId);
+    // Get all agent memories for this persona to find which user has this entry
+    const agentMemories = await getAllPersonaMemories(req.params.id);
 
-    if (memory.entries.length === initialLength) {
+    let found = false;
+    for (const agentMemory of agentMemories) {
+      const hasEntry = agentMemory.entries.some(e => e.id === req.params.entryId);
+      if (hasEntry) {
+        // Found the user who has this entry — pass pre-loaded memory to avoid double read
+        const success = await deleteMemoryEntry(req.params.id, agentMemory.userId, req.params.entryId, agentMemory);
+        if (success) {
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) {
       return res.status(404).json({ error: 'Memory entry not found' });
     }
 
-    await saveStructuredMemory(memory);
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/personas/${req.params.id}/memories/${req.params.entryId} error:`, error);
