@@ -225,7 +225,7 @@ app.put('/api/tasks/:id', async (req, res) => {
     if (updates.status === 'done' && previousTask.status !== 'done' && task.persona) {
       // Find the persona by name to get its ID
       const personas = await getAllPersonas();
-      const persona = personas.find(p => p.name === task.persona);
+      const persona = personas.find(p => p.name.toLowerCase() === task.persona?.toLowerCase() || p.id === task.persona);
 
       if (persona) {
         // Calculate completion time (difference between creation and completion)
