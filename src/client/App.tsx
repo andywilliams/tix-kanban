@@ -193,12 +193,20 @@ function AppContent() {
         <div className="header-actions">
           <SyncButton onSyncComplete={() => refetch()} />
           <button
-            className="chat-toggle"
             onClick={() => setChatOpen(!chatOpen)}
             aria-label="Toggle team chat"
             style={{ 
               backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : '#f59e0b',
-              color: 'white'
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '8px 16px',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
             }}
           >
             🤝 Team Chat
