@@ -31,6 +31,7 @@ import {
 } from './agent-soul.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
+import { getAllTasks } from './storage.js';
 import { Persona } from '../client/types/index.js';
 
 const execAsync = promisify(exec);
@@ -202,6 +203,16 @@ async function generatePersonaResponse(
       .map(p => `${p.emoji} ${p.name}: ${p.description}`)
       .join('\n');
     
+    // Get recent tickets for this persona
+    const allTasks = await getAllTasks();
+    const personaTasks = allTasks
+      .filter(t => t.assignee === persona.id || t.assignee === persona.name)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8);
+    const taskContext = personaTasks.length > 0
+      ? personaTasks.map(t => `- [${t.status}] ${t.title}${t.priority ? ` (P${t.priority})` : ''}`).join('\n')
+      : 'No tasks currently assigned.';
+    
     // Create the full prompt
     const prompt = buildChatPrompt({
       soul,
@@ -210,7 +221,8 @@ async function generatePersonaResponse(
       recentMessages,
       memoryContext,
       relevantMemories,
-      teamContext
+      teamContext,
+      taskContext
     });
     
     // Generate response using AI
@@ -258,8 +270,9 @@ function buildChatPrompt(context: {
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
+  taskContext: string;
 }): string {
-  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext } = context;
+  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, taskContext } = context;
   
   const sections: string[] = [];
   
@@ -286,6 +299,9 @@ function buildChatPrompt(context: {
   
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
+  
+  // Current workload
+  sections.push(`\n## Your Current Tasks\n${taskContext}`);
   
   // Chat history
   const chatHistory = recentMessages
@@ -316,37 +332,47 @@ Generate your response now:`);
   return sections.join('\n');
 }
 
-// Generate AI response
+// Generate AI response using Claude Code CLI
 async function generateAIResponse(prompt: string, persona: Persona): Promise<string> {
   const tempPromptFile = path.join(os.tmpdir(), `tix-chat-${persona.id}-${Date.now()}.txt`);
   
   try {
     await fs.writeFile(tempPromptFile, prompt, 'utf8');
     
-    // Try openclaw first, fall back to direct API
-    try {
-      const { stdout, stderr } = await execAsync(
-        `openclaw run --file "${tempPromptFile}" --print --timeout 60`,
-        { maxBuffer: 1024 * 1024 }
-      );
-      
-      if (stderr) {
-        console.error(`Persona ${persona.name} stderr:`, stderr);
+    // Use Claude Code CLI in print mode (non-interactive, no permission prompts)
+    const { stdout, stderr } = await execAsync(
+      `claude -p "$(cat '${tempPromptFile}')" --max-turns 1 --allowedTools "Read"`,
+      { 
+        maxBuffer: 1024 * 1024,
+        timeout: 60000,
+        env: { ...process.env }
       }
-      
-      return stdout.trim();
-    } catch (openclawError) {
-      console.log('openclaw not available, falling back to simulated response');
-      
-      // Fallback: generate a simple response based on the soul
-      const soul = await getAgentSoul(persona.id);
-      if (soul) {
-        return soul.greetings[0] || `I'm ${persona.name}, how can I help?`;
-      }
-      return `I'm ${persona.name}. How can I assist you?`;
+    );
+    
+    if (stderr) {
+      console.error(`Persona ${persona.name} stderr:`, stderr);
     }
+    
+    const response = stdout.trim();
+    if (response && response.length > 0) {
+      return response;
+    }
+    
+    // If Claude Code returned empty, use a soul-based fallback
+    console.warn(`Claude Code returned empty response for ${persona.name}`);
+    const soul = await getAgentSoul(persona.id);
+    return soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`;
+    
+  } catch (error) {
+    console.error(`Claude Code failed for ${persona.name}:`, error);
+    
+    // Graceful fallback if Claude Code is unavailable
+    const soul = await getAgentSoul(persona.id);
+    if (soul) {
+      return soul.greetings[0] || `I'm ${persona.name}, how can I help?`;
+    }
+    return `I'm ${persona.name}. How can I assist you?`;
   } finally {
-    // Clean up temp file
     await fs.unlink(tempPromptFile).catch(() => {});
   }
 }
