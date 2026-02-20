@@ -27,6 +27,7 @@ import {
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks, createTask } from './storage.js';
+import { getGitHubConfig, getRepoPRs } from './github.js';
 import { Persona } from '../client/types/index.js';
 
 
@@ -197,15 +198,51 @@ async function generatePersonaResponse(
       .map(p => `${p.emoji} ${p.name}: ${p.description}`)
       .join('\n');
     
-    // Get recent tickets for this persona
+    // Get ALL board tasks grouped by status
     const allTasks = await getAllTasks();
-    const personaTasks = allTasks
-      .filter(t => t.assignee === persona.id || t.assignee === persona.name)
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, 8);
-    const taskContext = personaTasks.length > 0
-      ? personaTasks.map(t => `- [${t.status}] ${t.title}${t.priority ? ` (P${t.priority})` : ''}`).join('\n')
-      : 'No tasks currently assigned.';
+    const tasksByStatus: Record<string, typeof allTasks> = {};
+    for (const t of allTasks) {
+      if (!tasksByStatus[t.status]) tasksByStatus[t.status] = [];
+      tasksByStatus[t.status].push(t);
+    }
+    
+    const boardContext = Object.entries(tasksByStatus)
+      .map(([status, tasks]) => {
+        const taskLines = tasks
+          .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+          .map(t => `  - ${t.title} (ID: ${t.id})${t.assignee ? ` [${t.assignee}]` : ''}${t.priority ? ` P${t.priority}` : ''}${t.repo ? ` repo:${t.repo}` : ''}`)
+          .join('\n');
+        return `**${status}** (${tasks.length}):\n${taskLines}`;
+      })
+      .join('\n');
+    
+    // Get open PRs from configured repos (non-blocking — skip if GitHub not configured)
+    let prContext = 'GitHub not configured or no repos set up.';
+    try {
+      const ghConfig = await getGitHubConfig();
+      if (ghConfig.repos.length > 0) {
+        const prLines: string[] = [];
+        for (const repo of ghConfig.repos.slice(0, 5)) { // Limit to 5 repos
+          const repoName = typeof repo === 'string' ? repo : repo.name;
+          try {
+            const prs = await getRepoPRs(repoName, 'open');
+            if (prs.length > 0) {
+              prLines.push(`**${repoName}:**`);
+              for (const pr of prs.slice(0, 10)) { // Limit to 10 PRs per repo
+                prLines.push(`  - #${pr.number}: ${pr.title} (${pr.state})${pr.author ? ` by ${pr.author}` : ''}`);
+              }
+            }
+          } catch { /* skip repos that fail */ }
+        }
+        if (prLines.length > 0) {
+          prContext = prLines.join('\n');
+        } else {
+          prContext = 'No open PRs found.';
+        }
+      }
+    } catch {
+      // GitHub not available — that's fine
+    }
     
     // Create the full prompt
     const prompt = buildChatPrompt({
@@ -216,7 +253,8 @@ async function generatePersonaResponse(
       memoryContext,
       relevantMemories,
       teamContext,
-      taskContext
+      boardContext,
+      prContext
     });
     
     // Generate response using AI
@@ -291,9 +329,10 @@ function buildChatPrompt(context: {
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
-  taskContext: string;
+  boardContext: string;
+  prContext: string;
 }): string {
-  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, taskContext } = context;
+  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, boardContext, prContext } = context;
   
   const sections: string[] = [];
   
@@ -321,8 +360,11 @@ function buildChatPrompt(context: {
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
   
-  // Current workload
-  sections.push(`\n## Your Current Tasks\n${taskContext}`);
+  // Kanban board state
+  sections.push(`\n## Kanban Board (All Tasks)\n${boardContext}`);
+  
+  // Open PRs
+  sections.push(`\n## Open Pull Requests\n${prContext}`);
   
   // Chat history
   const chatHistory = recentMessages
