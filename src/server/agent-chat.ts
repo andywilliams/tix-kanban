@@ -8,11 +8,6 @@
  * - Team interactions
  */
 
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { 
   getAgentMemory,
   addMemoryEntry,
@@ -34,7 +29,6 @@ import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks } from './storage.js';
 import { Persona } from '../client/types/index.js';
 
-const execAsync = promisify(exec);
 
 export interface ChatContext {
   channelId: string;
@@ -334,47 +328,55 @@ Generate your response now:`);
 
 // Generate AI response using Claude Code CLI
 async function generateAIResponse(prompt: string, persona: Persona): Promise<string> {
-  const tempPromptFile = path.join(os.tmpdir(), `tix-chat-${persona.id}-${Date.now()}.txt`);
-  
-  try {
-    await fs.writeFile(tempPromptFile, prompt, 'utf8');
-    
-    // Use Claude Code CLI in print mode (non-interactive, no permission prompts)
-    const { stdout, stderr } = await execAsync(
-      `claude -p "$(cat '${tempPromptFile}')" --max-turns 1 --allowedTools "Read"`,
-      { 
-        maxBuffer: 1024 * 1024,
-        timeout: 60000,
-        env: { ...process.env }
-      }
-    );
-    
-    if (stderr) {
-      console.error(`Persona ${persona.name} stderr:`, stderr);
+  return new Promise(async (resolve) => {
+    try {
+      const { spawn } = await import('child_process');
+      
+      // Use spawn to pipe prompt via stdin — avoids shell escaping issues
+      const claude = spawn('claude', ['-p', '-', '--max-turns', '1', '--allowedTools', 'Read'], {
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60000
+      });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      claude.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+      claude.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+      
+      claude.on('close', async (code: number | null) => {
+        if (stderr) {
+          console.error(`Persona ${persona.name} stderr:`, stderr.substring(0, 200));
+        }
+        
+        const response = stdout.trim();
+        if (response && response.length > 0) {
+          resolve(response);
+          return;
+        }
+        
+        console.warn(`Claude Code returned empty/failed (code ${code}) for ${persona.name}`);
+        const soul = await getAgentSoul(persona.id);
+        resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
+      });
+      
+      claude.on('error', async (err: Error) => {
+        console.error(`Claude Code spawn failed for ${persona.name}:`, err.message);
+        const soul = await getAgentSoul(persona.id);
+        resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
+      });
+      
+      // Write prompt to stdin and close it
+      claude.stdin.write(prompt);
+      claude.stdin.end();
+      
+    } catch (error) {
+      console.error(`Claude Code failed for ${persona.name}:`, error);
+      const soul = await getAgentSoul(persona.id);
+      resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
     }
-    
-    const response = stdout.trim();
-    if (response && response.length > 0) {
-      return response;
-    }
-    
-    // If Claude Code returned empty, use a soul-based fallback
-    console.warn(`Claude Code returned empty response for ${persona.name}`);
-    const soul = await getAgentSoul(persona.id);
-    return soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`;
-    
-  } catch (error) {
-    console.error(`Claude Code failed for ${persona.name}:`, error);
-    
-    // Graceful fallback if Claude Code is unavailable
-    const soul = await getAgentSoul(persona.id);
-    if (soul) {
-      return soul.greetings[0] || `I'm ${persona.name}, how can I help?`;
-    }
-    return `I'm ${persona.name}. How can I assist you?`;
-  } finally {
-    await fs.unlink(tempPromptFile).catch(() => {});
-  }
+  });
 }
 
 // Extract and store inferred memories from conversation
