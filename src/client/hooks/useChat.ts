@@ -104,31 +104,32 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
       // Refresh messages for this channel immediately
       await refreshMessages(channelId);
       
-      // If message contains @mentions, poll more frequently for persona responses
-      if (content.includes('@')) {
+      // Poll more frequently after sending to catch persona responses
+      // Triggers for @mentions OR direct persona channels (no @ needed)
+      const isDirectChannel = channelId.startsWith('direct-');
+      if (content.includes('@') || isDirectChannel) {
         // Clear any existing mention polling
         if (mentionPollingRef.current) {
           clearInterval(mentionPollingRef.current);
           mentionPollingRef.current = null;
         }
         
-        // Poll every 500ms for 10 seconds to catch persona responses quickly
+        // Poll every 1s for 30 seconds to catch AI responses (Claude Code can take 10-20s)
         let pollCount = 0;
-        const maxPolls = 20; // 10 seconds at 500ms intervals
+        const maxPolls = 30;
         
         mentionPollingRef.current = setInterval(async () => {
           pollCount++;
           await refreshMessages(channelId);
           
           if (pollCount >= maxPolls) {
-            // Capture ref value to avoid race condition between check and clear
             const interval = mentionPollingRef.current;
             if (interval) {
               clearInterval(interval);
             }
             mentionPollingRef.current = null;
           }
-        }, 500);
+        }, 1000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
