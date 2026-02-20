@@ -26,7 +26,7 @@ import {
 } from './agent-soul.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
-import { getAllTasks } from './storage.js';
+import { getAllTasks, createTask } from './storage.js';
 import { Persona } from '../client/types/index.js';
 
 
@@ -223,19 +223,46 @@ async function generatePersonaResponse(
     const response = await generateAIResponse(prompt, persona);
     
     if (response && response.length > 0) {
-      // Post the response
+      // Parse and execute any actions from the response
+      const { cleanResponse, actions } = parseResponseActions(response);
+      
+      // Post the conversational part of the response
       await addMessage(
         originalMessage.channelId,
         persona.name,
         'persona',
-        response,
+        cleanResponse,
         originalMessage.id
       );
       
-      // Check if response contains learning we should remember
-      await extractAndStoreInferredMemory(persona.id, userId, originalMessage.content, response);
+      // Execute any actions (task creation, etc.)
+      for (const action of actions) {
+        try {
+          const result = await executeAction(action, persona, originalMessage.channelId);
+          if (result) {
+            // Post confirmation message
+            await addMessage(
+              originalMessage.channelId,
+              persona.name,
+              'persona',
+              result
+            );
+          }
+        } catch (actionErr) {
+          console.error(`Action failed:`, actionErr);
+          await addMessage(
+            originalMessage.channelId,
+            persona.name,
+            'persona',
+            `⚠️ I tried to create that ticket but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
+          );
+        }
+      }
       
-      console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}`);
+      // Check if response contains learning we should remember
+      await extractAndStoreInferredMemory(persona.id, userId, originalMessage.content, cleanResponse);
+      
+      console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
@@ -321,9 +348,97 @@ Respond naturally as ${persona.name}. Be conversational and helpful.
 - If another team member would be better suited, suggest they ask them
 - Don't start with "As ${persona.name}..." - just respond naturally
 
+## Actions You Can Take
+You can create tickets on the kanban board when the user asks. To create a ticket, include a JSON block in your response like this:
+
+\`\`\`action
+{"action":"create_task","title":"Short descriptive title","description":"Detailed description of what needs to be done","assignee":"persona-id","priority":400,"tags":["tag1","tag2"]}
+\`\`\`
+
+Guidelines for task creation:
+- **assignee** should be the persona id (e.g. "developer", "tech-writer", "qa") — use the team list above
+- **priority** is a number: 100=critical, 200=high, 300=medium, 400=normal, 500=low
+- **tags** are optional labels
+- Write your conversational response BEFORE the action block
+- Only create a task when the user explicitly asks for one
+- Confirm what you're creating in your response text
+
+Available team members for assignment:
+${teamContext}
+
 Generate your response now:`);
   
   return sections.join('\n');
+}
+
+// Parse action blocks from AI response
+interface ResponseAction {
+  action: string;
+  title?: string;
+  description?: string;
+  assignee?: string;
+  priority?: number;
+  tags?: string[];
+  [key: string]: any;
+}
+
+function parseResponseActions(response: string): { cleanResponse: string; actions: ResponseAction[] } {
+  const actions: ResponseAction[] = [];
+  
+  // Match ```action ... ``` blocks
+  const actionBlockRegex = /```action\s*\n?([\s\S]*?)```/g;
+  let match;
+  
+  while ((match = actionBlockRegex.exec(response)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (parsed.action) {
+        actions.push(parsed);
+      }
+    } catch (e) {
+      console.warn('Failed to parse action block:', match[1]);
+    }
+  }
+  
+  // Remove action blocks from the response to get clean conversational text
+  const cleanResponse = response
+    .replace(/```action\s*\n?[\s\S]*?```/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  
+  return { cleanResponse, actions };
+}
+
+// Execute a parsed action
+async function executeAction(
+  action: ResponseAction, 
+  persona: Persona, 
+  channelId: string
+): Promise<string | null> {
+  switch (action.action) {
+    case 'create_task': {
+      if (!action.title) {
+        throw new Error('Task title is required');
+      }
+      
+      const task = await createTask({
+        title: action.title,
+        description: action.description || '',
+        status: 'backlog',
+        priority: action.priority || 400,
+        assignee: action.assignee || undefined,
+        persona: action.assignee || undefined,
+        tags: action.tags || [],
+      }, persona.name);
+      
+      const assigneeText = action.assignee ? ` → assigned to **${action.assignee}**` : '';
+      return `📋 **Ticket created:** ${task.title} (ID: ${task.id})${assigneeText} — Priority: P${action.priority || 400}`;
+    }
+    
+    default:
+      console.warn(`Unknown action: ${action.action}`);
+      return null;
+  }
 }
 
 // Generate AI response using Claude Code CLI
