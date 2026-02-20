@@ -95,7 +95,6 @@ export async function initializeStandupStorage(): Promise<void> {
  * Get configured repositories to scan
  */
 async function getConfiguredRepos(): Promise<string[]> {
-  const settings = await getUserSettings();
   const defaultRepos = [
     'em-boxes-events',
     'em-transactions-api', 
@@ -108,7 +107,7 @@ async function getConfiguredRepos(): Promise<string[]> {
     'serverless-portfolio-tracker'
   ];
 
-  const githubOrg = settings.githubOrg || 'andywilliams';
+  const githubOrg = 'andywilliams'; // Use default org for now
   return defaultRepos.map(repo => `${githubOrg}/${repo}`);
 }
 

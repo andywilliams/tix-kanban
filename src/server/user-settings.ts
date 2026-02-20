@@ -8,6 +8,12 @@ export interface UserSettings {
   userName: string;
   workspaceDir?: string;
   repoPaths?: Record<string, string>; // e.g. { "andywilliams/em-transactions-api": "/Users/me/dev/equals/em-transactions-api" }
+  githubUsername?: string; // GitHub username for PR scanning
+  prResolver?: {
+    enabled: boolean;
+    frequency: string; // Cron expression for PR checking
+    lastRun?: string; // ISO date of last run
+  };
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

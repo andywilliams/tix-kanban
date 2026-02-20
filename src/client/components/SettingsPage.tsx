@@ -4,6 +4,12 @@ interface UserSettings {
   userName: string;
   workspaceDir?: string;
   repoPaths?: Record<string, string>;
+  githubUsername?: string;
+  prResolver?: {
+    enabled: boolean;
+    frequency: string;
+    lastRun?: string;
+  };
 }
 
 interface StandupConfig {
@@ -18,16 +24,25 @@ interface SettingsPageProps {
 export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [settings, setSettings] = useState<UserSettings>({ userName: 'User', workspaceDir: '', repoPaths: {} });
   const [standupConfig, setStandupConfig] = useState<StandupConfig>({ enabled: false, time: '09:00' });
+  const [prResolverStatus, setPRResolverStatus] = useState<{
+    enabled: boolean;
+    frequency: string;
+    lastRun?: string;
+    isRunning?: boolean;
+  }>({ enabled: false, frequency: '0 */6 * * *' });
   const [newRepoKey, setNewRepoKey] = useState('');
   const [newRepoPath, setNewRepoPath] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [standupSaving, setStandupSaving] = useState(false);
   const [standupSaved, setStandupSaved] = useState(false);
+  const [prSaving, setPRSaving] = useState(false);
+  const [prSaved, setPRSaved] = useState(false);
 
   useEffect(() => {
     loadSettings();
     loadStandupConfig();
+    loadPRResolverStatus();
   }, []);
 
   const loadSettings = async () => {
@@ -105,6 +120,60 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to trigger standup:', error);
+    }
+  };
+
+  const loadPRResolverStatus = async () => {
+    try {
+      const response = await fetch('/api/pr-resolver/status');
+      if (response.ok) {
+        const data = await response.json();
+        setPRResolverStatus(data.status || data);
+      }
+    } catch (error) {
+      console.error('Failed to load PR resolver status:', error);
+    }
+  };
+
+  const savePRResolverConfig = async () => {
+    setPRSaving(true);
+    setPRSaved(false);
+    try {
+      // Toggle enabled state
+      await fetch('/api/pr-resolver/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: prResolverStatus.enabled }),
+      });
+
+      // Update frequency
+      await fetch('/api/pr-resolver/frequency', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frequency: prResolverStatus.frequency }),
+      });
+
+      setPRSaved(true);
+      setTimeout(() => setPRSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save PR resolver config:', error);
+    } finally {
+      setPRSaving(false);
+    }
+  };
+
+  const triggerPRResolver = async (dryRun: boolean) => {
+    try {
+      const response = await fetch('/api/pr-resolver/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun }),
+      });
+      if (response.ok) {
+        alert(dryRun ? 'PR resolver dry run started!' : 'PR resolver started! Check the Reports page for results.');
+      }
+    } catch (error) {
+      console.error('Failed to trigger PR resolver:', error);
     }
   };
 
@@ -241,6 +310,107 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
           <small className="form-help" style={{ marginTop: '4px', display: 'block' }}>
             Example: andywilliams/em-transactions-api → /Users/andrewwilliams/development/equals/em-transactions-api
           </small>
+        </div>
+
+        <div className="settings-section">
+          <h3>GitHub</h3>
+          <p className="settings-description">
+            Configure your GitHub username for PR comment resolution and other GitHub-based features.
+          </p>
+
+          <div className="form-group">
+            <label htmlFor="githubUsername">GitHub Username</label>
+            <input
+              id="githubUsername"
+              type="text"
+              value={settings.githubUsername || ''}
+              onChange={e => setSettings(prev => ({ ...prev, githubUsername: e.target.value }))}
+              placeholder="e.g., octocat"
+            />
+            <small className="form-help">
+              Your GitHub username. Required for PR comment resolution.
+            </small>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>PR Comment Resolver</h3>
+          <p className="settings-description">
+            Automatically scan your open PRs for unresolved comments and address them with helpful responses or code suggestions.
+          </p>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={prResolverStatus.enabled}
+                onChange={e => setPRResolverStatus(prev => ({ ...prev, enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+                disabled={!settings.githubUsername}
+              />
+              Enable PR comment resolver
+            </label>
+            {!settings.githubUsername && (
+              <small className="form-help" style={{ color: '#ef4444' }}>
+                Configure your GitHub username first
+              </small>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="prFrequency">Check Frequency</label>
+            <select
+              id="prFrequency"
+              value={prResolverStatus.frequency}
+              onChange={e => setPRResolverStatus(prev => ({ ...prev, frequency: e.target.value }))}
+              style={{ maxWidth: '300px' }}
+            >
+              <option value="0 */2 * * *">Every 2 hours</option>
+              <option value="0 */4 * * *">Every 4 hours</option>
+              <option value="0 */6 * * *">Every 6 hours</option>
+              <option value="0 */12 * * *">Every 12 hours</option>
+              <option value="0 9,17 * * 1-5">9 AM & 5 PM (weekdays)</option>
+              <option value="0 9 * * 1-5">Daily at 9 AM (weekdays)</option>
+            </select>
+            <small className="form-help">
+              How often to check PRs for unresolved comments
+            </small>
+          </div>
+
+          {prResolverStatus.lastRun && (
+            <div className="form-group">
+              <label>Last Run</label>
+              <div style={{ fontSize: '14px', color: '#94a3b8' }}>
+                {new Date(prResolverStatus.lastRun).toLocaleString()}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+            <button
+              className="save-btn"
+              onClick={savePRResolverConfig}
+              disabled={prSaving || !settings.githubUsername}
+            >
+              {prSaving ? 'Saving...' : prSaved ? 'Saved!' : 'Save PR Resolver Settings'}
+            </button>
+            <button
+              className="save-btn"
+              onClick={() => triggerPRResolver(true)}
+              style={{ backgroundColor: '#f59e0b' }}
+              disabled={!settings.githubUsername}
+            >
+              Dry Run
+            </button>
+            <button
+              className="save-btn"
+              onClick={() => triggerPRResolver(false)}
+              style={{ backgroundColor: '#6366f1' }}
+              disabled={!settings.githubUsername}
+            >
+              Run Now
+            </button>
+          </div>
         </div>
 
         <div className="settings-section">

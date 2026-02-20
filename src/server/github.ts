@@ -3,12 +3,11 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { 
-  executeWithRateLimit, 
-  getCachedResponse, 
-  getLocalGitInfo,
+import {
+  executeWithRateLimit,
+  getCachedResponse,
   getLocalBranches,
-  checkRateLimit 
+  checkRateLimit
 } from './github-rate-limit.js';
 
 const exec = promisify(execCallback);
