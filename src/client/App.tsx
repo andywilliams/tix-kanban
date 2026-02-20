@@ -197,8 +197,8 @@ function AppContent() {
             onClick={() => setChatOpen(!chatOpen)}
             aria-label="Toggle team chat"
             style={{ 
-              backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : 'transparent',
-              color: chatOpen ? 'white' : 'inherit'
+              backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : '#f59e0b',
+              color: 'white'
             }}
           >
             🤝 Team Chat
