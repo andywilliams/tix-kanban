@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { 
@@ -1104,6 +1105,15 @@ async function runSlxSync(): Promise<void> {
     console.log(`✅ slx sync completed`);
     if (stdout) {
       console.log(`📨 slx output: ${stdout.substring(0, 500)}`);
+    }
+
+    // Run digest after successful sync
+    try {
+      console.log('📝 Running slx digest...');
+      await runSlxDigest();
+      console.log('✅ slx digest completed');
+    } catch (digestError) {
+      console.error('❌ slx digest failed:', digestError);
     }
   } catch (error) {
     console.error('❌ slx sync failed:', error);

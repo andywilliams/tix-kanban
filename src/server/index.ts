@@ -2580,6 +2580,13 @@ async function startSlxAutoSync() {
     const result = await runSlxSync();
     if (result.success) {
       console.log('[slx] Auto-sync complete');
+      try {
+        console.log('[slx] Running digest...');
+        await runSlxDigest();
+        console.log('[slx] Digest complete');
+      } catch (digestErr) {
+        console.error('[slx] Digest failed:', digestErr);
+      }
     } else {
       console.error('[slx] Auto-sync failed:', result.error);
     }
@@ -2614,6 +2621,15 @@ app.post('/api/slx/sync', async (req, res) => {
   try {
     const { hours } = req.body;
     const result = await runSlxSync(hours);
+    if (result.success) {
+      try {
+        console.log('[slx] Running digest after manual sync...');
+        await runSlxDigest();
+        console.log('[slx] Digest complete');
+      } catch (digestErr) {
+        console.error('[slx] Digest failed:', digestErr);
+      }
+    }
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
