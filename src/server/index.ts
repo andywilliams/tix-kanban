@@ -2282,6 +2282,7 @@ app.get('/api/notion/test', async (_req, res) => {
 
 // Daily Notes API routes
 const DAILY_NOTES_DIR = path.join(process.env.HOME || '/root', '.tix', 'notes');
+const ACTIVITY_LOG_DIR = path.join(process.env.HOME || '/root', '.tix', 'activity-log');
 
 async function ensureLogDir() {
   const fsSync = await import('fs');
