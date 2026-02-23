@@ -118,6 +118,9 @@ interface WorkerState {
   standupEnabled: boolean; // morning standup generation
   standupTime: string; // cron expression for standup time
   lastStandupRun?: string;
+  slxSyncEnabled: boolean; // Slack sync via slx
+  slxSyncInterval: string; // cron expression for slx sync frequency
+  lastSlxSyncRun?: string;
 }
 
 let workerState: WorkerState = {
@@ -127,10 +130,13 @@ let workerState: WorkerState = {
   workload: 0,
   standupEnabled: true, // Enable standup generation by default
   standupTime: '0 9 * * 1-5', // 9 AM Monday-Friday
+  slxSyncEnabled: false, // Slack sync disabled by default
+  slxSyncInterval: '0 */1 * * *', // Default: every 1 hour
 };
 
 let cronJob: cron.ScheduledTask | null = null;
 let standupCronJob: cron.ScheduledTask | null = null;
+let slxSyncCronJob: cron.ScheduledTask | null = null;
 
 // Ensure worker directories exist
 async function ensureWorkerDirectories(): Promise<void> {
@@ -947,6 +953,20 @@ export async function startWorker(): Promise<void> {
     } else {
       console.log('💤 Standup scheduler is disabled');
     }
+
+    // Start slx sync cron job if enabled
+    if (slxSyncCronJob) {
+      slxSyncCronJob.stop();
+    }
+    if (workerState.slxSyncEnabled) {
+      slxSyncCronJob = cron.schedule(workerState.slxSyncInterval, runSlxSync, {
+        scheduled: false
+      });
+      slxSyncCronJob.start();
+      console.log(`📨 slx sync scheduler started: ${workerState.slxSyncInterval} (${cron.validate(workerState.slxSyncInterval) ? 'valid' : 'INVALID'} cron expression)`);
+    } else {
+      console.log('💤 slx sync scheduler is disabled');
+    }
   } catch (error) {
     console.error('Failed to start worker:', error);
     throw error;
@@ -963,7 +983,11 @@ export function stopWorker(): void {
     standupCronJob.stop();
     standupCronJob = null;
   }
-  console.log('🛑 Worker and standup scheduler stopped');
+  if (slxSyncCronJob) {
+    slxSyncCronJob.stop();
+    slxSyncCronJob = null;
+  }
+  console.log('🛑 Worker, standup, and slx sync schedulers stopped');
 }
 
 // Enable/disable worker
@@ -1030,6 +1054,104 @@ export async function updateStandupTime(cronExpression: string): Promise<void> {
 // Manually trigger standup generation (for testing)
 export async function triggerStandupGeneration(): Promise<void> {
   await generateMorningStandup();
+}
+
+// Run slx sync
+async function runSlxSync(): Promise<void> {
+  try {
+    console.log('📨 Running slx sync...');
+
+    const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn('slx', ['sync'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env },
+        shell: true,
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('slx sync timed out after 5 minutes'));
+      }, 300000);
+
+      child.stdout.on('data', (data) => { stdout += data.toString(); });
+      child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      child.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+        } else {
+          reject(new Error(`slx sync exited with code ${code}: ${stderr}`));
+        }
+      });
+
+      child.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    if (stderr) {
+      console.warn(`slx sync stderr: ${stderr}`);
+    }
+
+    workerState.lastSlxSyncRun = new Date().toISOString();
+    await saveWorkerState();
+
+    console.log(`✅ slx sync completed`);
+    if (stdout) {
+      console.log(`📨 slx output: ${stdout.substring(0, 500)}`);
+    }
+  } catch (error) {
+    console.error('❌ slx sync failed:', error);
+  }
+}
+
+// Enable/disable slx sync scheduler
+export async function toggleSlxSyncScheduler(enabled: boolean): Promise<void> {
+  workerState.slxSyncEnabled = enabled;
+  await saveWorkerState();
+
+  if (enabled) {
+    if (slxSyncCronJob) {
+      slxSyncCronJob.stop();
+    }
+    slxSyncCronJob = cron.schedule(workerState.slxSyncInterval, runSlxSync, {
+      scheduled: false
+    });
+    slxSyncCronJob.start();
+    console.log(`📨 slx sync scheduler enabled: ${workerState.slxSyncInterval}`);
+  } else {
+    if (slxSyncCronJob) {
+      slxSyncCronJob.stop();
+      slxSyncCronJob = null;
+    }
+    console.log('💤 slx sync scheduler disabled');
+  }
+}
+
+// Update slx sync interval
+export async function updateSlxSyncInterval(cronExpression: string): Promise<void> {
+  if (!cron.validate(cronExpression)) {
+    throw new Error('Invalid cron expression');
+  }
+
+  workerState.slxSyncInterval = cronExpression;
+  await saveWorkerState();
+
+  if (workerState.slxSyncEnabled) {
+    // Restart with new schedule
+    await toggleSlxSyncScheduler(false);
+    await toggleSlxSyncScheduler(true);
+  }
+}
+
+// Manually trigger slx sync
+export async function triggerSlxSync(): Promise<void> {
+  await runSlxSync();
 }
 
 // Get worker status
