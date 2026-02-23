@@ -61,6 +61,8 @@ import { KnowledgeDetail } from './components/KnowledgeDetail';
 import { StandupPage } from './components/StandupPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { DailyNotesPage } from './components/DailyNotesPage';
+import SlackSettings from './components/SlackSettings';
+import SlackView from './components/SlackView';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -183,6 +185,12 @@ function AppContent() {
               ]}
             />
             <Link
+              to="/slack"
+              className={`nav-link ${location.pathname === '/slack' ? 'active' : ''}`}
+            >
+              💬 Slack
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -293,6 +301,14 @@ function AppContent() {
                 onSettingsChange={(s) => setUserName(s.userName)}
               />
             }
+          />
+          <Route
+            path="/slack"
+            element={<SlackView />}
+          />
+          <Route
+            path="/settings/slack"
+            element={<SlackSettings />}
           />
         </Routes>
       </main>
