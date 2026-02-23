@@ -1068,23 +1068,23 @@ async function runSlxSync(): Promise<void> {
         shell: true,
       });
 
-      let stdout = '';
-      let stderr = '';
+      let out = '';
+      let err = '';
 
       const timeout = setTimeout(() => {
         child.kill('SIGKILL');
         reject(new Error('slx sync timed out after 5 minutes'));
       }, 300000);
 
-      child.stdout.on('data', (data) => { stdout += data.toString(); });
-      child.stderr.on('data', (data) => { stderr += data.toString(); });
+      child.stdout.on('data', (data) => { out += data.toString(); });
+      child.stderr.on('data', (data) => { err += data.toString(); });
 
       child.on('close', (code) => {
         clearTimeout(timeout);
         if (code === 0) {
-          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+          resolve({ stdout: out.trim(), stderr: err.trim() });
         } else {
-          reject(new Error(`slx sync exited with code ${code}: ${stderr}`));
+          reject(new Error(`slx sync exited with code ${code}: ${err}`));
         }
       });
 

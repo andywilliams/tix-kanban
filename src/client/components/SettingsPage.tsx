@@ -50,8 +50,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
 
   useEffect(() => {
     loadSettings();
-    loadStandupConfig();
-    loadSlxSyncConfig();
+    loadWorkerConfig();
     loadPRResolverStatus();
   }, []);
 
@@ -67,13 +66,14 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     }
   };
 
-  const loadStandupConfig = async () => {
+  const loadWorkerConfig = async () => {
     try {
       const response = await fetch('/api/worker/status');
       if (response.ok) {
         const data = await response.json();
         const status = data.status || data;
-        // Parse cron expression "M H * * 1-5" back to HH:MM
+
+        // Parse standup config
         let time = '09:00';
         if (status.standupTime) {
           const parts = status.standupTime.split(' ');
@@ -87,9 +87,16 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
           enabled: status.standupEnabled ?? false,
           time,
         });
+
+        // Parse slx sync config
+        setSlxSyncConfig({
+          enabled: status.slxSyncEnabled ?? false,
+          interval: status.slxSyncInterval ?? '0 */1 * * *',
+          lastRun: status.lastSlxSyncRun,
+        });
       }
     } catch (error) {
-      console.error('Failed to load standup config:', error);
+      console.error('Failed to load worker config:', error);
     }
   };
 
@@ -133,38 +140,23 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     }
   };
 
-  const loadSlxSyncConfig = async () => {
-    try {
-      const response = await fetch('/api/worker/status');
-      if (response.ok) {
-        const data = await response.json();
-        const status = data.status || data;
-        setSlxSyncConfig({
-          enabled: status.slxSyncEnabled ?? false,
-          interval: status.slxSyncInterval ?? '0 */1 * * *',
-          lastRun: status.lastSlxSyncRun,
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load slx sync config:', error);
-    }
-  };
-
   const saveSlxSyncConfig = async () => {
     setSlxSaving(true);
     setSlxSaved(false);
     try {
-      await fetch('/api/worker/slx-sync/toggle', {
+      const toggleRes = await fetch('/api/worker/slx-sync/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: slxSyncConfig.enabled }),
       });
+      if (!toggleRes.ok) throw new Error('Failed to toggle slx sync');
 
-      await fetch('/api/worker/slx-sync/interval', {
+      const intervalRes = await fetch('/api/worker/slx-sync/interval', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cronExpression: slxSyncConfig.interval }),
       });
+      if (!intervalRes.ok) throw new Error('Failed to update slx sync interval');
 
       setSlxSaved(true);
       setTimeout(() => setSlxSaved(false), 2000);
@@ -180,9 +172,12 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       const response = await fetch('/api/worker/slx-sync/trigger', { method: 'POST' });
       if (response.ok) {
         alert('Slack sync triggered! Check the Slack page for results.');
+      } else {
+        alert('Failed to trigger Slack sync. Check server logs.');
       }
     } catch (error) {
       console.error('Failed to trigger slx sync:', error);
+      alert('Failed to trigger Slack sync. Is the server running?');
     }
   };
 

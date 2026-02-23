@@ -843,6 +843,11 @@ app.put('/api/worker/slx-sync/interval', async (req, res) => {
       return res.status(400).json({ error: 'cronExpression must be a string' });
     }
 
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(cronExpression)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
     await updateSlxSyncInterval(cronExpression);
     const status = getWorkerStatus();
 
