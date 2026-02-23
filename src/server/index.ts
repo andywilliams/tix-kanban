@@ -2380,9 +2380,6 @@ app.delete('/api/activity-log/:date/:index', async (req, res) => {
   }
 });
 
-// Daily Notes API routes
-const DAILY_NOTES_DIR = path.join(process.env.HOME || '/root', '.tix', 'notes');
-
 async function ensureNotesDir() {
   const fsSync = await import('fs');
   if (!fsSync.default.existsSync(DAILY_NOTES_DIR)) {
