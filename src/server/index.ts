@@ -131,6 +131,14 @@ import {
   updatePRResolverFrequency,
   getPRResolverStatus
 } from './pr-comment-resolver.js';
+import {
+  getSlxConfig,
+  saveSlxConfig,
+  runSlxSync,
+  runSlxDigest,
+  getSlackData,
+  getSlxStatus
+} from './slx-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2272,8 +2280,8 @@ app.get('/api/notion/test', async (_req, res) => {
   }
 });
 
-// Activity Log API routes
-const ACTIVITY_LOG_DIR = path.join(process.env.HOME || '/root', '.tix', 'logs');
+// Daily Notes API routes
+const DAILY_NOTES_DIR = path.join(process.env.HOME || '/root', '.tix', 'notes');
 
 async function ensureLogDir() {
   const fsSync = await import('fs');
@@ -2499,6 +2507,95 @@ app.delete('/api/daily-notes/:date/:id', async (req, res) => {
   }
 });
 
+// Slack (slx) API routes
+
+// Auto-sync scheduler
+let slxSyncInterval: NodeJS.Timeout | null = null;
+
+async function startSlxAutoSync() {
+  if (slxSyncInterval) clearInterval(slxSyncInterval);
+  
+  const config = await getSlxConfig();
+  if (!config?.sync?.autoSyncEnabled) return;
+  
+  const intervalMs = (config.sync.autoSyncIntervalHours || 1) * 3600000;
+  
+  slxSyncInterval = setInterval(async () => {
+    console.log('[slx] Running auto-sync...');
+    const result = await runSlxSync();
+    if (result.success) {
+      console.log('[slx] Auto-sync complete');
+    } else {
+      console.error('[slx] Auto-sync failed:', result.error);
+    }
+  }, intervalMs);
+  
+  console.log(`[slx] Auto-sync enabled (every ${config.sync.autoSyncIntervalHours}h)`);
+}
+
+// GET /api/slx/config - Get slx config
+app.get('/api/slx/config', async (req, res) => {
+  try {
+    const config = await getSlxConfig();
+    res.json(config || {});
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/slx/config - Update slx config
+app.put('/api/slx/config', async (req, res) => {
+  try {
+    await saveSlxConfig(req.body);
+    await startSlxAutoSync(); // Restart scheduler with new config
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/slx/sync - Trigger sync
+app.post('/api/slx/sync', async (req, res) => {
+  try {
+    const { hours } = req.body;
+    const result = await runSlxSync(hours);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/slx/data - Get Slack data
+app.get('/api/slx/data', async (req, res) => {
+  try {
+    const data = await getSlackData();
+    res.json(data || {});
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/slx/digest - Get digest
+app.post('/api/slx/digest', async (req, res) => {
+  try {
+    const { focus } = req.body;
+    const digest = await runSlxDigest(focus);
+    res.json({ digest });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/slx/status - Get sync status
+app.get('/api/slx/status', async (req, res) => {
+  try {
+    const status = await getSlxStatus();
+    res.json(status || {});
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
@@ -2517,6 +2614,7 @@ async function startServer() {
     await startWorker();
     await startPRResolver();
     startPRCacheAutoRefresh();
+    await startSlxAutoSync();
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
