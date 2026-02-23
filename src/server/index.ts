@@ -12,14 +12,17 @@ import {
   getAllActivity
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
-import { 
+import {
   startWorker,
   toggleWorker,
   updateWorkerInterval,
   getWorkerStatus,
   toggleStandupScheduler,
   updateStandupTime,
-  triggerStandupGeneration
+  triggerStandupGeneration,
+  toggleSlxSyncScheduler,
+  updateSlxSyncInterval,
+  triggerSlxSync
 } from './worker.js';
 import {
   getAllPersonas,
@@ -809,6 +812,60 @@ app.post('/api/worker/standup/trigger', async (_req, res) => {
   } catch (error) {
     console.error('POST /api/worker/standup/trigger error:', error);
     res.status(500).json({ error: 'Failed to trigger standup generation' });
+  }
+});
+
+// POST /api/worker/slx-sync/toggle - Enable/disable slx sync scheduler
+app.post('/api/worker/slx-sync/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    await toggleSlxSyncScheduler(enabled);
+    const status = getWorkerStatus();
+
+    res.json({ status });
+  } catch (error) {
+    console.error('POST /api/worker/slx-sync/toggle error:', error);
+    res.status(500).json({ error: 'Failed to toggle slx sync scheduler' });
+  }
+});
+
+// PUT /api/worker/slx-sync/interval - Update slx sync interval
+app.put('/api/worker/slx-sync/interval', async (req, res) => {
+  try {
+    const { cronExpression } = req.body;
+
+    if (typeof cronExpression !== 'string') {
+      return res.status(400).json({ error: 'cronExpression must be a string' });
+    }
+
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(cronExpression)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
+    await updateSlxSyncInterval(cronExpression);
+    const status = getWorkerStatus();
+
+    res.json({ status });
+  } catch (error) {
+    console.error('PUT /api/worker/slx-sync/interval error:', error);
+    res.status(500).json({ error: 'Failed to update slx sync interval' });
+  }
+});
+
+// POST /api/worker/slx-sync/trigger - Manually trigger slx sync
+app.post('/api/worker/slx-sync/trigger', async (_req, res) => {
+  try {
+    await triggerSlxSync();
+    res.json({ success: true, message: 'slx sync triggered' });
+  } catch (error) {
+    console.error('POST /api/worker/slx-sync/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger slx sync' });
   }
 });
 

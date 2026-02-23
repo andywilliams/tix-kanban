@@ -17,6 +17,12 @@ interface StandupConfig {
   time: string; // HH:MM format
 }
 
+interface SlxSyncConfig {
+  enabled: boolean;
+  interval: string; // cron expression
+  lastRun?: string;
+}
+
 interface SettingsPageProps {
   onSettingsChange?: (settings: UserSettings) => void;
 }
@@ -36,12 +42,15 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [saved, setSaved] = useState(false);
   const [standupSaving, setStandupSaving] = useState(false);
   const [standupSaved, setStandupSaved] = useState(false);
+  const [slxSyncConfig, setSlxSyncConfig] = useState<SlxSyncConfig>({ enabled: false, interval: '0 */1 * * *' });
+  const [slxSaving, setSlxSaving] = useState(false);
+  const [slxSaved, setSlxSaved] = useState(false);
   const [prSaving, setPRSaving] = useState(false);
   const [prSaved, setPRSaved] = useState(false);
 
   useEffect(() => {
     loadSettings();
-    loadStandupConfig();
+    loadWorkerConfig();
     loadPRResolverStatus();
   }, []);
 
@@ -57,13 +66,14 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     }
   };
 
-  const loadStandupConfig = async () => {
+  const loadWorkerConfig = async () => {
     try {
       const response = await fetch('/api/worker/status');
       if (response.ok) {
         const data = await response.json();
         const status = data.status || data;
-        // Parse cron expression "M H * * 1-5" back to HH:MM
+
+        // Parse standup config
         let time = '09:00';
         if (status.standupTime) {
           const parts = status.standupTime.split(' ');
@@ -77,9 +87,16 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
           enabled: status.standupEnabled ?? false,
           time,
         });
+
+        // Parse slx sync config
+        setSlxSyncConfig({
+          enabled: status.slxSyncEnabled ?? false,
+          interval: status.slxSyncInterval ?? '0 */1 * * *',
+          lastRun: status.lastSlxSyncRun,
+        });
       }
     } catch (error) {
-      console.error('Failed to load standup config:', error);
+      console.error('Failed to load worker config:', error);
     }
   };
 
@@ -120,6 +137,47 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to trigger standup:', error);
+    }
+  };
+
+  const saveSlxSyncConfig = async () => {
+    setSlxSaving(true);
+    setSlxSaved(false);
+    try {
+      const toggleRes = await fetch('/api/worker/slx-sync/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: slxSyncConfig.enabled }),
+      });
+      if (!toggleRes.ok) throw new Error('Failed to toggle slx sync');
+
+      const intervalRes = await fetch('/api/worker/slx-sync/interval', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cronExpression: slxSyncConfig.interval }),
+      });
+      if (!intervalRes.ok) throw new Error('Failed to update slx sync interval');
+
+      setSlxSaved(true);
+      setTimeout(() => setSlxSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save slx sync config:', error);
+    } finally {
+      setSlxSaving(false);
+    }
+  };
+
+  const triggerSlxSync = async () => {
+    try {
+      const response = await fetch('/api/worker/slx-sync/trigger', { method: 'POST' });
+      if (response.ok) {
+        alert('Slack sync triggered! Check the Slack page for results.');
+      } else {
+        alert('Failed to trigger Slack sync. Check server logs.');
+      }
+    } catch (error) {
+      console.error('Failed to trigger slx sync:', error);
+      alert('Failed to trigger Slack sync. Is the server running?');
     }
   };
 
@@ -459,6 +517,71 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               style={{ backgroundColor: '#6366f1' }}
             >
               Generate Now
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>Slack Sync (slx)</h3>
+          <p className="settings-description">
+            Automatically sync Slack messages and activity using the slx tool. Fetches data from your configured Slack channels and caches it locally.
+          </p>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={slxSyncConfig.enabled}
+                onChange={e => setSlxSyncConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              Enable Slack sync
+            </label>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="slxInterval">Sync Frequency</label>
+            <select
+              id="slxInterval"
+              value={slxSyncConfig.interval}
+              onChange={e => setSlxSyncConfig(prev => ({ ...prev, interval: e.target.value }))}
+              style={{ maxWidth: '300px' }}
+            >
+              <option value="*/30 * * * *">Every 30 minutes</option>
+              <option value="0 */1 * * *">Every hour</option>
+              <option value="0 */2 * * *">Every 2 hours</option>
+              <option value="0 */4 * * *">Every 4 hours</option>
+              <option value="0 */6 * * *">Every 6 hours</option>
+              <option value="0 */12 * * *">Every 12 hours</option>
+            </select>
+            <small className="form-help">
+              How often to fetch new Slack messages. Requires slx to be installed and configured.
+            </small>
+          </div>
+
+          {slxSyncConfig.lastRun && (
+            <div className="form-group">
+              <label>Last Sync</label>
+              <div style={{ fontSize: '14px', color: '#94a3b8' }}>
+                {new Date(slxSyncConfig.lastRun).toLocaleString()}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+            <button
+              className="save-btn"
+              onClick={saveSlxSyncConfig}
+              disabled={slxSaving}
+            >
+              {slxSaving ? 'Saving...' : slxSaved ? 'Saved!' : 'Save Slack Sync Settings'}
+            </button>
+            <button
+              className="save-btn"
+              onClick={triggerSlxSync}
+              style={{ backgroundColor: '#6366f1' }}
+            >
+              Sync Now
             </button>
           </div>
         </div>
