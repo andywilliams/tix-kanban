@@ -29,7 +29,7 @@ import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks, createTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
-import { getRelevantKnowledge, shouldIncludeKnowledge, getArchitectureOverview } from './persona-knowledge.js';
+import { getRelevantKnowledge, shouldIncludeKnowledge } from './persona-knowledge.js';
 
 
 export interface ChatContext {
