@@ -149,6 +149,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Build an error response with detail from the actual error
+function errorResponse(message: string, error: unknown): { error: string; detail: string } {
+  const detail = error instanceof Error ? error.message : String(error);
+  return { error: message, detail };
+}
+
 // Safely parse an integer with NaN check and min/max bounds
 function clampInt(value: string | undefined, defaultVal: number, min: number, max: number): number {
   if (value === undefined) return defaultVal;
@@ -178,7 +184,7 @@ app.get('/api/tasks', async (_req, res) => {
     res.json({ tasks });
   } catch (error) {
     console.error('GET /api/tasks error:', error);
-    res.status(500).json({ error: 'Failed to fetch tasks' });
+    res.status(500).json(errorResponse('Failed to fetch tasks', error));
   }
 });
 
@@ -192,7 +198,7 @@ app.get('/api/tasks/:id', async (req, res) => {
     res.json({ task });
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to fetch task' });
+    res.status(500).json(errorResponse('Failed to fetch task', error));
   }
 });
 
@@ -218,7 +224,7 @@ app.post('/api/tasks', async (req, res) => {
     res.status(201).json({ task });
   } catch (error) {
     console.error('POST /api/tasks error:', error);
-    res.status(500).json({ error: 'Failed to create task' });
+    res.status(500).json(errorResponse('Failed to create task', error));
   }
 });
 
@@ -269,7 +275,7 @@ app.put('/api/tasks/:id', async (req, res) => {
     res.json({ task });
   } catch (error) {
     console.error(`PUT /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to update task' });
+    res.status(500).json(errorResponse('Failed to update task', error));
   }
 });
 
@@ -285,7 +291,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to delete task' });
+    res.status(500).json(errorResponse('Failed to delete task', error));
   }
 });
 
@@ -298,7 +304,7 @@ app.get('/api/tasks/:id/activity', async (req, res) => {
     res.json({ activity });
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id}/activity error:`, error);
-    res.status(500).json({ error: 'Failed to fetch task activity' });
+    res.status(500).json(errorResponse('Failed to fetch task activity', error));
   }
 });
 
@@ -351,7 +357,7 @@ app.get('/api/activity', async (req, res) => {
     });
   } catch (error) {
     console.error('GET /api/activity error:', error);
-    res.status(500).json({ error: 'Failed to fetch activity' });
+    res.status(500).json(errorResponse('Failed to fetch activity', error));
   }
 });
 
@@ -369,7 +375,7 @@ app.get('/api/tasks/:id/tags/suggest', async (req, res) => {
     res.json(analysis);
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id}/tags/suggest error:`, error);
-    res.status(500).json({ error: 'Failed to suggest tags' });
+    res.status(500).json(errorResponse('Failed to suggest tags', error));
   }
 });
 
@@ -393,7 +399,7 @@ app.post('/api/tasks/:id/tags/auto-apply', async (req, res) => {
     }
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/tags/auto-apply error:`, error);
-    res.status(500).json({ error: 'Failed to auto-apply tags' });
+    res.status(500).json(errorResponse('Failed to auto-apply tags', error));
   }
 });
 
@@ -432,7 +438,7 @@ app.post('/api/tasks/:id/comments', async (req, res) => {
     res.status(201).json({ comment: newComment, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/comments error:`, error);
-    res.status(500).json({ error: 'Failed to add comment' });
+    res.status(500).json(errorResponse('Failed to add comment', error));
   }
 });
 
@@ -466,7 +472,7 @@ app.post('/api/tasks/:id/links', async (req, res) => {
     res.status(201).json({ link: newLink, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/links error:`, error);
-    res.status(500).json({ error: 'Failed to add link' });
+    res.status(500).json(errorResponse('Failed to add link', error));
   }
 });
 
@@ -491,7 +497,7 @@ app.delete('/api/tasks/:id/links/:linkId', async (req, res) => {
     res.json({ success: true, task: updatedTask });
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id}/links/${req.params.linkId} error:`, error);
-    res.status(500).json({ error: 'Failed to delete link' });
+    res.status(500).json(errorResponse('Failed to delete link', error));
   }
 });
 
@@ -541,7 +547,7 @@ app.post('/api/tasks/:id/rating', async (req, res) => {
     res.json({ success: true, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/rating error:`, error);
-    res.status(500).json({ error: 'Failed to add rating' });
+    res.status(500).json(errorResponse('Failed to add rating', error));
   }
 });
 
@@ -751,7 +757,7 @@ app.post('/api/worker/toggle', async (req, res) => {
     res.json({ status });
   } catch (error) {
     console.error('POST /api/worker/toggle error:', error);
-    res.status(500).json({ error: 'Failed to toggle worker' });
+    res.status(500).json(errorResponse('Failed to toggle worker', error));
   }
 });
 
