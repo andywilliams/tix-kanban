@@ -5,7 +5,7 @@
  * workload, and interactions. Makes them feel more alive!
  */
 
-import { Persona, PersonaStats } from '../client/types/index.js';
+import { Persona } from '../client/types/index.js';
 import { getStructuredMemory } from './persona-memory.js';
 
 export type MoodType = 

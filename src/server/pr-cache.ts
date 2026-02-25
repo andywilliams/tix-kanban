@@ -58,7 +58,7 @@ async function fetchRepoPRs(repo: string): Promise<CachedPR[]> {
             title: pr.title,
             state: pr.state || 'open',
             author: pr.author
-          };
+          } as CachedPR;
         } catch {
           return null;
         }
@@ -85,7 +85,7 @@ async function doRefresh(): Promise<void> {
     // Get configured repos
     let repos: string[] = [];
     try {
-      const { stdout } = await exec(
+      const { stdout: _stdout } = await exec(
         `gh repo list --json nameWithOwner --jq '.[].nameWithOwner' 2>/dev/null || echo ""`,
         { timeout: 10000 }
       );

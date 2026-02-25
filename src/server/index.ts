@@ -1289,7 +1289,7 @@ app.put('/api/personas/:id/soul', async (req, res) => {
 import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';
 
 // Auto-tagging
-import { suggestTags, autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
+import { autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
 
 // Achievements
 import { calculateAchievements, getAllAchievements, getRarityColor } from './persona-achievements.js';
@@ -2596,7 +2596,7 @@ async function startSlxAutoSync() {
 }
 
 // GET /api/slx/config - Get slx config
-app.get('/api/slx/config', async (req, res) => {
+app.get('/api/slx/config', async (_req, res) => {
   try {
     const config = await getSlxConfig();
     res.json(config || {});
@@ -2637,7 +2637,7 @@ app.post('/api/slx/sync', async (req, res) => {
 });
 
 // GET /api/slx/data - Get Slack data
-app.get('/api/slx/data', async (req, res) => {
+app.get('/api/slx/data', async (_req, res) => {
   try {
     const data = await getSlackData();
     res.json(data || {});
@@ -2658,7 +2658,7 @@ app.post('/api/slx/digest', async (req, res) => {
 });
 
 // GET /api/slx/status - Get sync status
-app.get('/api/slx/status', async (req, res) => {
+app.get('/api/slx/status', async (_req, res) => {
   try {
     const status = await getSlxStatus();
     res.json(status || {});
