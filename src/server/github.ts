@@ -331,8 +331,11 @@ export async function syncTaskWithPR(_taskId: string, repo: string, prNumber: nu
       taskStatusUpdate = 'review';
       reason = 'All checks passing, awaiting review';
     }
+  } else if (prStatus.state === 'closed') {
+    // PR was closed without merging — don't auto-move to done
+    reason = 'PR closed without merging';
   }
-  
+
   return { prStatus, taskStatusUpdate, reason };
 }
 
