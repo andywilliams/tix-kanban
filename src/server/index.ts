@@ -149,6 +149,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Safely parse an integer with NaN check and min/max bounds
+function clampInt(value: string | undefined, defaultVal: number, min: number, max: number): number {
+  if (value === undefined) return defaultVal;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) return defaultVal;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 // Serve static files from the client build
 const clientBuildPath = path.join(__dirname, '..', '..', 'dist', 'client');
 app.use(express.static(clientBuildPath));
@@ -755,7 +763,12 @@ app.put('/api/worker/interval', async (req, res) => {
     if (typeof interval !== 'string') {
       return res.status(400).json({ error: 'interval must be a string' });
     }
-    
+
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(interval)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
     await updateWorkerInterval(interval);
     const status = getWorkerStatus();
     
@@ -793,7 +806,12 @@ app.put('/api/worker/standup/time', async (req, res) => {
     if (typeof cronExpression !== 'string') {
       return res.status(400).json({ error: 'cronExpression must be a string' });
     }
-    
+
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(cronExpression)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
     await updateStandupTime(cronExpression);
     const status = getWorkerStatus();
     
@@ -1354,7 +1372,7 @@ app.get('/api/personas/:id/agent-memory/search', async (req, res) => {
     const userId = (req.query.userId as string) || 'default';
     const query = req.query.q as string;
     const category = req.query.category as string;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = clampInt(req.query.limit as string, 10, 1, 100);
     
     if (!query) {
       return res.status(400).json({ error: 'query (q) is required' });
@@ -1514,7 +1532,7 @@ app.get('/api/chat/:channelId', async (req, res) => {
 app.get('/api/chat/:channelId/messages', async (req, res) => {
   try {
     const { channelId } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50, 1, 500);
     const before = req.query.before as string;
     
     const messages = await getMessages(channelId, limit, before);
@@ -2032,7 +2050,7 @@ app.post('/api/pr-resolver/run', async (req, res) => {
 // GET /api/standup/generate - Generate a new standup from recent activity
 app.get('/api/standup/generate', async (req, res) => {
   try {
-    const hours = parseInt(req.query.hours as string) || 24;
+    const hours = clampInt(req.query.hours as string, 24, 1, 168);
     const entry = await generateStandupEntry(hours);
     res.json({ standup: entry });
   } catch (error) {
@@ -2061,7 +2079,7 @@ app.post('/api/standup', async (req, res) => {
 // GET /api/standup/history - Get standup history
 app.get('/api/standup/history', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const entries = await getRecentStandupEntries(days);
     res.json({ standups: entries });
   } catch (error) {
@@ -2369,7 +2387,7 @@ async function writeLogFile(date: string, entries: any[]) {
 // GET /api/activity-log?days=7 — returns log entries
 app.get('/api/activity-log', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const allEntries: Record<string, any[]> = {};
     
     for (let i = 0; i < days; i++) {
@@ -2466,7 +2484,7 @@ async function writeNotesFile(date: string, entries: any[]) {
 // GET /api/daily-notes?days=14 — returns notes grouped by date
 app.get('/api/daily-notes', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const allNotes: Record<string, any[]> = {};
 
     for (let i = 0; i < days; i++) {
