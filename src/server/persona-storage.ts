@@ -79,9 +79,9 @@ async function readPersonaPrompt(personaId: string): Promise<string> {
       let yamlEnd = -1;
       for (let i = 1; i < lines.length; i++) {
         if (lines[i] === '---') {
-          yamlEnd = i;
-          break;
-        }
+        yamlEnd = i;
+        break;
+      }
       }
       return yamlEnd > 0 ? lines.slice(yamlEnd + 1).join('\n').trim() : content.trim();
     }
@@ -510,12 +510,12 @@ Tags: ${taskTags.join(', ')}`;
         const targetChars = memoryTokenBudget * 4;
         const truncatePoint = memory.length - targetChars;
         if (truncatePoint > 0) {
-          // Try to truncate at a natural break (paragraph)
-          const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
-          const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
-          finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
-          memoryTruncated = true;
-        }
+        // Try to truncate at a natural break (paragraph)
+        const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
+        const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
+        finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
+        memoryTruncated = true;
+      }
       }
     }
     
@@ -591,24 +591,24 @@ export async function initializePersonas(): Promise<void> {
     console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
 
     const defaultPersonas = [
-        {
-          name: 'Bug-Fixer',
-          emoji: '🐛',
-          description: 'Specialist in identifying and fixing bugs quickly',
-          specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a skilled bug fixer. When given a bug report:
+      {
+        name: 'Bug-Fixer',
+        emoji: '🐛',
+        description: 'Specialist in identifying and fixing bugs quickly',
+        specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are a skilled bug fixer. When given a bug report:
 1. Analyze the issue carefully
 2. Identify the root cause
 3. Propose a solution
@@ -616,25 +616,25 @@ export async function initializePersonas(): Promise<void> {
 5. Provide clear, actionable steps
 
 Be thorough but concise. Focus on fixing the problem efficiently.`
-        },
-        {
-          name: 'Developer',
-          emoji: '👩‍💻',
-          description: 'Full-stack developer for feature implementation',
-          specialties: ['javascript', 'typescript', 'react', 'nodejs', 'api-design'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are an experienced software developer. When given a development task:
+      },
+      {
+        name: 'Developer',
+        emoji: '👩‍💻',
+        description: 'Full-stack developer for feature implementation',
+        specialties: ['javascript', 'typescript', 'react', 'nodejs', 'api-design'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are an experienced software developer. When given a development task:
 1. Break down the requirements
 2. Design the implementation approach
 3. Consider best practices and patterns
@@ -642,25 +642,25 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
 5. Provide clear implementation steps
 
 Write clean, maintainable code that follows established conventions.`
-        },
-        {
-          name: 'Tech-Writer',
-          emoji: '📝',
-          description: 'Creates clear, comprehensive documentation',
-          specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
+      },
+      {
+        name: 'Tech-Writer',
+        emoji: '📝',
+        description: 'Creates clear, comprehensive documentation',
+        specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
 1. Understand the target audience
 2. Structure information logically
 3. Use clear, simple language
@@ -668,25 +668,25 @@ Write clean, maintainable code that follows established conventions.`
 5. Consider different use cases
 
 Make complex technical concepts accessible and actionable.`
+      },
+      {
+        name: 'QA-Engineer',
+        emoji: '🧪',
+        description: 'Quality assurance specialist who reviews work for completeness and quality',
+        specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+          }
         },
-        {
-          name: 'QA-Engineer',
-          emoji: '🧪',
-          description: 'Quality assurance specialist who reviews work for completeness and quality',
-          specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a QA Engineer who reviews completed work for quality and completeness. When reviewing:
+        prompt: `You are a QA Engineer who reviews completed work for quality and completeness. When reviewing:
 1. Check if all requirements are met
 2. Evaluate code quality and best practices
 3. Verify testing coverage is adequate
@@ -708,25 +708,25 @@ This tool helps identify:
 - Best practice violations
 
 Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.`
+      },
+      {
+        name: 'Security-Reviewer',
+        emoji: '🔒',
+        description: 'Security specialist who reviews code and implementations for security vulnerabilities',
+        specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+        }
         },
-        {
-          name: 'Security-Reviewer',
-          emoji: '🔒',
-          description: 'Security specialist who reviews code and implementations for security vulnerabilities',
-          specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
-          stats: {
-            tasksCompleted: 0,
-            averageCompletionTime: 0,
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a Security Reviewer who evaluates implementations for security vulnerabilities and compliance. When reviewing:
+        prompt: `You are a Security Reviewer who evaluates implementations for security vulnerabilities and compliance. When reviewing:
 1. Check for common security vulnerabilities (OWASP Top 10)
 2. Evaluate authentication and authorization mechanisms
 3. Review data handling and encryption practices
@@ -734,25 +734,25 @@ Be thorough but fair. Approve work that meets standards, reject work that has si
 5. Assess potential attack vectors
 
 Focus on security-critical issues. Approve secure implementations, reject those with significant security risks. Provide clear guidance on security improvements.`
+      },
+      {
+        name: 'Code-Reviewer',
+        emoji: '🔍',
+        description: 'Specialized code reviewer who uses lgtm tool for thorough PR reviews',
+        specialties: ['code-review', 'pull-requests', 'lgtm', 'code-quality', 'best-practices'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+        }
         },
-        {
-          name: 'Code-Reviewer',
-          emoji: '🔍',
-          description: 'Specialized code reviewer who uses lgtm tool for thorough PR reviews',
-          specialties: ['code-review', 'pull-requests', 'lgtm', 'code-quality', 'best-practices'],
-          stats: {
-            tasksCompleted: 0,
-            averageCompletionTime: 0,
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a Code Reviewer specializing in using the lgtm tool for comprehensive pull request reviews.
+        prompt: `You are a Code Reviewer specializing in using the lgtm tool for comprehensive pull request reviews.
 
 ## Primary Tool: lgtm
 
@@ -826,25 +826,25 @@ Structure your review feedback as:
 - **Comment**: Need more information or discussion before deciding
 
 Always provide actionable, constructive feedback that helps developers improve their code. Reference specific line numbers and files when discussing issues found by lgtm.`
+      },
+      {
+        name: 'Product-Manager',
+        emoji: '📋',
+        description: 'Strategic product thinker who understands system architecture, creates tickets from discussions, and develops action plans',
+        specialties: ['product-planning', 'architecture', 'requirements', 'roadmap', 'ticket-creation', 'user-stories'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+        }
         },
-        {
-          name: 'Product-Manager',
-          emoji: '📋',
-          description: 'Strategic product thinker who understands system architecture, creates tickets from discussions, and develops action plans',
-          specialties: ['product-planning', 'architecture', 'requirements', 'roadmap', 'ticket-creation', 'user-stories'],
-          stats: {
-            tasksCompleted: 0,
-            averageCompletionTime: 0,
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a Product Manager who bridges technical implementation with business value. Your role involves:
+        prompt: `You are a Product Manager who bridges technical implementation with business value. Your role involves:
 
 ## Core Responsibilities
 
@@ -920,7 +920,7 @@ When creating multiple related tickets:
 - Identify when specialist input is needed
 
 Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.`
-        }
+      }
     ];
 
     // Check which personas are missing and add them

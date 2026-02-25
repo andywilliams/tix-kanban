@@ -400,7 +400,8 @@ Guidelines for task creation:
 - Only create a task when the user explicitly asks for one
 - Confirm what you're creating in your response text
 
-${persona.id === 'product-manager' ? `## Special Actions for Product Manager
+${persona.id === 'product-manager' ? `
+## Special Actions for Product Manager
 
 You have additional capabilities as a Product Manager:
 
