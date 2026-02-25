@@ -6,6 +6,7 @@ import { Task, Link, ActivityLog } from '../client/types/index.js';
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
 const SUMMARY_FILE = path.join(STORAGE_DIR, '_summary.json');
+const MAX_ACTIVITY_PER_TASK = 100;
 
 // Per-task mutex to serialize read-modify-write operations
 const taskLocks = new Map<string, Promise<any>>();
@@ -278,7 +279,7 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
       ...existingTask,
       ...updates,
       id: taskId, // Ensure ID doesn't change
-      activity: newActivity,
+      activity: newActivity.slice(-MAX_ACTIVITY_PER_TASK),
       updatedAt: new Date(),
     };
 
@@ -342,7 +343,7 @@ export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 't
     const updatedTask: Task = {
       ...existingTask,
       links: updatedLinks,
-      activity: newActivity,
+      activity: newActivity.slice(-MAX_ACTIVITY_PER_TASK),
       updatedAt: new Date(),
     };
 
