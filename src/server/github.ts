@@ -178,13 +178,21 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
     return executeWithRateLimit(async () => {
       // Get basic PR info
       const { stdout: prData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json number,title,state,isDraft,url,createdAt,updatedAt,mergeable`);
-      const pr = JSON.parse(prData);
+      let pr: any;
+      try {
+        pr = JSON.parse(prData);
+      } catch {
+        console.warn(`Failed to parse PR data for ${repo}#${prNumber}`);
+        return null as any;
+      }
       
       // Get check runs (may 404 for repos without CI)
       let checks: PRStatus['checks'] = [];
       try {
         const { stdout: checksData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json statusCheckRollup --jq '.statusCheckRollup[] | {conclusion: .conclusion, status: .status}'`);
-        checks = checksData.trim() ? checksData.split('\n').map(line => JSON.parse(line)) : [];
+        checks = checksData.trim() ? checksData.split('\n').map(line => {
+          try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean) : [];
       } catch {
         // No CI checks configured — that's fine
       }
@@ -193,7 +201,9 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
       let reviewsRaw: Array<{ state: string; user: { login: string } }> = [];
       try {
         const { stdout: reviewsData } = await exec(`gh api repos/${repo}/pulls/${prNumber}/reviews --jq '.[] | select(.state != null) | {state, user: {login}}'`);
-        reviewsRaw = reviewsData.trim() ? reviewsData.split('\n').map(line => JSON.parse(line)) : [];
+        reviewsRaw = reviewsData.trim() ? reviewsData.split('\n').map(line => {
+          try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean) : [];
       } catch {
         // No reviews — that's fine
       }
@@ -225,7 +235,13 @@ export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merge
   return getCachedResponse(cacheKey, async () => {
     return executeWithRateLimit(async () => {
       const { stdout } = await exec(`gh pr list --repo ${repo} --state ${state} --json number`);
-      const prs = JSON.parse(stdout);
+      let prs: any[];
+      try {
+        prs = JSON.parse(stdout);
+      } catch {
+        console.warn(`Failed to parse PR list for ${repo}`);
+        return [];
+      }
       
       // Check rate limit before processing all PRs
       const rateLimitCheck = await checkRateLimit(prs.length * 3); // 3 calls per PR
@@ -258,7 +274,13 @@ export async function getRepoIssues(repo: string, state: 'open' | 'closed' | 'al
   return getCachedResponse(cacheKey, async () => {
     return executeWithRateLimit(async () => {
       const { stdout } = await exec(`gh issue list --repo ${repo} --state ${state} --json number,title,body,state,labels,assignees,createdAt,updatedAt,url`);
-      const issues = JSON.parse(stdout);
+      let issues: any[];
+      try {
+        issues = JSON.parse(stdout);
+      } catch {
+        console.warn(`Failed to parse issues list for ${repo}`);
+        return [];
+      }
       
       return issues.map((issue: any) => ({
         number: issue.number,
