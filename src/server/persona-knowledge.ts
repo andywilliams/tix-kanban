@@ -27,12 +27,10 @@ export function extractKeywords(text: string): string {
 
   // Look for technical terms and compound words
   const technicalTerms = [];
-  for (let i = 0; i < words.length - 1; i++) {
-    // Detect compound technical terms like "api-design" or "database schema"
-    if (words[i].includes('-') ||
-        (words[i] === 'api' && words[i+1] === 'design') ||
-        (words[i] === 'database' && words[i+1] === 'schema')) {
-      technicalTerms.push(`${words[i]} ${words[i+1]}`);
+  for (let i = 0; i < words.length; i++) {
+    // Detect hyphenated compound terms already in the text
+    if (words[i].includes('-')) {
+      technicalTerms.push(words[i]);
     }
   }
 
@@ -166,7 +164,7 @@ export async function searchKnowledgeForTopic(
     const results = await searchKnowledgeDocs({
       keywords: topic,
       repo: options?.repo,
-      area: options?.area as any,
+      area: options?.area,
       limit: options?.limit || 5
     });
 

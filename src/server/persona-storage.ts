@@ -589,8 +589,8 @@ export async function initializePersonas(): Promise<void> {
 
     // Always check for missing default personas
     console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
-      
-      const defaultPersonas = [
+
+    const defaultPersonas = [
         {
           name: 'Bug-Fixer',
           emoji: '🐛',
@@ -921,31 +921,29 @@ When creating multiple related tickets:
 
 Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.`
         }
-      ];
+    ];
 
-      // Check which personas are missing and add them
-      let addedCount = 0;
-      for (const personaData of defaultPersonas) {
-        const personaId = personaData.name
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '-')
-          .replace(/-+/g, '-')
-          .replace(/^-|-$/g, '');
+    // Check which personas are missing and add them
+    let addedCount = 0;
+    for (const personaData of defaultPersonas) {
+      const personaId = personaData.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
 
-        if (!existingIds.has(personaId)) {
-          await createPersona(personaData);
-          console.log(`➕ Added missing persona: ${personaData.emoji} ${personaData.name}`);
-          addedCount++;
-        }
+      if (!existingIds.has(personaId)) {
+        await createPersona(personaData);
+        console.log(`➕ Added missing persona: ${personaData.emoji} ${personaData.name}`);
+        addedCount++;
       }
+    }
 
-      if (addedCount > 0) {
-        console.log(`✅ Added ${addedCount} missing default persona${addedCount > 1 ? 's' : ''}`);
-      } else if (existingPersonas.length === 0) {
-        console.log('❌ No personas found and failed to create defaults');
-      } else {
-        console.log('✅ All default personas already present');
-      }
+    if (addedCount > 0) {
+      console.log(`✅ Added ${addedCount} missing default persona${addedCount > 1 ? 's' : ''}`);
+    } else {
+      console.log('✅ All default personas already present');
+    }
   } catch (error) {
     console.error('Failed to initialize personas:', error);
   }

@@ -230,14 +230,6 @@ async function generatePersonaResponse(
         5
       );
       knowledgeContext = summary;
-
-      // For Product Manager, also include architecture overview
-      if (persona.id === 'product-manager') {
-        const architectureOverview = await getArchitectureOverview();
-        if (architectureOverview) {
-          knowledgeContext = architectureOverview + '\n\n' + knowledgeContext;
-        }
-      }
     }
 
     // Create the full prompt
@@ -408,8 +400,8 @@ Guidelines for task creation:
 - Only create a task when the user explicitly asks for one
 - Confirm what you're creating in your response text
 
-## Special Actions for Product Manager
-${persona.id === 'product-manager' ? `
+${persona.id === 'product-manager' ? `## Special Actions for Product Manager
+
 You have additional capabilities as a Product Manager:
 
 1. **Creating Multiple Related Tickets**: You can create several tickets at once by including multiple action blocks
