@@ -201,7 +201,8 @@ export function suggestTags(task: Task): TagSuggestion[] {
     
     if (score > 0) {
       // Normalize score to 0-1 confidence
-      const maxPossibleScore = pattern.keywords.length + (pattern.patterns.length * 2) + pattern.keywords.length;
+      // Title keyword matches are a bonus and not counted in the denominator
+      const maxPossibleScore = pattern.keywords.length + (pattern.patterns.length * 2);
       let confidence = Math.min(1, (score / Math.max(maxPossibleScore, 5)) * (pattern.weight || 1));
       
       // Boost confidence if multiple matches
