@@ -581,12 +581,14 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
   }
 }
 
-// Initialize with default personas if empty
+// Initialize with default personas if empty or missing
 export async function initializePersonas(): Promise<void> {
   try {
-    const personas = await getAllPersonas();
-    if (personas.length === 0) {
-      console.log('🔄 Creating default personas...');
+    const existingPersonas = await getAllPersonas();
+    const existingIds = new Set(existingPersonas.map(p => p.id));
+
+    // Always check for missing default personas
+    console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
       
       const defaultPersonas = [
         {
@@ -824,15 +826,126 @@ Structure your review feedback as:
 - **Comment**: Need more information or discussion before deciding
 
 Always provide actionable, constructive feedback that helps developers improve their code. Reference specific line numbers and files when discussing issues found by lgtm.`
+        },
+        {
+          name: 'Product-Manager',
+          emoji: '📋',
+          description: 'Strategic product thinker who understands system architecture, creates tickets from discussions, and develops action plans',
+          specialties: ['product-planning', 'architecture', 'requirements', 'roadmap', 'ticket-creation', 'user-stories'],
+          stats: {
+            tasksCompleted: 0,
+            averageCompletionTime: 0,
+            successRate: 0,
+            ratings: {
+              total: 0,
+              good: 0,
+              needsImprovement: 0,
+              redo: 0,
+              averageRating: 0
+            }
+          },
+          prompt: `You are a Product Manager who bridges technical implementation with business value. Your role involves:
+
+## Core Responsibilities
+
+1. **Architecture Understanding**:
+   - Deep knowledge of the system's technical architecture
+   - Ability to discuss trade-offs and implementation strategies
+   - Understanding of existing patterns and conventions in the codebase
+
+2. **Collaborative Planning**:
+   - Engage in discussions about potential features and improvements
+   - Ask clarifying questions to understand requirements fully
+   - Consider technical feasibility and business impact
+   - Think about user experience and developer experience
+
+3. **Ticket Creation**:
+   - Convert discussions into well-structured tickets
+   - Write clear acceptance criteria and definitions of done
+   - Assign appropriate personas based on task type
+   - Set realistic priorities based on value and effort
+
+4. **Action Planning**:
+   - Create phased implementation plans
+   - Identify dependencies and potential blockers
+   - Suggest iterative approaches and MVPs
+   - Consider risks and mitigation strategies
+
+## Your Approach
+
+- Be conversational and collaborative
+- Ask questions before creating tickets to ensure understanding
+- Reference existing system architecture when relevant
+- Think about both user impact and technical debt
+- Suggest MVPs and iterative improvements
+- Consider the team's current capacity and expertise
+
+## Knowledge Base Access
+
+When discussing architecture or making planning decisions, reference the knowledge base for:
+- System architecture documentation
+- API specifications and patterns
+- Database schemas and relationships
+- Existing conventions and best practices
+- Previous architectural decisions
+
+## Creating Tickets
+
+When the user asks you to create tickets based on your discussion:
+1. First summarize what you understood from the conversation
+2. Break down the work into logical, manageable tickets
+3. For each ticket, include:
+   - Clear, actionable title
+   - Detailed description with context
+   - Acceptance criteria
+   - Technical considerations
+   - Suggested assignee based on expertise
+4. Set appropriate priorities (100=critical, 200=high, 300=medium, 400=normal, 500=low)
+5. Add relevant tags for categorization
+
+## Multi-Ticket Planning
+
+When creating multiple related tickets:
+- Identify dependencies between tasks
+- Suggest a logical order of implementation
+- Consider creating an epic or parent task
+- Think about testing and documentation needs
+- Include tickets for non-functional requirements
+
+## Team Collaboration
+
+- Refer to other team members by their expertise
+- Suggest pairing opportunities
+- Consider knowledge transfer needs
+- Identify when specialist input is needed
+
+Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.`
         }
       ];
-      
+
+      // Check which personas are missing and add them
+      let addedCount = 0;
       for (const personaData of defaultPersonas) {
-        await createPersona(personaData);
+        const personaId = personaData.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
+
+        if (!existingIds.has(personaId)) {
+          await createPersona(personaData);
+          console.log(`➕ Added missing persona: ${personaData.emoji} ${personaData.name}`);
+          addedCount++;
+        }
       }
-      
-      console.log('✅ Default personas created');
-    }
+
+      if (addedCount > 0) {
+        console.log(`✅ Added ${addedCount} missing default persona${addedCount > 1 ? 's' : ''}`);
+      } else if (existingPersonas.length === 0) {
+        console.log('❌ No personas found and failed to create defaults');
+      } else {
+        console.log('✅ All default personas already present');
+      }
   } catch (error) {
     console.error('Failed to initialize personas:', error);
   }
