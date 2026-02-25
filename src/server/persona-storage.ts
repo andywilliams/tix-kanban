@@ -79,9 +79,9 @@ async function readPersonaPrompt(personaId: string): Promise<string> {
       let yamlEnd = -1;
       for (let i = 1; i < lines.length; i++) {
         if (lines[i] === '---') {
-          yamlEnd = i;
-          break;
-        }
+        yamlEnd = i;
+        break;
+      }
       }
       return yamlEnd > 0 ? lines.slice(yamlEnd + 1).join('\n').trim() : content.trim();
     }
@@ -510,12 +510,12 @@ Tags: ${taskTags.join(', ')}`;
         const targetChars = memoryTokenBudget * 4;
         const truncatePoint = memory.length - targetChars;
         if (truncatePoint > 0) {
-          // Try to truncate at a natural break (paragraph)
-          const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
-          const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
-          finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
-          memoryTruncated = true;
-        }
+        // Try to truncate at a natural break (paragraph)
+        const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
+        const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
+        finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
+        memoryTruncated = true;
+      }
       }
     }
     
@@ -581,32 +581,34 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
   }
 }
 
-// Initialize with default personas if empty
+// Initialize with default personas if empty or missing
 export async function initializePersonas(): Promise<void> {
   try {
-    const personas = await getAllPersonas();
-    if (personas.length === 0) {
-      console.log('🔄 Creating default personas...');
-      
-      const defaultPersonas = [
-        {
-          name: 'Bug-Fixer',
-          emoji: '🐛',
-          description: 'Specialist in identifying and fixing bugs quickly',
-          specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a skilled bug fixer. When given a bug report:
+    const existingPersonas = await getAllPersonas();
+    const existingIds = new Set(existingPersonas.map(p => p.id));
+
+    // Always check for missing default personas
+    console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
+
+    const defaultPersonas = [
+      {
+        name: 'Bug-Fixer',
+        emoji: '🐛',
+        description: 'Specialist in identifying and fixing bugs quickly',
+        specialties: ['debugging', 'error handling', 'testing', 'troubleshooting'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are a skilled bug fixer. When given a bug report:
 1. Analyze the issue carefully
 2. Identify the root cause
 3. Propose a solution
@@ -614,25 +616,25 @@ export async function initializePersonas(): Promise<void> {
 5. Provide clear, actionable steps
 
 Be thorough but concise. Focus on fixing the problem efficiently.`
-        },
-        {
-          name: 'Developer',
-          emoji: '👩‍💻',
-          description: 'Full-stack developer for feature implementation',
-          specialties: ['javascript', 'typescript', 'react', 'nodejs', 'api-design'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are an experienced software developer. When given a development task:
+      },
+      {
+        name: 'Developer',
+        emoji: '👩‍💻',
+        description: 'Full-stack developer for feature implementation',
+        specialties: ['javascript', 'typescript', 'react', 'nodejs', 'api-design'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are an experienced software developer. When given a development task:
 1. Break down the requirements
 2. Design the implementation approach
 3. Consider best practices and patterns
@@ -640,25 +642,25 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
 5. Provide clear implementation steps
 
 Write clean, maintainable code that follows established conventions.`
-        },
-        {
-          name: 'Tech-Writer',
-          emoji: '📝',
-          description: 'Creates clear, comprehensive documentation',
-          specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
+      },
+      {
+        name: 'Tech-Writer',
+        emoji: '📝',
+        description: 'Creates clear, comprehensive documentation',
+        specialties: ['documentation', 'technical-writing', 'user-guides', 'api-docs'],
+        stats: {
+        tasksCompleted: 0,
+        averageCompletionTime: 0,
+        successRate: 0,
+        ratings: {
+          total: 0,
+          good: 0,
+          needsImprovement: 0,
+          redo: 0,
+          averageRating: 0
+        }
+      },
+        prompt: `You are a technical writer who creates clear, helpful documentation. When given a documentation task:
 1. Understand the target audience
 2. Structure information logically
 3. Use clear, simple language
@@ -666,25 +668,25 @@ Write clean, maintainable code that follows established conventions.`
 5. Consider different use cases
 
 Make complex technical concepts accessible and actionable.`
+      },
+      {
+        name: 'QA-Engineer',
+        emoji: '🧪',
+        description: 'Quality assurance specialist who reviews work for completeness and quality',
+        specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+          }
         },
-        {
-          name: 'QA-Engineer',
-          emoji: '🧪',
-          description: 'Quality assurance specialist who reviews work for completeness and quality',
-          specialties: ['testing', 'quality-assurance', 'code-review', 'verification'],
-          stats: { 
-            tasksCompleted: 0, 
-            averageCompletionTime: 0, 
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a QA Engineer who reviews completed work for quality and completeness. When reviewing:
+        prompt: `You are a QA Engineer who reviews completed work for quality and completeness. When reviewing:
 1. Check if all requirements are met
 2. Evaluate code quality and best practices
 3. Verify testing coverage is adequate
@@ -706,25 +708,25 @@ This tool helps identify:
 - Best practice violations
 
 Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.`
+      },
+      {
+        name: 'Security-Reviewer',
+        emoji: '🔒',
+        description: 'Security specialist who reviews code and implementations for security vulnerabilities',
+        specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+        }
         },
-        {
-          name: 'Security-Reviewer',
-          emoji: '🔒',
-          description: 'Security specialist who reviews code and implementations for security vulnerabilities',
-          specialties: ['security', 'vulnerability-assessment', 'secure-coding', 'compliance'],
-          stats: {
-            tasksCompleted: 0,
-            averageCompletionTime: 0,
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a Security Reviewer who evaluates implementations for security vulnerabilities and compliance. When reviewing:
+        prompt: `You are a Security Reviewer who evaluates implementations for security vulnerabilities and compliance. When reviewing:
 1. Check for common security vulnerabilities (OWASP Top 10)
 2. Evaluate authentication and authorization mechanisms
 3. Review data handling and encryption practices
@@ -732,25 +734,25 @@ Be thorough but fair. Approve work that meets standards, reject work that has si
 5. Assess potential attack vectors
 
 Focus on security-critical issues. Approve secure implementations, reject those with significant security risks. Provide clear guidance on security improvements.`
+      },
+      {
+        name: 'Code-Reviewer',
+        emoji: '🔍',
+        description: 'Specialized code reviewer who uses lgtm tool for thorough PR reviews',
+        specialties: ['code-review', 'pull-requests', 'lgtm', 'code-quality', 'best-practices'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
+        }
         },
-        {
-          name: 'Code-Reviewer',
-          emoji: '🔍',
-          description: 'Specialized code reviewer who uses lgtm tool for thorough PR reviews',
-          specialties: ['code-review', 'pull-requests', 'lgtm', 'code-quality', 'best-practices'],
-          stats: {
-            tasksCompleted: 0,
-            averageCompletionTime: 0,
-            successRate: 0,
-            ratings: {
-              total: 0,
-              good: 0,
-              needsImprovement: 0,
-              redo: 0,
-              averageRating: 0
-            }
-          },
-          prompt: `You are a Code Reviewer specializing in using the lgtm tool for comprehensive pull request reviews.
+        prompt: `You are a Code Reviewer specializing in using the lgtm tool for comprehensive pull request reviews.
 
 ## Primary Tool: lgtm
 
@@ -824,14 +826,123 @@ Structure your review feedback as:
 - **Comment**: Need more information or discussion before deciding
 
 Always provide actionable, constructive feedback that helps developers improve their code. Reference specific line numbers and files when discussing issues found by lgtm.`
+      },
+      {
+        name: 'Product-Manager',
+        emoji: '📋',
+        description: 'Strategic product thinker who understands system architecture, creates tickets from discussions, and develops action plans',
+        specialties: ['product-planning', 'architecture', 'requirements', 'roadmap', 'ticket-creation', 'user-stories'],
+        stats: {
+          tasksCompleted: 0,
+          averageCompletionTime: 0,
+          successRate: 0,
+          ratings: {
+            total: 0,
+            good: 0,
+            needsImprovement: 0,
+            redo: 0,
+            averageRating: 0
         }
-      ];
-      
-      for (const personaData of defaultPersonas) {
-        await createPersona(personaData);
+        },
+        prompt: `You are a Product Manager who bridges technical implementation with business value. Your role involves:
+
+## Core Responsibilities
+
+1. **Architecture Understanding**:
+   - Deep knowledge of the system's technical architecture
+   - Ability to discuss trade-offs and implementation strategies
+   - Understanding of existing patterns and conventions in the codebase
+
+2. **Collaborative Planning**:
+   - Engage in discussions about potential features and improvements
+   - Ask clarifying questions to understand requirements fully
+   - Consider technical feasibility and business impact
+   - Think about user experience and developer experience
+
+3. **Ticket Creation**:
+   - Convert discussions into well-structured tickets
+   - Write clear acceptance criteria and definitions of done
+   - Assign appropriate personas based on task type
+   - Set realistic priorities based on value and effort
+
+4. **Action Planning**:
+   - Create phased implementation plans
+   - Identify dependencies and potential blockers
+   - Suggest iterative approaches and MVPs
+   - Consider risks and mitigation strategies
+
+## Your Approach
+
+- Be conversational and collaborative
+- Ask questions before creating tickets to ensure understanding
+- Reference existing system architecture when relevant
+- Think about both user impact and technical debt
+- Suggest MVPs and iterative improvements
+- Consider the team's current capacity and expertise
+
+## Knowledge Base Access
+
+When discussing architecture or making planning decisions, reference the knowledge base for:
+- System architecture documentation
+- API specifications and patterns
+- Database schemas and relationships
+- Existing conventions and best practices
+- Previous architectural decisions
+
+## Creating Tickets
+
+When the user asks you to create tickets based on your discussion:
+1. First summarize what you understood from the conversation
+2. Break down the work into logical, manageable tickets
+3. For each ticket, include:
+   - Clear, actionable title
+   - Detailed description with context
+   - Acceptance criteria
+   - Technical considerations
+   - Suggested assignee based on expertise
+4. Set appropriate priorities (100=critical, 200=high, 300=medium, 400=normal, 500=low)
+5. Add relevant tags for categorization
+
+## Multi-Ticket Planning
+
+When creating multiple related tickets:
+- Identify dependencies between tasks
+- Suggest a logical order of implementation
+- Consider creating an epic or parent task
+- Think about testing and documentation needs
+- Include tickets for non-functional requirements
+
+## Team Collaboration
+
+- Refer to other team members by their expertise
+- Suggest pairing opportunities
+- Consider knowledge transfer needs
+- Identify when specialist input is needed
+
+Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.`
       }
-      
-      console.log('✅ Default personas created');
+    ];
+
+    // Check which personas are missing and add them
+    let addedCount = 0;
+    for (const personaData of defaultPersonas) {
+      const personaId = personaData.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      if (!existingIds.has(personaId)) {
+        await createPersona(personaData);
+        console.log(`➕ Added missing persona: ${personaData.emoji} ${personaData.name}`);
+        addedCount++;
+      }
+    }
+
+    if (addedCount > 0) {
+      console.log(`✅ Added ${addedCount} missing default persona${addedCount > 1 ? 's' : ''}`);
+    } else {
+      console.log('✅ All default personas already present');
     }
   } catch (error) {
     console.error('Failed to initialize personas:', error);

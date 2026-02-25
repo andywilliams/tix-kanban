@@ -29,6 +29,7 @@ import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks, createTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
+import { getRelevantKnowledge, shouldIncludeKnowledge } from './persona-knowledge.js';
 
 
 export interface ChatContext {
@@ -218,7 +219,19 @@ async function generatePersonaResponse(
     
     // Get open PRs from cache (fast — no API calls during chat)
     const prContext = await getCachedPRs();
-    
+
+    // Get relevant knowledge for personas that need it
+    let knowledgeContext = '';
+    if (shouldIncludeKnowledge(persona)) {
+      const { summary } = await getRelevantKnowledge(
+        persona,
+        originalMessage.content,
+        undefined, // Could pass repo if task context includes it
+        5
+      );
+      knowledgeContext = summary;
+    }
+
     // Create the full prompt
     const prompt = buildChatPrompt({
       soul,
@@ -229,7 +242,8 @@ async function generatePersonaResponse(
       relevantMemories,
       teamContext,
       boardContext,
-      prContext
+      prContext,
+      knowledgeContext
     });
     
     // Generate response using AI
@@ -306,8 +320,9 @@ function buildChatPrompt(context: {
   teamContext: string;
   boardContext: string;
   prContext: string;
+  knowledgeContext?: string;
 }): string {
-  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, boardContext, prContext } = context;
+  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext } = context;
   
   const sections: string[] = [];
   
@@ -334,7 +349,12 @@ function buildChatPrompt(context: {
   
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
-  
+
+  // Knowledge base context (if available)
+  if (knowledgeContext) {
+    sections.push(`\n${knowledgeContext}`);
+  }
+
   // Kanban board state
   sections.push(`\n## Kanban Board (All Tasks)\n${boardContext}`);
   
@@ -379,6 +399,30 @@ Guidelines for task creation:
 - Write your conversational response BEFORE the action block
 - Only create a task when the user explicitly asks for one
 - Confirm what you're creating in your response text
+
+${persona.id === 'product-manager' ? `
+## Special Actions for Product Manager
+
+You have additional capabilities as a Product Manager:
+
+1. **Creating Multiple Related Tickets**: You can create several tickets at once by including multiple action blocks
+2. **Detailed Descriptions**: Include acceptance criteria, technical considerations, and dependencies in descriptions
+3. **Strategic Planning**: When creating tickets, think about:
+   - Logical order of implementation
+   - Dependencies between tasks
+   - Which personas are best suited for each task
+   - Realistic time estimates
+   - Risk factors
+
+Example of creating multiple tickets:
+\`\`\`action
+{"action":"create_task","title":"Design API endpoints","description":"Design REST API endpoints for user management\\n\\nAcceptance Criteria:\\n- Define endpoint structure\\n- Document request/response formats\\n- Consider authentication requirements","assignee":"developer","priority":300,"tags":["api","design"]}
+\`\`\`
+
+\`\`\`action
+{"action":"create_task","title":"Implement user API","description":"Implement the user management API endpoints\\n\\nDependencies:\\n- API design must be complete\\n\\nTechnical Notes:\\n- Use existing auth middleware\\n- Follow RESTful conventions","assignee":"developer","priority":300,"tags":["api","backend"]}
+\`\`\`
+` : ''}
 
 Available team members for assignment:
 ${teamContext}
