@@ -100,6 +100,11 @@ export async function addMemoryEntry(
   };
   
   memory.entries.push(newEntry);
+  // Cap entries at 200, removing oldest when exceeded
+  const MAX_MEMORY_ENTRIES = 200;
+  if (memory.entries.length > MAX_MEMORY_ENTRIES) {
+    memory.entries = memory.entries.slice(-MAX_MEMORY_ENTRIES);
+  }
   memory.lastInteraction = new Date();
   memory.interactionCount++;
   
