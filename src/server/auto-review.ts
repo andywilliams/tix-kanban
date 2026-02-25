@@ -326,7 +326,8 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'reject'; fe
     }
     
     const decision = decisionMatch[1].toLowerCase() as 'approve' | 'reject';
-    const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
+    const rawConfidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
+    const confidence = isNaN(rawConfidence) ? 0.5 : Math.max(0, Math.min(1, rawConfidence));
     const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback provided';
     
     return { decision, confidence, feedback };
