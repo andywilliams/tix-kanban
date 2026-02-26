@@ -40,8 +40,8 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
   const [notifications, setNotifications] = useState<ChatNotification[]>([]);
   // Track last-seen message count per channel to detect new persona messages
   const lastSeenCountsRef = useRef<Record<string, number>>({});
+  const initialLoadDoneRef = useRef(false);
   const currentChannelRef = useRef<ChatChannel | null>(null);
-  const chatOpenRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { currentChannelRef.current = currentChannel; }, [currentChannel]);
@@ -72,40 +72,46 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
       const newUnreads: Record<string, number> = {};
 
       for (const channel of updatedChannels) {
-        const lastSeen = lastSeenCountsRef.current[channel.id] ?? channel.messages.length;
+        const isActiveChannel = currentChannelRef.current?.id === channel.id;
+        const isKnownChannel = lastSeenCountsRef.current[channel.id] !== undefined;
+
+        if (!initialLoadDoneRef.current) {
+          // First load — initialize all channels as fully read (no notification flood)
+          lastSeenCountsRef.current[channel.id] = channel.messages.length;
+          continue;
+        }
+
+        if (!isKnownChannel) {
+          // New channel appeared since initial load — treat existing messages as new
+          lastSeenCountsRef.current[channel.id] = 0;
+        }
+
+        const lastSeen = lastSeenCountsRef.current[channel.id];
         const newMessages = channel.messages.slice(lastSeen);
         const newPersonaMessages = newMessages.filter((m: ChatMessage) => m.authorType === 'persona');
 
-        // Count unreads (persona messages in channels we're not actively viewing)
-        const isActiveChannel = currentChannelRef.current?.id === channel.id;
-        if (newPersonaMessages.length > 0 && !isActiveChannel) {
+        if (!isActiveChannel && newPersonaMessages.length > 0) {
+          // Count unreads
           newUnreads[channel.id] = (newUnreads[channel.id] || 0) + newPersonaMessages.length;
-        }
 
-        // Create toast notifications for new persona messages (only after initial load)
-        if (lastSeenCountsRef.current[channel.id] !== undefined) {
+          // Create toast notifications
           for (const msg of newPersonaMessages) {
-            if (!isActiveChannel) {
-              newNotifications.push({
-                id: msg.id,
-                channelId: channel.id,
-                channelName: channel.name,
-                author: msg.author,
-                content: msg.content.length > 120 ? msg.content.substring(0, 120) + '...' : msg.content,
-                timestamp: new Date(msg.createdAt),
-              });
-            }
+            newNotifications.push({
+              id: msg.id,
+              channelId: channel.id,
+              channelName: channel.name,
+              author: msg.author,
+              content: msg.content.length > 120 ? msg.content.substring(0, 120) + '...' : msg.content,
+              timestamp: new Date(msg.createdAt),
+            });
           }
         }
 
-        // Update last-seen counts (mark active channel as fully read)
-        if (isActiveChannel) {
-          lastSeenCountsRef.current[channel.id] = channel.messages.length;
-        } else if (lastSeenCountsRef.current[channel.id] === undefined) {
-          // First load — initialize without creating unreads
-          lastSeenCountsRef.current[channel.id] = channel.messages.length;
-        }
+        // Always advance lastSeen to current count so we don't re-notify
+        lastSeenCountsRef.current[channel.id] = channel.messages.length;
       }
+
+      initialLoadDoneRef.current = true;
 
       if (newNotifications.length > 0) {
         setNotifications(prev => [...prev, ...newNotifications].slice(-10)); // Keep last 10
