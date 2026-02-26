@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { Persona, PersonaStats } from '../client/types/index.js';
 import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from './agent-memory.js';
+import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -652,6 +653,13 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
       throw new Error(`Persona ${personaId} not found`);
     }
 
+    // Build soul context
+    let soul = await getAgentSoul(personaId);
+    if (!soul) {
+      soul = await initializeSoulForPersona(personaId);
+    }
+    const soulPrompt = generateSoulPrompt(soul);
+
     // Build memory from unified agent-memory system
     const taskContextStr = `${taskTitle} ${taskDescription} ${taskTags.join(' ')}`;
     const systemPrompt = persona.prompt;
@@ -662,17 +670,18 @@ Tags: ${taskTags.join(', ')}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
-    // Calculate token budget for memory
+    // Calculate token budget for memory (account for soul prompt)
     const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + taskContext + additionalSection);
+    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection);
     const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
 
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
 
-    // Build final prompt
+    // Build final prompt — soul comes after base prompt, before memory and task
+    const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
-    const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
