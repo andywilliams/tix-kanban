@@ -338,29 +338,35 @@ export async function syncTaskWithPR(_taskId: string, repo: string, prNumber: nu
   return { prStatus, taskStatusUpdate, reason };
 }
 
+// Parse repo and PR number from a GitHub PR URL
+function parsePRUrl(url: string): { repo: string; number: number } | null {
+  const match = url.match(/github\.com\/([^\/]+\/[^\/]+)\/pull\/(\d+)/);
+  if (!match) return null;
+  return { repo: match[1], number: parseInt(match[2], 10) };
+}
+
 // Get GitHub-related data for a task (PRs, issues, etc.)
-export async function getTaskGitHubData(taskId: string): Promise<{
+// Accepts the task's existing links to avoid searching all repos
+export async function getTaskGitHubData(_taskId: string, taskLinks?: Array<{ url: string; type: string }>): Promise<{
   linkedPRs: PRStatus[];
   suggestedRepos: string[];
 }> {
   const config = await getGitHubConfig();
   const linkedPRs: PRStatus[] = [];
-  
-  // For now, we'll need to search through PRs to find ones linked to this task
-  // This is a simplified approach - in a real system you'd store these links
-  for (const repoEntry of config.repos) {
-    const repoName = getRepoName(repoEntry);
+
+  // Use task links to find PRs directly — no need to search every repo
+  const prLinks = (taskLinks || []).filter(l => l.type === 'pr');
+  for (const link of prLinks) {
+    const parsed = parsePRUrl(link.url);
+    if (!parsed) continue;
     try {
-      // Yield to event loop between repo checks to avoid blocking the server
-      await new Promise(resolve => setImmediate(resolve));
-      const prs = await getRepoPRs(repoName, 'all');
-      const taskPRs = prs.filter(pr => pr.title.includes(`[${taskId}]`));
-      linkedPRs.push(...taskPRs);
+      const status = await getPRStatus(parsed.repo, parsed.number);
+      linkedPRs.push(status);
     } catch (error) {
-      console.error(`Failed to check PRs for repo ${repoName}:`, error);
+      console.error(`Failed to get PR status for ${link.url}:`, error);
     }
   }
-  
+
   return {
     linkedPRs,
     suggestedRepos: config.repos.map(r => getRepoName(r)),

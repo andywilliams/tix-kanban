@@ -1730,7 +1730,8 @@ app.post('/api/github/sync/:taskId', async (req, res) => {
 app.get('/api/github/task/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;
-    const githubData = await getTaskGitHubData(taskId);
+    const task = await getTask(taskId);
+    const githubData = await getTaskGitHubData(taskId, task?.links);
     res.json(githubData);
   } catch (error) {
     console.error(`GET /api/github/task/${req.params.taskId} error:`, error);
