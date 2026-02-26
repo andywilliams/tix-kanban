@@ -196,8 +196,10 @@ function buildFilteredBoardContext(
   for (const task of allTasks) {
     const isAssignedToMe = task.assignee === persona.id || task.persona === persona.id;
     const isActive = task.status === 'in-progress' || task.status === 'review' || task.status === 'auto-review';
+    // Check for explicit task ID mention, or whole-word keyword match (min 5 chars to avoid noise)
+    const titleLower = task.title.toLowerCase();
     const isMentioned = messageLower.includes(task.id) ||
-      messageWords.some(w => task.title.toLowerCase().includes(w));
+      messageWords.filter(w => w.length >= 5).some(w => new RegExp(`\\b${w}\\b`).test(titleLower));
     const matchesSpecialty = persona.specialties.some(s =>
       task.tags.some(t => t.toLowerCase().includes(s.toLowerCase()))
     );
@@ -298,16 +300,17 @@ function buildSelectiveChatHistory(
   const older = recentMessages.slice(0, -5);
 
   // Find relevant older messages (mention this persona, or share keywords with current message)
-  const messageWords = originalMessage.content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const messageWords = originalMessage.content.toLowerCase().split(/\s+/)
+    .filter(w => w.length > 3 && !STOP_WORDS.has(w));
   const relevantOlder = older.filter(msg => {
     const contentLower = msg.content.toLowerCase();
     // Mentions this persona
     if (contentLower.includes(persona.name.toLowerCase()) || contentLower.includes(persona.id)) {
       return true;
     }
-    // Shares keywords with current message
+    // Shares meaningful keywords with current message (require 3+ matches after stop-word filtering)
     const matchCount = messageWords.filter(w => contentLower.includes(w)).length;
-    return matchCount >= 2;
+    return matchCount >= 3;
   });
 
   const parts: string[] = [];
@@ -825,6 +828,7 @@ async function generateAIResponseWithRetry(
 }
 
 // Generate AI response using Claude Code CLI
+// Returns '' on failure so the retry logic can detect it and try again.
 async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: number = 90000): Promise<string> {
   return new Promise(async (resolve) => {
     try {
@@ -843,7 +847,7 @@ async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: n
       claude.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
       claude.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
 
-      claude.on('close', async (code: number | null) => {
+      claude.on('close', (code: number | null) => {
         if (stderr) {
           console.error(`Persona ${persona.name} stderr:`, stderr.substring(0, 200));
         }
@@ -855,14 +859,12 @@ async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: n
         }
 
         console.warn(`Claude Code returned empty/failed (code ${code}) for ${persona.name}`);
-        const soul = await getAgentSoul(persona.id);
-        resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
+        resolve(''); // Return empty so retry logic can fire
       });
 
-      claude.on('error', async (err: Error) => {
+      claude.on('error', (err: Error) => {
         console.error(`Claude Code spawn failed for ${persona.name}:`, err.message);
-        const soul = await getAgentSoul(persona.id);
-        resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
+        resolve(''); // Return empty so retry logic can fire
       });
 
       // Write prompt to stdin and close it
@@ -871,8 +873,7 @@ async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: n
 
     } catch (error) {
       console.error(`Claude Code failed for ${persona.name}:`, error);
-      const soul = await getAgentSoul(persona.id);
-      resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
+      resolve(''); // Return empty so retry logic can fire
     }
   });
 }
@@ -897,14 +898,14 @@ async function extractAndStoreInferredMemory(
     { regex: /(?:we|I) (?:follow|use|prefer) (\w+[\s-]?(?:case|convention|style|pattern))/i, category: 'preferences' as const },
     // Workflow preferences
     { regex: /(?:our|my) (?:workflow|process|pipeline) (?:is|involves|includes) (.+)/i, category: 'context' as const },
-    // Team structure
-    { regex: /(\w+) (?:is|handles|manages|owns) (?:the|our) (.{10,60})/i, category: 'relationships' as const },
+    // Team structure — use group index 0 (full match) to capture "X handles the Y"
+    { regex: /(\w+) (?:is|handles|manages|owns) (?:the|our) (.{10,60})/i, category: 'relationships' as const, useFullMatch: true },
   ];
 
-  for (const { regex, category } of patterns) {
+  for (const { regex, category, useFullMatch } of (patterns as Array<{ regex: RegExp; category: 'preferences' | 'context' | 'relationships'; useFullMatch?: boolean }>)) {
     const match = userMessage.match(regex);
     if (match) {
-      const content = match[1] ? match[1].trim() : match[0].trim();
+      const content = useFullMatch ? match[0].trim() : (match[1] ? match[1].trim() : match[0].trim());
       if (content.length > 10 && content.length < 200) {
         try {
           await addMemoryEntry(personaId, userId, {

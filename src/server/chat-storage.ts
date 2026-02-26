@@ -19,6 +19,17 @@ const MAX_LIVE_MESSAGES = 200;
 // Default age (in days) for archiving old messages
 const DEFAULT_ARCHIVE_DAYS = 30;
 
+// Per-channel write lock to prevent concurrent read-modify-write races
+const channelLocks = new Map<string, Promise<void>>();
+
+function withChannelLock<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = channelLocks.get(channelId) || Promise.resolve();
+  const next = prev.then(fn, fn); // Run fn after previous completes (even on error)
+  // Store the void version so the chain continues
+  channelLocks.set(channelId, next.then(() => {}, () => {}));
+  return next;
+}
+
 export interface ChatMessage {
   id: string;
   channelId: string;
@@ -160,39 +171,42 @@ export async function createOrGetChannel(channelId: string, type: 'task' | 'gene
 }
 
 // Add message to channel (with auto-archive when needed)
-export async function addMessage(channelId: string, author: string, authorType: 'human' | 'persona', content: string, replyTo?: string): Promise<ChatMessage> {
-  let channel = await getChannel(channelId);
+// Uses per-channel locking to prevent concurrent read-modify-write races.
+export function addMessage(channelId: string, author: string, authorType: 'human' | 'persona', content: string, replyTo?: string): Promise<ChatMessage> {
+  return withChannelLock(channelId, async () => {
+    let channel = await getChannel(channelId);
 
-  if (!channel) {
-    throw new Error(`Channel ${channelId} not found`);
-  }
+    if (!channel) {
+      throw new Error(`Channel ${channelId} not found`);
+    }
 
-  // Extract @mentions from content
-  const mentions = extractMentions(content);
+    // Extract @mentions from content
+    const mentions = extractMentions(content);
 
-  const message: ChatMessage = {
-    id: Math.random().toString(36).substr(2, 12),
-    channelId,
-    author,
-    authorType,
-    content,
-    mentions,
-    createdAt: new Date(),
-    replyTo,
-  };
+    const message: ChatMessage = {
+      id: Math.random().toString(36).substr(2, 12),
+      channelId,
+      author,
+      authorType,
+      content,
+      mentions,
+      createdAt: new Date(),
+      replyTo,
+    };
 
-  // Increment total count before push so the fallback to messages.length is accurate
-  channel.totalMessageCount = (channel.totalMessageCount || channel.messages.length) + 1;
-  channel.messages.push(message);
-  channel.lastActivity = new Date();
+    // Increment total count before push so the fallback to messages.length is accurate
+    channel.totalMessageCount = (channel.totalMessageCount || channel.messages.length) + 1;
+    channel.messages.push(message);
+    channel.lastActivity = new Date();
 
-  // Auto-archive if channel has too many live messages
-  if (channel.messages.length > MAX_LIVE_MESSAGES) {
-    await archiveOldMessages(channel);
-  }
+    // Auto-archive if channel has too many live messages
+    if (channel.messages.length > MAX_LIVE_MESSAGES) {
+      await archiveOldMessages(channel);
+    }
 
-  await saveChannel(channel);
-  return message;
+    await saveChannel(channel);
+    return message;
+  });
 }
 
 // Get messages for a channel (with pagination)
