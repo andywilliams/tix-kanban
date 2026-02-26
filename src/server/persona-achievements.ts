@@ -6,7 +6,7 @@
  */
 
 import { Persona } from '../client/types/index.js';
-import { getStructuredMemory } from './persona-memory.js';
+import { getAllPersonaMemories } from './agent-memory.js';
 
 export interface Achievement {
   id: string;
@@ -245,8 +245,8 @@ export async function calculateAchievements(persona: Persona): Promise<PersonaAc
   // Get memory count
   let memoryCount = 0;
   try {
-    const memory = await getStructuredMemory(persona.id);
-    memoryCount = memory.entries.length;
+    const allMemories = await getAllPersonaMemories(persona.id);
+    memoryCount = allMemories.reduce((sum, m) => sum + m.entries.length, 0);
   } catch {
     // No memories yet
   }

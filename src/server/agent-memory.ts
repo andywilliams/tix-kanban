@@ -23,12 +23,12 @@ const MEMORY_DIR = path.join(STORAGE_DIR, 'agent-memories');
 
 export interface MemoryEntry {
   id: string;
-  category: 'preferences' | 'context' | 'instructions' | 'relationships';
+  category: 'preferences' | 'context' | 'instructions' | 'relationships' | 'learning' | 'reflection';
   content: string;
   keywords: string[];
   createdAt: Date;
   updatedAt: Date;
-  source: 'explicit' | 'inferred' | 'feedback';
+  source: 'explicit' | 'inferred' | 'feedback' | 'task-completion' | 'task-reflection';
   importance: number; // 1-10, higher = more important
   mergedCount?: number; // How many times this memory was reinforced
   lastSurfaced?: Date; // Last time this memory was returned in a search
@@ -211,6 +211,8 @@ function getEffectiveImportance(entry: MemoryEntry): number {
   const categoryWeight: Record<string, number> = {
     instructions: 2.0,
     preferences: 1.5,
+    reflection: 1.3,
+    learning: 1.2,
     context: 1.0,
     relationships: 1.0,
   };
@@ -550,6 +552,120 @@ export async function getAllPersonaMemories(personaId: string): Promise<AgentMem
     }
     throw error;
   }
+}
+
+// Build aggregated memory context for task execution (across all users)
+export async function buildTaskMemoryContext(
+  personaId: string,
+  taskContext?: string,
+  maxTokens: number = 8000
+): Promise<string> {
+  const allMemories = await getAllPersonaMemories(personaId);
+
+  if (allMemories.length === 0 || allMemories.every(m => m.entries.length === 0)) {
+    return '';
+  }
+
+  // Merge all entries from all users into a single scored list
+  const allEntries: MemoryEntry[] = [];
+  for (const memory of allMemories) {
+    allEntries.push(...memory.entries);
+  }
+
+  const sections: string[] = [];
+
+  // Instructions (always include, highest priority)
+  const instructions = allEntries
+    .filter(e => e.category === 'instructions')
+    .sort((a, b) => getEffectiveImportance(b) - getEffectiveImportance(a))
+    .slice(0, 8);
+
+  if (instructions.length > 0) {
+    sections.push('## User Instructions\n' +
+      instructions.map(e => `- ${e.content}`).join('\n'));
+  }
+
+  // Preferences
+  const preferences = allEntries
+    .filter(e => e.category === 'preferences')
+    .sort((a, b) => getEffectiveImportance(b) - getEffectiveImportance(a))
+    .slice(0, 8);
+
+  if (preferences.length > 0) {
+    sections.push('## User Preferences\n' +
+      preferences.map(e => `- ${e.content}`).join('\n'));
+  }
+
+  // Learnings from past tasks
+  const learnings = allEntries
+    .filter(e => e.category === 'learning')
+    .sort((a, b) => getEffectiveImportance(b) - getEffectiveImportance(a))
+    .slice(0, 5);
+
+  if (learnings.length > 0) {
+    sections.push('## Past Task Learnings\n' +
+      learnings.map(e => `- ${e.content}`).join('\n'));
+  }
+
+  // Reflections from feedback
+  const reflections = allEntries
+    .filter(e => e.category === 'reflection')
+    .sort((a, b) => getEffectiveImportance(b) - getEffectiveImportance(a))
+    .slice(0, 3);
+
+  if (reflections.length > 0) {
+    sections.push('## Reflections from Feedback\n' +
+      reflections.map(e => `- ${e.content}`).join('\n'));
+  }
+
+  // Context relevant to current task
+  if (taskContext) {
+    const queryWords = taskContext.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const contextEntries = allEntries
+      .filter(e => e.category === 'context')
+      .map(entry => {
+        const contentLower = entry.content.toLowerCase();
+        let score = getEffectiveImportance(entry);
+        for (const word of queryWords) {
+          if (contentLower.includes(word)) score += 5;
+        }
+        for (const kw of entry.keywords.map(k => k.toLowerCase())) {
+          if (queryWords.some(qw => kw.includes(qw) || qw.includes(kw))) score += 10;
+        }
+        return { entry, score };
+      })
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(s => s.entry);
+
+    if (contextEntries.length > 0) {
+      sections.push('## Relevant Context\n' +
+        contextEntries.map(e => `- ${e.content}`).join('\n'));
+    }
+  }
+
+  // Relationships
+  const relationships = allEntries
+    .filter(e => e.category === 'relationships')
+    .sort((a, b) => getEffectiveImportance(b) - getEffectiveImportance(a))
+    .slice(0, 3);
+
+  if (relationships.length > 0) {
+    sections.push('## Working Relationships\n' +
+      relationships.map(e => `- ${e.content}`).join('\n'));
+  }
+
+  let result = sections.join('\n\n');
+
+  // Truncate if exceeding token budget
+  const estimatedTokens = Math.ceil(result.length / 4);
+  if (estimatedTokens > maxTokens) {
+    const targetChars = maxTokens * 4;
+    result = result.slice(0, targetChars) + '\n...(memory truncated)';
+  }
+
+  return result;
 }
 
 // Clear all memories for a user-persona pair

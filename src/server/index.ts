@@ -31,8 +31,6 @@ import {
   updatePersona,
   deletePersona,
   initializePersonas,
-  getPersonaMemoryWithTokens,
-  setPersonaMemory,
   updatePersonaRating,
   updatePersonaStats
 } from './persona-storage.js';
@@ -66,7 +64,9 @@ import {
   deleteMemoryEntry,
   searchMemories,
   clearMemories,
-  getAllPersonaMemories
+  getAllPersonaMemories,
+  buildTaskMemoryContext,
+  MemoryEntry as AgentMemoryEntry
 } from './agent-memory.js';
 import {
   getAgentSoul,
@@ -984,40 +984,20 @@ app.delete('/api/personas/:id', async (req, res) => {
 
 // Persona Memory API routes
 
-// GET /api/personas/:id/memory - Get persona memory with token info
+// GET /api/personas/:id/memory - Get persona memory context (from unified agent-memory)
 app.get('/api/personas/:id/memory', async (req, res) => {
   try {
-    const memoryData = await getPersonaMemoryWithTokens(req.params.id);
-    res.json(memoryData);
+    const memory = await buildTaskMemoryContext(req.params.id);
+    const tokenCount = Math.ceil(memory.length / 4);
+    res.json({ memory, tokenCount, isLarge: tokenCount > 10000 });
   } catch (error) {
     console.error(`GET /api/personas/${req.params.id}/memory error:`, error);
     res.status(500).json({ error: 'Failed to fetch persona memory' });
   }
 });
 
-// PUT /api/personas/:id/memory - Update persona memory
-app.put('/api/personas/:id/memory', async (req, res) => {
-  try {
-    const { memory } = req.body as { memory: string };
-    
-    if (typeof memory !== 'string') {
-      return res.status(400).json({ error: 'memory must be a string' });
-    }
-    
-    await setPersonaMemory(req.params.id, memory);
-    const memoryData = await getPersonaMemoryWithTokens(req.params.id);
-    
-    res.json(memoryData);
-  } catch (error) {
-    console.error(`PUT /api/personas/${req.params.id}/memory error:`, error);
-    res.status(500).json({ error: 'Failed to update persona memory' });
-  }
-});
-
-// Structured Memory API routes (enhanced memory system)
+// Soul system from persona-memory (memory functions now unified via agent-memory)
 import {
-  addMemoryEntry as addStructuredMemoryEntry,
-  searchMemories as searchStructuredMemories,
   getPersonaSoul,
   savePersonaSoul,
   generateDefaultSoul,
@@ -1126,7 +1106,7 @@ app.get('/api/personas/:id/memories', async (req, res) => {
   }
 });
 
-// POST /api/personas/:id/memories - Add a memory entry
+// POST /api/personas/:id/memories - Add a memory entry (via unified agent-memory)
 app.post('/api/personas/:id/memories', async (req, res) => {
   try {
     const { category, content, source, tags, importance } = req.body as {
@@ -1141,7 +1121,24 @@ app.post('/api/personas/:id/memories', async (req, res) => {
       return res.status(400).json({ error: 'category, content, and source are required' });
     }
 
-    const entry = await addStructuredMemoryEntry(req.params.id, category, content, source, { tags, importance });
+    // Map structured memory categories to agent-memory categories
+    const categoryMap: Record<string, AgentMemoryEntry['category']> = {
+      preference: 'preferences',
+      instruction: 'instructions',
+      context: 'context',
+      relationship: 'relationships',
+      learning: 'learning',
+      reflection: 'reflection',
+    };
+    const importanceMap: Record<string, number> = { high: 9, medium: 6, low: 3 };
+
+    const entry = await addMemoryEntry(req.params.id, source || 'default', {
+      category: categoryMap[category] || 'context',
+      content,
+      keywords: tags || [],
+      source: 'explicit',
+      importance: importanceMap[importance || 'medium'] || 6,
+    });
     res.json(entry);
   } catch (error) {
     console.error(`POST /api/personas/${req.params.id}/memories error:`, error);
@@ -1188,15 +1185,35 @@ app.post('/api/personas/:id/agent-memory', async (req, res) => {
   }
 });
 
-// GET /api/personas/:id/memories/search - Search memories
+// GET /api/personas/:id/memories/search - Search memories (via unified agent-memory)
 app.get('/api/personas/:id/memories/search', async (req, res) => {
   try {
     const { q, category, limit } = req.query;
-    const results = await searchStructuredMemories(req.params.id, q as string || '', {
-      category: category as MemoryEntry['category'],
-      limit: limit ? parseInt(limit as string) : undefined
+
+    // Search across all user memory files for this persona
+    const allMemories = await getAllPersonaMemories(req.params.id);
+    const allResults: AgentMemoryEntry[] = [];
+
+    for (const memory of allMemories) {
+      const results = await searchMemories(req.params.id, memory.userId, q as string || '', {
+        category: category as AgentMemoryEntry['category'],
+        limit: limit ? parseInt(limit as string) : undefined,
+      });
+      allResults.push(...results);
+    }
+
+    // Deduplicate by id and sort by importance
+    const seen = new Set<string>();
+    const uniqueResults = allResults.filter(r => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
     });
-    res.json({ results });
+
+    uniqueResults.sort((a, b) => b.importance - a.importance);
+    const finalResults = uniqueResults.slice(0, limit ? parseInt(limit as string) : 10);
+
+    res.json({ results: finalResults });
   } catch (error) {
     console.error(`GET /api/personas/${req.params.id}/memories/search error:`, error);
     res.status(500).json({ error: 'Failed to search memories' });

@@ -6,7 +6,7 @@
  */
 
 import { Persona } from '../client/types/index.js';
-import { getStructuredMemory } from './persona-memory.js';
+import { getAllPersonaMemories } from './agent-memory.js';
 
 export type MoodType = 
   | 'happy'      // Good ratings, completing tasks
@@ -224,13 +224,14 @@ export async function calculatePersonaMood(persona: Persona): Promise<PersonaMoo
   
   // Check memory for recent interactions
   try {
-    const memory = await getStructuredMemory(persona.id);
-    const recentEntries = memory.entries.filter(e => {
+    const allMemories = await getAllPersonaMemories(persona.id);
+    const allEntries = allMemories.flatMap(m => m.entries);
+    const recentEntries = allEntries.filter(e => {
       const entryDate = new Date(e.createdAt);
       const hoursSince = (now.getTime() - entryDate.getTime()) / (1000 * 60 * 60);
       return hoursSince < 24;
     });
-    
+
     if (recentEntries.length > 0) {
       events.push({
         type: 'memory_added',

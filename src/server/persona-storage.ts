@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { Persona, PersonaStats } from '../client/types/index.js';
+import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from './agent-memory.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -375,45 +376,47 @@ export async function updatePersonaRating(personaId: string, rating: 'good' | 'n
 // Trigger reflection process for learning from feedback
 async function triggerPersonaReflection(personaId: string, taskTitle: string, taskDescription: string, rating: 'needs-improvement' | 'redo', feedback?: string): Promise<void> {
   try {
-    const persona = await getPersona(personaId);
-    if (!persona) {
-      return;
-    }
-    
-    // Create reflection entry for memory
-    const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
     const ratingText = rating === 'needs-improvement' ? 'needed improvement' : 'required redo';
-    
-    let reflectionEntry = `## ${timestamp} - Reflection: Task "${taskTitle}"\n\n`;
-    reflectionEntry += `**Task:** ${taskTitle}\n`;
-    reflectionEntry += `**Rating:** ${ratingText}\n`;
-    
-    if (feedback) {
-      reflectionEntry += `**Feedback:** ${feedback}\n`;
-    }
-    
-    reflectionEntry += `**Description:** ${taskDescription}\n\n`;
-    reflectionEntry += `**Lesson:** `;
-    
+
+    let reflectionContent = `Task "${taskTitle}" ${ratingText}.`;
     if (rating === 'redo') {
-      reflectionEntry += `This task required a complete redo. I need to pay more attention to the requirements and double-check my work before submission.`;
+      reflectionContent += ` Need to pay more attention to requirements and double-check work before submission.`;
     } else {
-      reflectionEntry += `This task needed improvement. I should focus on addressing the specific feedback provided.`;
+      reflectionContent += ` Should focus on addressing specific feedback.`;
     }
-    
     if (feedback) {
-      reflectionEntry += ` Specific feedback to address: "${feedback}"`;
+      reflectionContent += ` Feedback: "${feedback}"`;
     }
-    
-    reflectionEntry += `\n\n**Action:** Apply these lessons to future similar tasks to improve quality and avoid similar issues.`;
-    
-    // Append to persona memory
-    await appendPersonaMemory(personaId, reflectionEntry);
-    
+
+    // Extract keywords from task title and description
+    const keywords = extractKeywordsFromText(`${taskTitle} ${taskDescription} ${feedback || ''}`);
+
+    await addAgentMemoryEntry(personaId, 'system', {
+      category: 'reflection',
+      content: reflectionContent,
+      keywords,
+      source: 'task-reflection',
+      importance: rating === 'redo' ? 9 : 7,
+    });
+
     console.log(`Added reflection entry for persona ${personaId} on task "${taskTitle}"`);
   } catch (error) {
     console.error(`Failed to trigger reflection for persona ${personaId}:`, error);
   }
+}
+
+// Extract keywords from text (simple stop-word removal)
+function extractKeywordsFromText(text: string): string[] {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+    'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+    'i', 'you', 'we', 'they', 'he', 'she', 'it', 'that', 'this', 'these',
+    'those', 'what', 'which', 'who', 'when', 'where', 'why', 'how'
+  ]);
+  return [...new Set(
+    text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w))
+  )];
 }
 
 // Structured sections for persona memory
@@ -649,9 +652,8 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
       throw new Error(`Persona ${personaId} not found`);
     }
 
-    const { memory } = await getPersonaMemoryWithTokens(personaId);
-
-    // Base prompt parts
+    // Build memory from unified agent-memory system
+    const taskContextStr = `${taskTitle} ${taskDescription} ${taskTags.join(' ')}`;
     const systemPrompt = persona.prompt;
     const taskContext = `## Task Details
 Title: ${taskTitle}
@@ -660,32 +662,16 @@ Tags: ${taskTags.join(', ')}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
-    // Calculate token budget (aim for ~50k total, reserve space for task content)
+    // Calculate token budget for memory
     const maxTokens = 50000;
     const baseTokens = estimateTokenCount(systemPrompt + taskContext + additionalSection);
-    const memoryTokenBudget = maxTokens - baseTokens - 1000; // 1000 token buffer
+    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
 
-    let finalMemory = memory;
-    let memoryTruncated = false;
-
-    if (memory.length > 0) {
-      const memoryTokens = estimateTokenCount(memory);
-      if (memoryTokens > memoryTokenBudget) {
-        // Truncate memory from the beginning, keeping recent learnings
-        const targetChars = memoryTokenBudget * 4;
-        const truncatePoint = memory.length - targetChars;
-        if (truncatePoint > 0) {
-          // Try to truncate at a natural break (paragraph)
-          const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
-          const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
-          finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
-          memoryTruncated = true;
-        }
-      }
-    }
+    const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
+    const memoryTruncated = memory.includes('(memory truncated)');
 
     // Build final prompt
-    const memorySection = finalMemory.length > 0 ? `\n\n## Your Memory\n${finalMemory}` : '';
+    const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
 
     return {
@@ -735,8 +721,25 @@ ${!success && hasError ? `**Output:** ${outputSnippet}` : ''}
 // Post-task reflection and memory update
 export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle: string, taskDescription: string, taskOutput: string, success: boolean): Promise<void> {
   try {
-    const learning = await extractLearnings(personaId, taskTitle, taskDescription, taskOutput, success);
-    await appendPersonaMemory(personaId, learning);
+    const status = success ? 'completed successfully' : 'encountered difficulties';
+    const hasError = taskOutput.toLowerCase().includes('error') || taskOutput.toLowerCase().includes('failed');
+    const outputSnippet = taskOutput.length > 200 ? taskOutput.slice(0, 200) + '...' : taskOutput;
+
+    let learningContent = `Task "${taskTitle}": ${status}.`;
+    if (!success && hasError) {
+      learningContent += ` Output snippet: ${outputSnippet}`;
+    }
+    learningContent += ` ${success ? 'Continue with similar approach for this type of task.' : 'Consider alternative approaches.'}`;
+
+    const keywords = extractKeywordsFromText(`${taskTitle} ${taskDescription}`);
+
+    await addAgentMemoryEntry(personaId, 'system', {
+      category: 'learning',
+      content: learningContent,
+      keywords,
+      source: 'task-completion',
+      importance: success ? 5 : 7,
+    });
 
     console.log(`📝 Updated memory for persona ${personaId} after task: ${taskTitle}`);
   } catch (error) {
