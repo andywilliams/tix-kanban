@@ -1,11 +1,13 @@
 /**
  * Agent Chat System
- * 
+ *
  * Handles conversations with personas, including:
  * - Memory-aware responses
  * - Soul-infused personalities
  * - Remember commands
  * - Team interactions
+ * - Token-budgeted context building
+ * - Relevance-filtered board/PR/knowledge context
  */
 
 import {
@@ -28,7 +30,12 @@ import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
 import { getAllTasks, createTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
-import { getRelevantKnowledge, shouldIncludeKnowledge } from './persona-knowledge.js';
+import { getRelevantKnowledge } from './persona-knowledge.js';
+import {
+  TokenTracker,
+  buildBudgetedSection,
+  getDefaultBudget
+} from './token-budget.js';
 
 
 export interface ChatContext {
@@ -46,34 +53,34 @@ export interface ChatContext {
 // Process @mentions in a chat message
 export async function processChatMention(message: ChatMessage): Promise<void> {
   if (message.mentions.length === 0) return;
-  
+
   console.log(`💬 Processing mentions: ${message.mentions.join(', ')} in channel ${message.channelId}`);
-  
+
   // Prevent infinite loops - don't respond to persona messages
   if (message.authorType === 'persona') {
     console.log('🚫 Skipping mention processing for persona message');
     return;
   }
-  
+
   // Get all available personas
   const personas = await getAllPersonas();
-  
+
   // Find mentioned personas (case insensitive matching)
-  const mentionedPersonas = personas.filter(persona => 
-    message.mentions.some(mention => 
+  const mentionedPersonas = personas.filter(persona =>
+    message.mentions.some(mention =>
       mention.toLowerCase() === persona.name.toLowerCase() ||
       mention.toLowerCase() === persona.id.toLowerCase()
     )
   );
-  
+
   if (mentionedPersonas.length === 0) {
     console.log('🔍 No matching personas found for mentions');
     return;
   }
-  
+
   // Check for "remember" command
   const rememberCmd = parseRememberCommand(message.content);
-  
+
   // Process each mentioned persona
   for (const persona of mentionedPersonas) {
     // Handle remember command
@@ -81,7 +88,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       await handleRememberCommand(persona, message, rememberCmd);
       continue;
     }
-    
+
     // Generate contextual response
     generatePersonaResponse(message, persona).catch(error => {
       console.error(`Failed to generate response for persona ${persona.name}:`, error);
@@ -96,10 +103,10 @@ async function handleRememberCommand(
   rememberCmd: ReturnType<typeof parseRememberCommand>
 ): Promise<void> {
   if (!rememberCmd) return;
-  
+
   try {
     const userId = message.author; // Use author as user ID for now
-    
+
     // Add to memory
     await addMemoryEntry(persona.id, userId, {
       category: rememberCmd.category,
@@ -108,14 +115,14 @@ async function handleRememberCommand(
       source: 'explicit',
       importance: 7 // User explicitly asked to remember, so it's important
     });
-    
+
     // Confirm with a response
     const soul = await getAgentSoul(persona.id);
     let confirmMessage = `Got it! I'll remember that ${rememberCmd.content}`;
-    
+
     if (soul) {
       confirmMessage = `${getAcknowledgment(soul)} I'll remember: "${rememberCmd.content}" `;
-      
+
       switch (rememberCmd.category) {
         case 'preferences':
           confirmMessage += '(saved to your preferences)';
@@ -131,7 +138,7 @@ async function handleRememberCommand(
           break;
       }
     }
-    
+
     await addMessage(
       message.channelId,
       persona.name,
@@ -139,11 +146,11 @@ async function handleRememberCommand(
       confirmMessage,
       message.id
     );
-    
+
     console.log(`📝 ${persona.name} remembered: "${rememberCmd.content}" (${rememberCmd.category})`);
   } catch (error) {
     console.error(`Failed to process remember command for ${persona.name}:`, error);
-    
+
     await addMessage(
       message.channelId,
       persona.name,
@@ -154,104 +161,295 @@ async function handleRememberCommand(
   }
 }
 
+// Build relevance-filtered board context for a persona
+function buildFilteredBoardContext(
+  allTasks: Array<{ id: string; title: string; status: string; priority: number; assignee?: string; persona?: string; repo?: string; tags: string[] }>,
+  persona: Persona,
+  messageContent: string
+): string {
+  const messageLower = messageContent.toLowerCase();
+  const messageWords = messageLower.split(/\s+/).filter(w => w.length > 3);
+
+  // Categorize tasks by relevance
+  const relevant: typeof allTasks = [];
+  const activeOther: typeof allTasks = [];
+  const backgroundCounts: Record<string, number> = {};
+
+  for (const task of allTasks) {
+    const isAssignedToMe = task.assignee === persona.id || task.persona === persona.id;
+    const isActive = task.status === 'in-progress' || task.status === 'review' || task.status === 'auto-review';
+    const isMentioned = messageLower.includes(task.id) ||
+      messageWords.some(w => task.title.toLowerCase().includes(w));
+    const matchesSpecialty = persona.specialties.some(s =>
+      task.tags.some(t => t.toLowerCase().includes(s.toLowerCase()))
+    );
+
+    if (isAssignedToMe || isMentioned) {
+      relevant.push(task);
+    } else if (isActive || matchesSpecialty) {
+      activeOther.push(task);
+    } else {
+      backgroundCounts[task.status] = (backgroundCounts[task.status] || 0) + 1;
+    }
+  }
+
+  const sections: string[] = [];
+
+  // Always show tasks relevant to this persona
+  if (relevant.length > 0) {
+    const lines = relevant
+      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.priority ? ` P${t.priority}` : ''}${t.repo ? ` repo:${t.repo}` : ''}`)
+      .join('\n');
+    sections.push(`**Your Tasks / Mentioned:**\n${lines}`);
+  }
+
+  // Show other active tasks (capped at 15)
+  if (activeOther.length > 0) {
+    const capped = activeOther
+      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .slice(0, 15);
+    const lines = capped
+      .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.assignee ? ` [${t.assignee}]` : ''}${t.priority ? ` P${t.priority}` : ''}`)
+      .join('\n');
+    const moreText = activeOther.length > 15 ? `\n  ... and ${activeOther.length - 15} more active tasks` : '';
+    sections.push(`**Other Active Tasks:**\n${lines}${moreText}`);
+  }
+
+  // Summary counts for background tasks
+  const bgEntries = Object.entries(backgroundCounts);
+  if (bgEntries.length > 0) {
+    const countLine = bgEntries.map(([status, count]) => `${status}: ${count}`).join(', ');
+    sections.push(`**Other tasks:** ${countLine}`);
+  }
+
+  return sections.join('\n\n') || 'No tasks on the board.';
+}
+
+// Build relevance-filtered PR context
+function buildFilteredPRContext(
+  prContext: string,
+  persona: Persona,
+  messageContent: string
+): string {
+  if (!prContext || prContext.trim() === '' || prContext.includes('No cached PR data')) {
+    return 'No open pull requests.';
+  }
+
+  const messageLower = messageContent.toLowerCase();
+  // If message mentions PRs, code review, or similar, include full context
+  const prKeywords = ['pr', 'pull request', 'review', 'merge', 'branch', 'code review'];
+  const mentionsPRs = prKeywords.some(kw => messageLower.includes(kw));
+
+  // Code Reviewer always gets full PR context
+  if (mentionsPRs || persona.id === 'code-reviewer') {
+    return prContext;
+  }
+
+  // For other personas, just provide a summary count
+  const prLines = prContext.split('\n').filter(l => l.trim().startsWith('-') || l.trim().startsWith('*'));
+  if (prLines.length === 0) return prContext; // Can't parse, return as-is
+  return `${prLines.length} open pull request(s). Ask @Code-Reviewer for details.`;
+}
+
+// Build selective chat history based on channel type
+function buildSelectiveChatHistory(
+  recentMessages: ChatMessage[],
+  persona: Persona,
+  originalMessage: ChatMessage,
+  channelType: 'direct' | 'persona' | 'general' | 'task'
+): string {
+  if (recentMessages.length === 0) return 'No previous messages in this conversation.';
+
+  const formatMessage = (msg: ChatMessage) => {
+    const author = msg.authorType === 'persona' ? `${msg.author} (AI)` : msg.author;
+    return `${author}: ${msg.content}`;
+  };
+
+  // For direct/persona channels: last 10 messages (simple)
+  if (channelType === 'direct' || channelType === 'persona') {
+    return recentMessages
+      .slice(-10)
+      .map(formatMessage)
+      .join('\n');
+  }
+
+  // For general/task channels: last 5 for immediate context,
+  // then scan further back for relevant messages
+  const immediate = recentMessages.slice(-5);
+  const older = recentMessages.slice(0, -5);
+
+  // Find relevant older messages (mention this persona, or share keywords with current message)
+  const messageWords = originalMessage.content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const relevantOlder = older.filter(msg => {
+    const contentLower = msg.content.toLowerCase();
+    // Mentions this persona
+    if (contentLower.includes(persona.name.toLowerCase()) || contentLower.includes(persona.id)) {
+      return true;
+    }
+    // Shares keywords with current message
+    const matchCount = messageWords.filter(w => contentLower.includes(w)).length;
+    return matchCount >= 2;
+  });
+
+  const parts: string[] = [];
+
+  if (relevantOlder.length > 0) {
+    parts.push('(Earlier relevant messages)');
+    parts.push(...relevantOlder.slice(-5).map(formatMessage));
+    parts.push('...');
+  }
+
+  parts.push(...immediate.map(formatMessage));
+
+  return parts.join('\n');
+}
+
 // Generate and post a response from a persona
 async function generatePersonaResponse(
-  originalMessage: ChatMessage, 
+  originalMessage: ChatMessage,
   persona: Persona
 ): Promise<void> {
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
-    
+
     const userId = originalMessage.author;
-    
+    const tracker = new TokenTracker();
+    const budget = getDefaultBudget();
+
     // Record the interaction
     await recordInteraction(persona.id, userId);
-    
+
     // Get or initialize soul
     let soul = await getAgentSoul(persona.id);
     if (!soul) {
       soul = await initializeSoulForPersona(persona.id);
     }
-    
-    // Get recent chat history
-    const recentMessages = await getMessages(originalMessage.channelId, 15);
-    
-    // Build memory context
-    const memoryContext = await buildMemoryContext(
-      persona.id, 
-      userId, 
-      originalMessage.content
-    );
-    
-    // Search for relevant memories
-    const relevantMemories = await searchMemories(
-      persona.id,
-      userId,
-      originalMessage.content,
-      { limit: 3 }
-    );
-    
-    // Get other personas for team awareness
-    const allPersonas = await getAllPersonas();
-    const teamContext = allPersonas
-      .filter(p => p.id !== persona.id)
-      .map(p => `${p.emoji} ${p.name}: ${p.description}`)
-      .join('\n');
-    
-    // Get ALL board tasks grouped by status
-    const allTasks = await getAllTasks();
-    const tasksByStatus: Record<string, typeof allTasks> = {};
-    for (const t of allTasks) {
-      if (!tasksByStatus[t.status]) tasksByStatus[t.status] = [];
-      tasksByStatus[t.status].push(t);
-    }
-    
-    const boardContext = Object.entries(tasksByStatus)
-      .map(([status, tasks]) => {
-        const taskLines = tasks
-          .sort((a, b) => (a.priority || 500) - (b.priority || 500))
-          .map(t => `  - ${t.title} (ID: ${t.id})${t.assignee ? ` [${t.assignee}]` : ''}${t.priority ? ` P${t.priority}` : ''}${t.repo ? ` repo:${t.repo}` : ''}`)
-          .join('\n');
-        return `**${status}** (${tasks.length}):\n${taskLines}`;
-      })
-      .join('\n');
-    
-    // Get open PRs from cache (fast — no API calls during chat)
-    const prContext = await getCachedPRs();
 
-    // Get relevant knowledge for personas that need it
+    // Get recent chat history — fetch more for general channels so we can filter
+    const channelType = getChannelType(originalMessage.channelId);
+    const fetchLimit = (channelType === 'general' || channelType === 'task') ? 30 : 15;
+    let recentMessages: ChatMessage[] = [];
+    try {
+      recentMessages = await getMessages(originalMessage.channelId, fetchLimit);
+    } catch (error) {
+      console.warn(`Failed to fetch chat history: ${error}`);
+    }
+
+    // Build memory context (with error resilience)
+    let memoryContext = '';
+    try {
+      memoryContext = await buildMemoryContext(
+        persona.id,
+        userId,
+        originalMessage.content
+      );
+    } catch (error) {
+      console.warn(`Failed to build memory context for ${persona.name}: ${error}`);
+    }
+
+    // Search for relevant memories (with error resilience)
+    let relevantMemories: any[] = [];
+    try {
+      relevantMemories = await searchMemories(
+        persona.id,
+        userId,
+        originalMessage.content,
+        { limit: 3 }
+      );
+    } catch (error) {
+      console.warn(`Failed to search memories for ${persona.name}: ${error}`);
+    }
+
+    // Get other personas for team awareness
+    let teamContext = '';
+    try {
+      const allPersonas = await getAllPersonas();
+      teamContext = allPersonas
+        .filter(p => p.id !== persona.id)
+        .map(p => `${p.emoji} ${p.name}: ${p.description}`)
+        .join('\n');
+    } catch (error) {
+      console.warn(`Failed to get team context: ${error}`);
+    }
+
+    // Get relevance-filtered board context
+    let boardContext = '';
+    try {
+      const allTasks = await getAllTasks();
+      boardContext = buildFilteredBoardContext(allTasks, persona, originalMessage.content);
+    } catch (error) {
+      console.warn(`Failed to build board context: ${error}`);
+      boardContext = 'Board state unavailable.';
+    }
+
+    // Get relevance-filtered PR context
+    let prContext = '';
+    try {
+      const rawPRs = await getCachedPRs();
+      prContext = buildFilteredPRContext(rawPRs, persona, originalMessage.content);
+    } catch (error) {
+      console.warn(`Failed to get PR context: ${error}`);
+      prContext = 'PR data unavailable.';
+    }
+
+    // Get relevant knowledge for ALL personas (query-driven, not persona-gated)
     let knowledgeContext = '';
-    if (shouldIncludeKnowledge(persona)) {
+    try {
       const { summary } = await getRelevantKnowledge(
         persona,
         originalMessage.content,
-        undefined, // Could pass repo if task context includes it
+        undefined,
         5
       );
       knowledgeContext = summary;
+    } catch (error) {
+      console.warn(`Failed to get knowledge context: ${error}`);
     }
 
-    // Create the full prompt
+    // Build selective chat history
+    const chatHistory = buildSelectiveChatHistory(
+      recentMessages, persona, originalMessage, channelType
+    );
+
+    // Create the full prompt with token budgets
     const prompt = buildChatPrompt({
       soul,
       persona,
       originalMessage,
-      recentMessages,
+      chatHistory,
       memoryContext,
       relevantMemories,
       teamContext,
       boardContext,
       prContext,
-      knowledgeContext
+      knowledgeContext,
+      tracker,
+      budget
     });
-    
-    // Generate response using AI
-    const response = await generateAIResponse(prompt, persona);
-    
+
+    console.log(`📊 ${persona.name} prompt: ${tracker.getSummary()}`);
+
+    // Generate response using AI (with retry on failure)
+    const response = await generateAIResponseWithRetry(prompt, persona, {
+      soul,
+      persona,
+      originalMessage,
+      chatHistory: recentMessages.slice(-5).map(m => `${m.author}: ${m.content}`).join('\n'),
+      memoryContext,
+      relevantMemories,
+      teamContext,
+      boardContext: '', // Strip board on retry
+      prContext: '', // Strip PRs on retry
+      knowledgeContext: '', // Strip knowledge on retry
+      tracker: new TokenTracker(),
+      budget
+    });
+
     if (response && response.length > 0) {
       // Parse and execute any actions from the response
       const { cleanResponse, actions } = parseResponseActions(response);
-      
+
       // Post the conversational part of the response
       await addMessage(
         originalMessage.channelId,
@@ -260,7 +458,7 @@ async function generatePersonaResponse(
         cleanResponse,
         originalMessage.id
       );
-      
+
       // Execute any actions (task creation, etc.)
       for (const action of actions) {
         try {
@@ -284,17 +482,17 @@ async function generatePersonaResponse(
           );
         }
       }
-      
+
       // Check if response contains learning we should remember
       await extractAndStoreInferredMemory(persona.id, userId, originalMessage.content, cleanResponse);
-      
+
       console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
-    
+
     // Post error message
     try {
       await addMessage(
@@ -308,36 +506,57 @@ async function generatePersonaResponse(
   }
 }
 
-// Build the full chat prompt
-function buildChatPrompt(context: {
+// Infer channel type from channel ID
+function getChannelType(channelId: string): 'direct' | 'persona' | 'general' | 'task' {
+  if (channelId.startsWith('direct-')) return 'direct';
+  if (channelId.startsWith('persona-')) return 'persona';
+  if (channelId.startsWith('task-')) return 'task';
+  return 'general';
+}
+
+// Build the full chat prompt with token budget enforcement
+interface PromptContext {
   soul: AgentSoul;
   persona: Persona;
   originalMessage: ChatMessage;
-  recentMessages: ChatMessage[];
+  chatHistory: string;
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
   boardContext: string;
   prContext: string;
   knowledgeContext?: string;
-}): string {
-  const { soul, persona, originalMessage, recentMessages, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext } = context;
-  
+  tracker: TokenTracker;
+  budget: ReturnType<typeof getDefaultBudget>;
+}
+
+function buildChatPrompt(context: PromptContext): string {
+  const { soul, persona, originalMessage, chatHistory, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, tracker, budget } = context;
+
   const sections: string[] = [];
-  
+
   // Soul prompt (personality)
-  sections.push(generateSoulPrompt(soul));
-  
+  const soulText = generateSoulPrompt(soul);
+  sections.push(tracker.record('soul', buildBudgetedSection('Soul', soulText, budget.soul)));
+
   // Original persona prompt (if different)
   if (persona.prompt && persona.prompt.length > 0) {
-    sections.push(`\n## Additional Instructions\n${persona.prompt}`);
+    sections.push(tracker.record('personaPrompt', buildBudgetedSection(
+      'Persona Prompt',
+      `\n## Additional Instructions\n${persona.prompt}`,
+      budget.personaPrompt
+    )));
   }
-  
+
   // Memory context
   if (memoryContext) {
-    sections.push(`\n## What You Remember About This User\n${memoryContext}`);
+    sections.push(tracker.record('memory', buildBudgetedSection(
+      'Memory',
+      `\n## What You Remember About This User\n${memoryContext}`,
+      budget.memory
+    )));
   }
-  
+
   // Relevant memories for this query
   if (relevantMemories.length > 0) {
     const memoryList = relevantMemories
@@ -345,37 +564,57 @@ function buildChatPrompt(context: {
       .join('\n');
     sections.push(`\n## Relevant Memories\n${memoryList}`);
   }
-  
+
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
 
-  // Knowledge base context (if available)
+  // Knowledge base context (if available and relevant)
   if (knowledgeContext) {
-    sections.push(`\n${knowledgeContext}`);
+    sections.push(tracker.record('knowledge', buildBudgetedSection(
+      'Knowledge',
+      `\n${knowledgeContext}`,
+      budget.knowledge
+    )));
   }
 
-  // Kanban board state
-  sections.push(`\n## Kanban Board (All Tasks)\n${boardContext}`);
-  
-  // Open PRs
-  sections.push(`\n## Open Pull Requests\n${prContext}`);
-  
-  // Chat history
-  const chatHistory = recentMessages
-    .slice(-10)
-    .map(msg => {
-      const author = msg.authorType === 'persona' ? `${msg.author} (AI)` : msg.author;
-      return `${author}: ${msg.content}`;
-    })
-    .join('\n');
-  
-  sections.push(`\n## Recent Chat History\n${chatHistory}`);
-  
+  // Kanban board state (filtered)
+  sections.push(tracker.record('board', buildBudgetedSection(
+    'Board',
+    `\n## Kanban Board\n${boardContext}`,
+    budget.board
+  )));
+
+  // Open PRs (filtered)
+  sections.push(tracker.record('prs', buildBudgetedSection(
+    'PRs',
+    `\n## Open Pull Requests\n${prContext}`,
+    budget.prs
+  )));
+
+  // Chat history (selective)
+  sections.push(tracker.record('chatHistory', buildBudgetedSection(
+    'Chat History',
+    `\n## Recent Chat History\n${chatHistory}`,
+    budget.chatHistory
+  )));
+
   // Current message
   sections.push(`\n## Current Message\n${originalMessage.author}: ${originalMessage.content}`);
-  
+
   // Instructions
-  sections.push(`\n## Your Response
+  const instructionsText = buildResponseInstructions(persona, teamContext);
+  sections.push(tracker.record('instructions', buildBudgetedSection(
+    'Instructions',
+    instructionsText,
+    budget.instructions
+  )));
+
+  return sections.filter(s => s.length > 0).join('\n');
+}
+
+// Build response instructions (extracted for clarity)
+function buildResponseInstructions(persona: Persona, teamContext: string): string {
+  let instructions = `\n## Your Response
 Respond naturally as ${persona.name}. Be conversational and helpful.
 - Stay in character with your personality
 - Reference relevant memories if appropriate
@@ -397,9 +636,11 @@ Guidelines for task creation:
 - **tags** are optional labels
 - Write your conversational response BEFORE the action block
 - Only create a task when the user explicitly asks for one
-- Confirm what you're creating in your response text
+- Confirm what you're creating in your response text`;
 
-${persona.id === 'product-manager' ? `
+  if (persona.id === 'product-manager') {
+    instructions += `
+
 ## Special Actions for Product Manager
 
 You have additional capabilities as a Product Manager:
@@ -420,15 +661,17 @@ Example of creating multiple tickets:
 
 \`\`\`action
 {"action":"create_task","title":"Implement user API","description":"Implement the user management API endpoints\\n\\nDependencies:\\n- API design must be complete\\n\\nTechnical Notes:\\n- Use existing auth middleware\\n- Follow RESTful conventions","assignee":"developer","priority":300,"tags":["api","backend"]}
-\`\`\`
-` : ''}
+\`\`\``;
+  }
+
+  instructions += `
 
 Available team members for assignment:
 ${teamContext}
 
-Generate your response now:`);
-  
-  return sections.join('\n');
+Generate your response now:`;
+
+  return instructions;
 }
 
 // Parse action blocks from AI response
@@ -444,11 +687,11 @@ interface ResponseAction {
 
 function parseResponseActions(response: string): { cleanResponse: string; actions: ResponseAction[] } {
   const actions: ResponseAction[] = [];
-  
+
   // Match ```action ... ``` blocks
   const actionBlockRegex = /```action\s*\n?([\s\S]*?)```/g;
   let match;
-  
+
   while ((match = actionBlockRegex.exec(response)) !== null) {
     try {
       const parsed = JSON.parse(match[1].trim());
@@ -459,13 +702,13 @@ function parseResponseActions(response: string): { cleanResponse: string; action
       console.warn('Failed to parse action block:', match[1]);
     }
   }
-  
+
   // Remove action blocks from the response to get clean conversational text
   const cleanResponse = response
     .replace(/```action\s*\n?[\s\S]*?```/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  
+
   return { cleanResponse, actions };
 }
 
@@ -480,7 +723,7 @@ async function executeAction(
       if (!action.title) {
         throw new Error('Task title is required');
       }
-      
+
       const task = await createTask({
         title: action.title,
         description: action.description || '',
@@ -490,62 +733,85 @@ async function executeAction(
         persona: action.assignee || undefined,
         tags: action.tags || [],
       }, persona.name);
-      
+
       const assigneeText = action.assignee ? ` → assigned to **${action.assignee}**` : '';
       return `📋 **Ticket created:** ${task.title} (ID: ${task.id})${assigneeText} — Priority: P${action.priority || 400}`;
     }
-    
+
     default:
       console.warn(`Unknown action: ${action.action}`);
       return null;
   }
 }
 
+// Generate AI response with retry on failure
+async function generateAIResponseWithRetry(
+  prompt: string,
+  persona: Persona,
+  retryContext: PromptContext
+): Promise<string> {
+  const startTime = Date.now();
+  const response = await generateAIResponse(prompt, persona, 90000);
+  const elapsed = Date.now() - startTime;
+  console.log(`⏱️ ${persona.name} AI response took ${elapsed}ms`);
+
+  // If we got a real response, return it
+  if (response && response.length > 20) {
+    return response;
+  }
+
+  // Retry with simplified prompt
+  console.log(`🔄 Retrying ${persona.name} with simplified prompt...`);
+  const simplifiedPrompt = buildChatPrompt(retryContext);
+  const retryResponse = await generateAIResponse(simplifiedPrompt, persona, 90000);
+  return retryResponse;
+}
+
 // Generate AI response using Claude Code CLI
-async function generateAIResponse(prompt: string, persona: Persona): Promise<string> {
+async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: number = 90000): Promise<string> {
   return new Promise(async (resolve) => {
     try {
       const { spawn } = await import('child_process');
-      
+
       // Use spawn to pipe prompt via stdin — avoids shell escaping issues
       const claude = spawn('claude', ['-p', '-', '--max-turns', '3'], {
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 60000
+        timeout: timeoutMs
       });
-      
+
       let stdout = '';
       let stderr = '';
-      
+
       claude.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
       claude.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-      
+
       claude.on('close', async (code: number | null) => {
         if (stderr) {
           console.error(`Persona ${persona.name} stderr:`, stderr.substring(0, 200));
         }
-        
+
         const response = stdout.trim();
         if (response && response.length > 0) {
           resolve(response);
           return;
         }
-        
+
         console.warn(`Claude Code returned empty/failed (code ${code}) for ${persona.name}`);
         const soul = await getAgentSoul(persona.id);
         resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
       });
-      
+
       claude.on('error', async (err: Error) => {
         console.error(`Claude Code spawn failed for ${persona.name}:`, err.message);
         const soul = await getAgentSoul(persona.id);
         resolve(soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`);
       });
-      
+
       // Write prompt to stdin and close it
       claude.stdin.write(prompt);
       claude.stdin.end();
-      
+
     } catch (error) {
       console.error(`Claude Code failed for ${persona.name}:`, error);
       const soul = await getAgentSoul(persona.id);
@@ -559,7 +825,7 @@ async function extractAndStoreInferredMemory(
   personaId: string,
   userId: string,
   userMessage: string,
-  _response: string
+  aiResponse: string
 ): Promise<void> {
   // Look for patterns that suggest something worth remembering
   const patterns = [
@@ -568,12 +834,20 @@ async function extractAndStoreInferredMemory(
     // Project context
     { regex: /(?:our|the) project (?:is|uses|has) (.+)/i, category: 'context' as const },
     { regex: /we(?:'re| are) (?:using|building|working on) (.+)/i, category: 'context' as const },
+    // Tech stack mentions
+    { regex: /(?:we|our team|I) use (\w+(?:\s+\w+){0,3}) (?:for|as|to)/i, category: 'context' as const },
+    // Naming conventions
+    { regex: /(?:we|I) (?:follow|use|prefer) (\w+[\s-]?(?:case|convention|style|pattern))/i, category: 'preferences' as const },
+    // Workflow preferences
+    { regex: /(?:our|my) (?:workflow|process|pipeline) (?:is|involves|includes) (.+)/i, category: 'context' as const },
+    // Team structure
+    { regex: /(\w+) (?:is|handles|manages|owns) (?:the|our) (.{10,60})/i, category: 'relationships' as const },
   ];
-  
+
   for (const { regex, category } of patterns) {
     const match = userMessage.match(regex);
     if (match) {
-      const content = match[1].trim();
+      const content = match[0].trim();
       if (content.length > 10 && content.length < 200) {
         try {
           await addMemoryEntry(personaId, userId, {
@@ -586,6 +860,30 @@ async function extractAndStoreInferredMemory(
           console.log(`📝 Inferred memory stored: ${content.substring(0, 50)}...`);
         } catch (error) {
           // Silently fail for inferred memories
+        }
+      }
+    }
+  }
+
+  // Extract learning from AI response (what advice was given)
+  if (aiResponse.length > 50) {
+    const advicePatterns = [
+      /(?:I recommend|I suggest|you should|consider) (.{20,120})/i,
+      /(?:the best approach|a good pattern) (?:is|would be) (.{20,120})/i,
+    ];
+    for (const pattern of advicePatterns) {
+      const match = aiResponse.match(pattern);
+      if (match) {
+        try {
+          await addMemoryEntry(personaId, userId, {
+            category: 'context',
+            content: `Previously advised: ${match[1].trim().substring(0, 100)}`,
+            keywords: match[1].toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 5),
+            source: 'inferred',
+            importance: 3 // Low importance for AI-generated insights
+          });
+        } catch (error) {
+          // Silently fail
         }
       }
     }
@@ -612,23 +910,23 @@ export async function startDirectConversation(
   if (!persona) {
     throw new Error(`Persona ${personaId} not found`);
   }
-  
+
   const soul = await getAgentSoul(personaId);
   const greeting = soul ? getGreeting(soul) : `Hi! I'm ${persona.name}. How can I help?`;
-  
+
   const channelId = `direct-${personaId}-${userId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-  
+
   return { channelId, greeting };
 }
 
 // Get team overview (for shared context)
 export async function getTeamOverview(): Promise<string> {
   const personas = await getAllPersonas();
-  
+
   const overview = personas.map(p => {
     return `**${p.emoji} ${p.name}**\n${p.description}\nSpecialties: ${p.specialties.join(', ')}`;
   }).join('\n\n');
-  
+
   return `# Your Team\n\n${overview}`;
 }
 
@@ -638,10 +936,10 @@ export async function getRelationshipContext(personaId: string): Promise<string>
   if (!soul || soul.relationships.length === 0) {
     return '';
   }
-  
+
   const relationships = soul.relationships.map(r => {
     return `- ${r.personaId}: ${r.relationship} (${r.dynamicNote})`;
   }).join('\n');
-  
+
   return `## Team Relationships\n${relationships}`;
 }
