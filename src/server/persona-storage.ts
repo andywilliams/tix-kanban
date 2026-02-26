@@ -416,6 +416,18 @@ async function triggerPersonaReflection(personaId: string, taskTitle: string, ta
   }
 }
 
+// Structured sections for persona memory
+const MEMORY_SECTIONS = {
+  CONSOLIDATED: '## Consolidated Learnings',
+  PATTERNS: '## Patterns',
+  DECISIONS: '## Decisions',
+  MISTAKES: '## Mistakes to Avoid',
+  RECENT: '## Recent Task Learnings',
+} as const;
+
+// Token threshold for triggering memory consolidation
+const MEMORY_CONSOLIDATION_THRESHOLD = 30000;
+
 // Read persona memory
 export async function getPersonaMemory(personaId: string): Promise<string> {
   try {
@@ -444,17 +456,170 @@ export async function setPersonaMemory(personaId: string, memory: string): Promi
   }
 }
 
-// Append to persona memory
+// Append to persona memory with structured sections
 export async function appendPersonaMemory(personaId: string, newMemory: string): Promise<void> {
   try {
     const existingMemory = await getPersonaMemory(personaId);
     const separator = existingMemory.length > 0 ? '\n\n' : '';
     const updatedMemory = `${existingMemory}${separator}${newMemory}`;
-    await setPersonaMemory(personaId, updatedMemory);
+
+    // Check if consolidation is needed
+    const tokenCount = estimateTokenCount(updatedMemory);
+    if (tokenCount > MEMORY_CONSOLIDATION_THRESHOLD) {
+      const consolidated = consolidateMemory(updatedMemory);
+      await setPersonaMemory(personaId, consolidated);
+      console.log(`📦 Consolidated memory for persona ${personaId} (${tokenCount} -> ~${estimateTokenCount(consolidated)} tokens)`);
+    } else {
+      await setPersonaMemory(personaId, updatedMemory);
+    }
   } catch (error) {
     console.error(`Failed to append memory for persona ${personaId}:`, error);
     throw error;
   }
+}
+
+// Consolidate memory: summarize older entries into structured sections
+function consolidateMemory(memory: string): string {
+  // Parse existing sections
+  const sections = parseMemorySections(memory);
+
+  // Split recent learnings into entries
+  const recentEntries = sections.recent.split('\n---\n').filter(e => e.trim());
+
+  // Keep only the most recent 10 entries as "recent"
+  const keepRecent = recentEntries.slice(-10);
+  const toConsolidate = recentEntries.slice(0, -10);
+
+  if (toConsolidate.length === 0) {
+    return memory; // Nothing to consolidate
+  }
+
+  // Extract patterns and decisions from older entries
+  const newPatterns: string[] = [];
+  const newDecisions: string[] = [];
+  const newMistakes: string[] = [];
+
+  for (const entry of toConsolidate) {
+    const lines = entry.split('\n').filter(l => l.trim());
+
+    // Look for success/failure indicators
+    const isSuccess = entry.includes('✅') || entry.includes('Success');
+    const isFailure = entry.includes('❌') || entry.includes('Failed');
+
+    // Extract task title from header
+    const headerMatch = entry.match(/##\s+\d{4}-\d{2}-\d{2}\s+-\s+(.+?)(?:\s+\(|$)/);
+    const taskTitle = headerMatch ? headerMatch[1].trim() : 'Unknown task';
+
+    // Extract key learnings
+    const learningLines = lines.filter(l =>
+      l.startsWith('- ') &&
+      !l.includes('Task type:') &&
+      !l.includes('Approach worked well') &&
+      !l.includes('Need to improve approach') &&
+      !l.includes('Continue with similar approach') &&
+      !l.includes('Consider alternative approaches')
+    );
+
+    if (isSuccess && learningLines.length > 0) {
+      newPatterns.push(`- ${taskTitle}: ${learningLines[0].replace('- ', '')}`);
+    }
+
+    if (isFailure) {
+      const errorLine = lines.find(l => l.includes('**Output:**'));
+      const mistake = errorLine
+        ? `- ${taskTitle}: ${errorLine.replace('**Output:** ', '').substring(0, 100)}`
+        : `- ${taskTitle}: encountered difficulties`;
+      newMistakes.push(mistake);
+    }
+
+    // Extract any specific decisions/approaches
+    const approachLine = lines.find(l => l.includes('**Approach:**'));
+    if (approachLine && !approachLine.includes('Successful completion') && !approachLine.includes('Encountered difficulties')) {
+      newDecisions.push(`- ${taskTitle}: ${approachLine.replace('**Approach:** ', '')}`);
+    }
+  }
+
+  // Build consolidated memory
+  const parts: string[] = [];
+
+  // Consolidated learnings (existing + new)
+  const existingConsolidated = sections.consolidated.trim();
+  if (existingConsolidated || newPatterns.length > 0 || newDecisions.length > 0 || newMistakes.length > 0) {
+    parts.push(`${MEMORY_SECTIONS.CONSOLIDATED}`);
+    if (existingConsolidated) {
+      parts.push(existingConsolidated);
+    }
+    parts.push(`(Consolidated from ${toConsolidate.length} older entries)\n`);
+  }
+
+  // Patterns
+  const existingPatterns = sections.patterns.trim();
+  if (existingPatterns || newPatterns.length > 0) {
+    parts.push(`${MEMORY_SECTIONS.PATTERNS}`);
+    if (existingPatterns) parts.push(existingPatterns);
+    if (newPatterns.length > 0) parts.push(newPatterns.join('\n'));
+  }
+
+  // Decisions
+  const existingDecisions = sections.decisions.trim();
+  if (existingDecisions || newDecisions.length > 0) {
+    parts.push(`${MEMORY_SECTIONS.DECISIONS}`);
+    if (existingDecisions) parts.push(existingDecisions);
+    if (newDecisions.length > 0) parts.push(newDecisions.join('\n'));
+  }
+
+  // Mistakes
+  const existingMistakes = sections.mistakes.trim();
+  if (existingMistakes || newMistakes.length > 0) {
+    parts.push(`${MEMORY_SECTIONS.MISTAKES}`);
+    if (existingMistakes) parts.push(existingMistakes);
+    if (newMistakes.length > 0) parts.push(newMistakes.join('\n'));
+  }
+
+  // Recent entries (last 10)
+  if (keepRecent.length > 0) {
+    parts.push(`${MEMORY_SECTIONS.RECENT}`);
+    parts.push(keepRecent.join('\n---\n'));
+  }
+
+  return parts.join('\n\n');
+}
+
+// Parse memory into structured sections
+function parseMemorySections(memory: string): {
+  consolidated: string;
+  patterns: string;
+  decisions: string;
+  mistakes: string;
+  recent: string;
+} {
+  const result = { consolidated: '', patterns: '', decisions: '', mistakes: '', recent: '' };
+
+  // Try to extract structured sections
+  const sectionRegex = /^## (Consolidated Learnings|Patterns|Decisions|Mistakes to Avoid|Recent Task Learnings)\s*\n([\s\S]*?)(?=^## |\Z)/gm;
+  let match;
+  let foundStructured = false;
+
+  while ((match = sectionRegex.exec(memory)) !== null) {
+    foundStructured = true;
+    const sectionName = match[1];
+    const content = match[2].trim();
+
+    switch (sectionName) {
+      case 'Consolidated Learnings': result.consolidated = content; break;
+      case 'Patterns': result.patterns = content; break;
+      case 'Decisions': result.decisions = content; break;
+      case 'Mistakes to Avoid': result.mistakes = content; break;
+      case 'Recent Task Learnings': result.recent = content; break;
+    }
+  }
+
+  // If no structured sections found, treat entire memory as "recent"
+  if (!foundStructured) {
+    result.recent = memory;
+  }
+
+  return result;
 }
 
 // Get memory token count (rough estimate: ~4 chars per token)
@@ -468,7 +633,7 @@ export async function getPersonaMemoryWithTokens(personaId: string): Promise<{ m
     const memory = await getPersonaMemory(personaId);
     const tokenCount = estimateTokenCount(memory);
     const isLarge = tokenCount > 10000; // Warning threshold
-    
+
     return { memory, tokenCount, isLarge };
   } catch (error) {
     console.error(`Failed to get memory with tokens for persona ${personaId}:`, error);
@@ -483,26 +648,26 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
     if (!persona) {
       throw new Error(`Persona ${personaId} not found`);
     }
-    
+
     const { memory } = await getPersonaMemoryWithTokens(personaId);
-    
+
     // Base prompt parts
     const systemPrompt = persona.prompt;
     const taskContext = `## Task Details
 Title: ${taskTitle}
 Description: ${taskDescription}
 Tags: ${taskTags.join(', ')}`;
-    
+
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
-    
+
     // Calculate token budget (aim for ~50k total, reserve space for task content)
     const maxTokens = 50000;
     const baseTokens = estimateTokenCount(systemPrompt + taskContext + additionalSection);
     const memoryTokenBudget = maxTokens - baseTokens - 1000; // 1000 token buffer
-    
+
     let finalMemory = memory;
     let memoryTruncated = false;
-    
+
     if (memory.length > 0) {
       const memoryTokens = estimateTokenCount(memory);
       if (memoryTokens > memoryTokenBudget) {
@@ -510,19 +675,19 @@ Tags: ${taskTags.join(', ')}`;
         const targetChars = memoryTokenBudget * 4;
         const truncatePoint = memory.length - targetChars;
         if (truncatePoint > 0) {
-        // Try to truncate at a natural break (paragraph)
-        const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
-        const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
-        finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
-        memoryTruncated = true;
-      }
+          // Try to truncate at a natural break (paragraph)
+          const paragraphBreak = memory.indexOf('\n\n', truncatePoint);
+          const actualTruncatePoint = paragraphBreak > 0 ? paragraphBreak + 2 : truncatePoint;
+          finalMemory = '...(earlier memories truncated)...\n\n' + memory.slice(actualTruncatePoint);
+          memoryTruncated = true;
+        }
       }
     }
-    
+
     // Build final prompt
     const memorySection = finalMemory.length > 0 ? `\n\n## Your Memory\n${finalMemory}` : '';
     const fullPrompt = `${systemPrompt}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
-    
+
     return {
       prompt: fullPrompt,
       tokenCount: estimateTokenCount(fullPrompt),
@@ -537,15 +702,13 @@ Tags: ${taskTags.join(', ')}`;
 // Extract learnings from task completion
 export async function extractLearnings(personaId: string, taskTitle: string, taskDescription: string, taskOutput: string, success: boolean): Promise<string> {
   try {
-    // This would ideally use an AI service to reflect on the task
-    // For now, create a simple structured learning entry
     const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
     const status = success ? '✅ Success' : '❌ Failed';
-    
+
     // Extract key insights from output (simple heuristics for now)
     const outputSnippet = taskOutput.length > 200 ? taskOutput.slice(0, 200) + '...' : taskOutput;
     const hasError = taskOutput.toLowerCase().includes('error') || taskOutput.toLowerCase().includes('failed');
-    
+
     const learning = `## ${timestamp} - ${taskTitle} (${status})
 
 **Task:** ${taskDescription}
@@ -561,7 +724,7 @@ ${!success && hasError ? `**Output:** ${outputSnippet}` : ''}
 - ${success ? 'Continue with similar approach for this type of task' : 'Consider alternative approaches'}
 
 ---`;
-    
+
     return learning;
   } catch (error) {
     console.error(`Failed to extract learnings for persona ${personaId}:`, error);
@@ -574,7 +737,7 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
   try {
     const learning = await extractLearnings(personaId, taskTitle, taskDescription, taskOutput, success);
     await appendPersonaMemory(personaId, learning);
-    
+
     console.log(`📝 Updated memory for persona ${personaId} after task: ${taskTitle}`);
   } catch (error) {
     console.error(`Failed to update memory after task for persona ${personaId}:`, error);

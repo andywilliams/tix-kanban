@@ -36,6 +36,7 @@ import {
   buildBudgetedSection,
   getDefaultBudget
 } from './token-budget.js';
+import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 
 
 export interface ChatContext {
@@ -393,6 +394,14 @@ async function generatePersonaResponse(
       prContext = 'PR data unavailable.';
     }
 
+    // Get conversation background summary (for long conversations)
+    let conversationBackground = '';
+    try {
+      conversationBackground = await getConversationBackground(originalMessage.channelId);
+    } catch (error) {
+      console.warn(`Failed to get conversation background: ${error}`);
+    }
+
     // Get relevant knowledge for ALL personas (query-driven, not persona-gated)
     let knowledgeContext = '';
     try {
@@ -418,6 +427,7 @@ async function generatePersonaResponse(
       persona,
       originalMessage,
       chatHistory,
+      conversationBackground,
       memoryContext,
       relevantMemories,
       teamContext,
@@ -436,6 +446,7 @@ async function generatePersonaResponse(
       persona,
       originalMessage,
       chatHistory: recentMessages.slice(-5).map(m => `${m.author}: ${m.content}`).join('\n'),
+      conversationBackground: '', // Strip background on retry
       memoryContext,
       relevantMemories,
       teamContext,
@@ -486,6 +497,9 @@ async function generatePersonaResponse(
       // Check if response contains learning we should remember
       await extractAndStoreInferredMemory(persona.id, userId, originalMessage.content, cleanResponse);
 
+      // Trigger summary update for long conversations (async, non-blocking)
+      maybeUpdateSummary(originalMessage.channelId).catch(() => {});
+
       console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
@@ -520,6 +534,7 @@ interface PromptContext {
   persona: Persona;
   originalMessage: ChatMessage;
   chatHistory: string;
+  conversationBackground: string;
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
@@ -531,7 +546,7 @@ interface PromptContext {
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -590,6 +605,11 @@ function buildChatPrompt(context: PromptContext): string {
     `\n## Open Pull Requests\n${prContext}`,
     budget.prs
   )));
+
+  // Conversation background summary (for long conversations)
+  if (conversationBackground) {
+    sections.push(`\n${conversationBackground}`);
+  }
 
   // Chat history (selective)
   sections.push(tracker.record('chatHistory', buildBudgetedSection(
