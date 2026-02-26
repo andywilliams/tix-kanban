@@ -542,7 +542,7 @@ async function generatePersonaResponse(
 
     if (response && response.length > 0) {
       // Parse and execute any actions from the response
-      const { cleanResponse, actions } = parseResponseActions(response);
+      const { cleanResponse, actions, memories } = parseResponseActions(response);
 
       // Post the conversational part of the response
       await addMessage(
@@ -552,6 +552,38 @@ async function generatePersonaResponse(
         cleanResponse,
         originalMessage.id
       );
+
+      // Store any AI-extracted memories
+      if (memories.length > 0) {
+        console.log(`💾 ${persona.name} extracted ${memories.length} memories from conversation`);
+        for (const mem of memories) {
+          // Map singular category names to plural (in case AI uses singular)
+          const categoryMap: Record<string, string> = {
+            relationship: 'relationships',
+            relationships: 'relationships',
+            preference: 'preferences',
+            preferences: 'preferences',
+            instruction: 'instructions',
+            instructions: 'instructions',
+            context: 'context',
+            learning: 'learning',
+            reflection: 'reflection',
+          };
+          const category = categoryMap[mem.category] || 'context';
+          try {
+            await addMemoryEntry(persona.id, userId, {
+              category: category as any,
+              content: mem.content,
+              keywords: mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 10),
+              source: 'inferred',
+              importance: Math.min(10, Math.max(1, mem.importance)),
+            });
+            console.log(`  💾 Stored: [${category}] ${mem.content.substring(0, 60)}...`);
+          } catch (memErr) {
+            console.error('Failed to store extracted memory:', memErr);
+          }
+        }
+      }
 
       // Execute any actions (task creation, etc.)
       for (const action of actions) {
@@ -577,7 +609,7 @@ async function generatePersonaResponse(
         }
       }
 
-      // Check if response contains learning we should remember
+      // Fallback: also check with regex-based extraction (catches things the AI might miss)
       await extractAndStoreInferredMemory(persona.id, userId, originalMessage.content, cleanResponse);
 
       // Trigger summary update for long conversations (async, non-blocking)
@@ -736,6 +768,20 @@ Respond naturally as ${persona.name}. Be conversational and helpful.
 - If another team member would be better suited, suggest they ask them
 - Don't start with "As ${persona.name}..." - just respond naturally
 
+## Memory Extraction
+When the user shares information worth remembering (people/roles, preferences, project details, team structure, workflows, instructions), include memory blocks at the END of your response. These are parsed automatically and NOT shown to the user. Include ONE block per distinct fact.
+
+\`\`\`memory
+{"category":"relationships","content":"Mac is the user's direct manager","importance":8}
+\`\`\`
+\`\`\`memory
+{"category":"relationships","content":"Craig and Sumanta are peers on the same team","importance":7}
+\`\`\`
+
+Categories: "relationships" (people, roles, team structure), "preferences" (how user likes things done), "instructions" (explicit rules/directions to follow), "context" (project info, domain knowledge, technical details)
+Importance: 1-10 (8+ for key people/roles, 6-7 for useful context, 5 for minor details)
+Only add memory blocks when the user shares NEW factual information. Do NOT add memory blocks for questions, greetings, or general chat. Extract ALL distinct facts - if the user mentions 5 people, create 5 separate memory blocks.
+
 ## Actions You Can Take
 You can create tickets on the kanban board when the user asks. To create a ticket, include a JSON block in your response like this:
 
@@ -798,8 +844,15 @@ interface ResponseAction {
   [key: string]: any;
 }
 
-function parseResponseActions(response: string): { cleanResponse: string; actions: ResponseAction[] } {
+interface ExtractedMemory {
+  category: string;
+  content: string;
+  importance: number;
+}
+
+function parseResponseActions(response: string): { cleanResponse: string; actions: ResponseAction[]; memories: ExtractedMemory[] } {
   const actions: ResponseAction[] = [];
+  const memories: ExtractedMemory[] = [];
 
   // Match ```action ... ``` blocks
   const actionBlockRegex = /```action\s*\n?([\s\S]*?)```/g;
@@ -816,13 +869,31 @@ function parseResponseActions(response: string): { cleanResponse: string; action
     }
   }
 
-  // Remove action blocks from the response to get clean conversational text
+  // Match ```memory ... ``` blocks
+  const memoryBlockRegex = /```memory\s*\n?([\s\S]*?)```/g;
+  while ((match = memoryBlockRegex.exec(response)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (parsed.content && parsed.category) {
+        memories.push({
+          category: parsed.category,
+          content: parsed.content,
+          importance: parsed.importance || 5,
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to parse memory block:', match[1]);
+    }
+  }
+
+  // Remove action and memory blocks from the response to get clean conversational text
   const cleanResponse = response
     .replace(/```action\s*\n?[\s\S]*?```/g, '')
+    .replace(/```memory\s*\n?[\s\S]*?```/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return { cleanResponse, actions };
+  return { cleanResponse, actions, memories };
 }
 
 // Execute a parsed action
