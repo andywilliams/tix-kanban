@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Persona, StructuredMemory, PersonaSoul, MemoryEntry } from '../types';
 import { usePersonas } from '../hooks/usePersonas';
 
@@ -20,6 +21,7 @@ interface PersonaWithMemory {
 
 export function PersonaMemoriesPage() {
   const { personas, loading: personasLoading } = usePersonas();
+  const [searchParams] = useSearchParams();
   const [personaData, setPersonaData] = useState<PersonaWithMemory[]>([]);
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,6 +33,14 @@ export function PersonaMemoriesPage() {
     }
   }, [personas]);
 
+  // Select persona from URL query param (e.g. /memories?persona=developer)
+  useEffect(() => {
+    const personaParam = searchParams.get('persona');
+    if (personaParam && personaData.some(p => p.persona.id === personaParam)) {
+      setSelectedPersona(personaParam);
+    }
+  }, [searchParams, personaData]);
+
   const loadAllPersonaData = async () => {
     const data = await Promise.all(
       personas.map(async (persona) => {
@@ -39,7 +49,7 @@ export function PersonaMemoriesPage() {
             fetch(`/api/personas/${persona.id}/memories`),
             fetch(`/api/personas/${persona.id}/soul`),
           ]);
-          
+
           return {
             persona,
             memory: memRes.ok ? await memRes.json() : null,
@@ -52,8 +62,9 @@ export function PersonaMemoriesPage() {
       })
     );
     setPersonaData(data);
+    const personaParam = searchParams.get('persona');
     if (data.length > 0 && !selectedPersona) {
-      setSelectedPersona(data[0].persona.id);
+      setSelectedPersona(personaParam && data.some(p => p.persona.id === personaParam) ? personaParam : data[0].persona.id);
     }
   };
 

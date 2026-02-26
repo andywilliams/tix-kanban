@@ -28,10 +28,10 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
       .then(data => setSoul(data.soul))
       .catch(() => {});
 
-    // Load memory count
-    fetch(`/api/personas/${persona.id}/agent-memory`)
+    // Load memory count (aggregated across all users)
+    fetch(`/api/personas/${persona.id}/memories`)
       .then(res => res.json())
-      .then(data => setMemoryCount(data.memory?.entries?.length || 0))
+      .then(data => setMemoryCount(data?.entries?.length || 0))
       .catch(() => {});
   }, [persona.id]);
 

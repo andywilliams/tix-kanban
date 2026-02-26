@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Persona } from '../types/index';
 import { usePersonas } from '../hooks/usePersonas';
 import { PersonaCard } from './PersonaCard';
 import { PersonaEditor } from './PersonaEditor';
 import { SoulEditor } from './SoulEditor';
-import { MemoryViewer } from './MemoryViewer';
 
 export function PersonasPage() {
   const { personas, loading, error, createPersona, updatePersona, deletePersona } = usePersonas();
   const [isCreating, setIsCreating] = useState(false);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
   const [editingSoulPersona, setEditingSoulPersona] = useState<Persona | null>(null);
-  const [viewingMemoryPersona, setViewingMemoryPersona] = useState<Persona | null>(null);
+  const navigate = useNavigate();
 
   const handleCreate = () => { setEditingPersona(null); setIsCreating(true); };
   const handleEdit = (persona: Persona) => { setEditingPersona(persona); setIsCreating(false); };
@@ -113,7 +113,7 @@ export function PersonasPage() {
               onEdit={() => handleEdit(persona)} 
               onDelete={() => handleDelete(persona.id)}
               onEditSoul={() => setEditingSoulPersona(persona)}
-              onViewMemory={() => setViewingMemoryPersona(persona)}
+              onViewMemory={() => navigate(`/memories?persona=${persona.id}`)}
               onChat={() => {
                 // This would open the chat panel - for now just alert
                 alert(`Start chatting with ${persona.name} in the Team Chat panel!`);
@@ -133,15 +133,6 @@ export function PersonasPage() {
         />
       )}
 
-      {/* Memory Viewer Modal */}
-      {viewingMemoryPersona && (
-        <MemoryViewer
-          personaId={viewingMemoryPersona.id}
-          personaName={viewingMemoryPersona.name}
-          personaEmoji={viewingMemoryPersona.emoji}
-          onClose={() => setViewingMemoryPersona(null)}
-        />
-      )}
     </div>
   );
 }
