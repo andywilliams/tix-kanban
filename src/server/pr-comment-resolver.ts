@@ -234,19 +234,48 @@ async function postCommentReply(comment: PRCommentWithContext, reply: string): P
   }, `postCommentReply(${comment.repo}#${comment.prNumber})`, 1);
 }
 
+// Check if the bot has already replied to a comment
+function hasExistingReply(comment: PRCommentWithContext, allComments: PRCommentWithContext[], githubUsername: string): boolean {
+  // For issue comments: check if any later comment from the bot exists on the same PR
+  // that was posted after this comment (i.e. it's likely a reply)
+  if (!comment.isReviewComment) {
+    const commentTime = new Date(comment.createdAt).getTime();
+    return allComments.some(c =>
+      !c.isReviewComment &&
+      c.user.login === githubUsername &&
+      new Date(c.createdAt).getTime() > commentTime
+    );
+  }
+
+  // For review comments: check if there's a reply from the bot on the same file/line
+  return allComments.some(c =>
+    c.isReviewComment &&
+    c.user.login === githubUsername &&
+    c.path === comment.path &&
+    c.line === comment.line &&
+    new Date(c.createdAt).getTime() > new Date(comment.createdAt).getTime()
+  );
+}
+
 // Process a single PR's comments
 async function processPRComments(repo: string, prNumber: number, dryRun: boolean = false): Promise<{ addressed: number; skipped: number }> {
   try {
     console.log(`🔍 Checking PR ${repo}#${prNumber} for unresolved comments...`);
 
-    const comments = await getUnresolvedComments(repo, prNumber);
+    const allComments = await getUnresolvedComments(repo, prNumber);
     const settings = await getUserSettings();
 
     let addressed = 0;
     let skipped = 0;
 
-    for (const comment of comments) {
+    for (const comment of allComments) {
       if (!shouldAddressComment(comment, settings.githubUsername)) {
+        skipped++;
+        continue;
+      }
+
+      // Skip if we've already replied to this comment
+      if (settings.githubUsername && hasExistingReply(comment, allComments, settings.githubUsername)) {
         skipped++;
         continue;
       }
