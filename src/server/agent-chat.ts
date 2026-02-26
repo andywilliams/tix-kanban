@@ -37,6 +37,7 @@ import {
   getDefaultBudget
 } from './token-budget.js';
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
+import { getSlackData } from './slx-service.js';
 
 
 export interface ChatContext {
@@ -246,6 +247,55 @@ function buildFilteredBoardContext(
   return sections.join('\n\n') || 'No tasks on the board.';
 }
 
+// Build relevance-filtered Slack context
+function buildSlackContext(
+  slackData: any,
+  _persona: Persona,
+  messageContent: string
+): string {
+  if (!slackData || (!slackData.digest && !slackData.mentions.length)) {
+    return 'No recent Slack activity available.';
+  }
+
+  const sections: string[] = [];
+  const messageLower = messageContent.toLowerCase();
+
+  // Check if message mentions Slack-related keywords
+  const slackKeywords = ['slack', 'message', 'respond', 'reply', 'mention', 'channel', 'dm', 'digest'];
+  const mentionsSlack = slackKeywords.some(kw => messageLower.includes(kw));
+
+  // Always include digest if available
+  if (slackData.digest) {
+    sections.push('**Latest Slack Digest:**');
+    sections.push(slackData.digest.trim());
+  }
+
+  // Include mentions if they exist
+  if (slackData.mentions && slackData.mentions.length > 0) {
+    sections.push('\n**Recent Mentions:**');
+    const recentMentions = slackData.mentions.slice(0, 5);
+    for (const mention of recentMentions) {
+      sections.push(`- ${mention.channel}: ${mention.author} - ${mention.text.substring(0, 100)}...`);
+    }
+    if (slackData.mentions.length > 5) {
+      sections.push(`... and ${slackData.mentions.length - 5} more mentions`);
+    }
+  }
+
+  // Include channel summaries if discussing specific channels
+  if (mentionsSlack && slackData.channels && slackData.channels.length > 0) {
+    sections.push('\n**Channel Activity:**');
+    const relevantChannels = slackData.channels.filter((ch: any) =>
+      messageLower.includes(ch.name) || mentionsSlack
+    ).slice(0, 3);
+    for (const channel of relevantChannels) {
+      sections.push(`- #${channel.name}: Recent activity available`);
+    }
+  }
+
+  return sections.join('\n') || 'No relevant Slack activity.';
+}
+
 // Build relevance-filtered PR context
 function buildFilteredPRContext(
   prContext: string,
@@ -436,6 +486,17 @@ async function generatePersonaResponse(
       console.warn(`Failed to get knowledge context: ${error}`);
     }
 
+    // Get Slack context for personas that need it (especially PR)
+    let slackContext = '';
+    if (persona.specialties.some(s => ['slack', 'communication', 'messaging'].includes(s))) {
+      try {
+        const slackData = await getSlackData();
+        slackContext = buildSlackContext(slackData, persona, originalMessage.content);
+      } catch (error) {
+        console.warn(`Failed to get Slack context: ${error}`);
+      }
+    }
+
     // Build selective chat history
     const chatHistory = buildSelectiveChatHistory(
       recentMessages, persona, originalMessage, channelType
@@ -454,6 +515,7 @@ async function generatePersonaResponse(
       boardContext,
       prContext,
       knowledgeContext,
+      slackContext,
       tracker,
       budget
     });
@@ -473,6 +535,7 @@ async function generatePersonaResponse(
       boardContext: '', // Strip board on retry
       prContext: '', // Strip PRs on retry
       knowledgeContext: '', // Strip knowledge on retry
+      slackContext: '', // Strip slack on retry
       tracker: new TokenTracker(),
       budget
     });
@@ -561,12 +624,13 @@ interface PromptContext {
   boardContext: string;
   prContext: string;
   knowledgeContext?: string;
+  slackContext?: string;
   tracker: TokenTracker;
   budget: ReturnType<typeof getDefaultBudget>;
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -625,6 +689,15 @@ function buildChatPrompt(context: PromptContext): string {
     `\n## Open Pull Requests\n${prContext}`,
     budget.prs
   )));
+
+  // Slack context (for personas that need it, especially PR)
+  if (slackContext) {
+    sections.push(tracker.record('slack', buildBudgetedSection(
+      'Slack',
+      `\n## Slack Activity\n${slackContext}`,
+      budget.knowledge // Use knowledge budget for slack context
+    )));
+  }
 
   // Conversation background summary (for long conversations)
   if (conversationBackground) {
