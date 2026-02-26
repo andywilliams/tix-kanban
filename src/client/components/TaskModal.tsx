@@ -224,6 +224,17 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
   };
 
   const persona = personas.find(p => p.id === task.persona);
+  const isAgentWorking = task.agentActivity?.status === 'working';
+
+  const getAgentWorkingDuration = (): string | null => {
+    if (!isAgentWorking || !task.agentActivity?.startedAt) return null;
+    const startedAt = new Date(task.agentActivity.startedAt);
+    const diffMs = Date.now() - startedAt.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'just started';
+    if (diffMin === 1) return '1 minute ago';
+    return `${diffMin} minutes ago`;
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -373,12 +384,22 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                   <span className="task-priority" style={{ backgroundColor: getPriorityColor(task.priority), color: 'white' }}>Priority: {task.priority}</span>
                 </div>
                 {persona && (
-                  <div className="task-assignee-badge">
+                  <div className={`task-assignee-badge${isAgentWorking ? ' agent-active' : ''}`}>
                     <span className="persona-emoji">{persona.emoji}</span>
                     <span className="persona-name">Assigned to {persona.name}</span>
                   </div>
                 )}
               </div>
+
+              {isAgentWorking && (
+                <div className="agent-working-banner">
+                  <span className="agent-working-indicator">
+                    <span className="agent-pulse" />
+                    <span>{task.agentActivity?.personaEmoji} {task.agentActivity?.personaName} is working on this task</span>
+                  </span>
+                  <span className="agent-working-since">Started {getAgentWorkingDuration()}</span>
+                </div>
+              )}
 
               <h3>{task.title}</h3>
               

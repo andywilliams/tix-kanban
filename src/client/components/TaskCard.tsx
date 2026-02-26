@@ -21,6 +21,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   });
 
   const persona = personas.find(p => p.id === task.persona);
+  const isAgentWorking = task.agentActivity?.status === 'working';
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
   } : undefined;
@@ -33,7 +34,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
       style={style}
       {...listeners}
       {...attributes}
-      className={`task-card ${isDragging || isDraggingFromKit ? 'dragging' : ''}`}
+      className={`task-card ${isDragging || isDraggingFromKit ? 'dragging' : ''}${isAgentWorking ? ' agent-working' : ''}`}
       onClick={onClick}
     >
       <div className="task-header">
@@ -41,8 +42,9 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
           {task.priority}
         </div>
         {persona && (
-          <div className="task-assignee" title={`Assigned to ${persona.name}`}>
+          <div className={`task-assignee${isAgentWorking ? ' agent-active' : ''}`} title={isAgentWorking ? `${persona.name} is working on this...` : `Assigned to ${persona.name}`}>
             {persona.emoji}
+            {isAgentWorking && <span className="agent-pulse" />}
           </div>
         )}
       </div>
