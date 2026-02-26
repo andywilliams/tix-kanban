@@ -176,7 +176,7 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
       <div className="persona-card-actions-row">
         {onEditSoul && (
           <button onClick={onEditSoul} className="persona-card-action-btn">
-            🧠 Edit Soul
+            🧠 View Soul
           </button>
         )}
         {onViewMemory && (

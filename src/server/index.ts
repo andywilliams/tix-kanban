@@ -996,13 +996,9 @@ app.get('/api/personas/:id/memory', async (req, res) => {
   }
 });
 
-// Soul system from persona-memory (memory functions now unified via agent-memory)
+// Types from persona-memory (memory functions now unified via agent-memory, soul via agent-soul)
 import {
-  getPersonaSoul,
-  savePersonaSoul,
-  generateDefaultSoul,
   MemoryEntry,
-  PersonaSoul,
   StructuredMemory
 } from './persona-memory.js';
 
@@ -1287,46 +1283,7 @@ app.delete('/api/personas/:id/agent-memory/:entryId', async (req, res) => {
   }
 });
 
-// Soul API routes
-
-// GET /api/personas/:id/soul - Get persona soul/personality
-app.get('/api/personas/:id/soul', async (req, res) => {
-  try {
-    let soul = await getPersonaSoul(req.params.id);
-    
-    // Generate default soul if none exists
-    if (!soul) {
-      const persona = await getPersona(req.params.id);
-      if (!persona) {
-        return res.status(404).json({ error: 'Persona not found' });
-      }
-      soul = await generateDefaultSoul(persona);
-      await savePersonaSoul(soul);
-    }
-    
-    res.json(soul);
-  } catch (error) {
-    console.error(`GET /api/personas/${req.params.id}/soul error:`, error);
-    res.status(500).json({ error: 'Failed to fetch persona soul' });
-  }
-});
-
-// PUT /api/personas/:id/soul - Update persona soul
-app.put('/api/personas/:id/soul', async (req, res) => {
-  try {
-    const soul = req.body as PersonaSoul;
-    
-    if (!soul.personaId || soul.personaId !== req.params.id) {
-      soul.personaId = req.params.id;
-    }
-    
-    await savePersonaSoul(soul);
-    res.json(soul);
-  } catch (error) {
-    console.error(`PUT /api/personas/${req.params.id}/soul error:`, error);
-    res.status(500).json({ error: 'Failed to update persona soul' });
-  }
-});
+// Soul API routes (old persona-memory routes removed — agent-soul routes below handle this)
 
 // Mood API routes
 import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';

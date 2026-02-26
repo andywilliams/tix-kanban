@@ -28,9 +28,10 @@ const QUIRK_SUGGESTIONS = [
 export function SoulEditor({ personaId, personaName, allPersonas, onClose }: SoulEditorProps) {
   const { soul, loading, error, updateSoul } = useAgentSoul(personaId);
   const [editedSoul, setEditedSoul] = useState<Partial<AgentSoul>>({});
+  const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'identity' | 'personality' | 'style' | 'team' | 'behavior'>('identity');
   const [saving, setSaving] = useState(false);
-  
+
   // New item inputs
   const [newValue, setNewValue] = useState('');
   const [newExpertise, setNewExpertise] = useState('');
@@ -50,7 +51,7 @@ export function SoulEditor({ personaId, personaName, allPersonas, onClose }: Sou
     setSaving(true);
     try {
       await updateSoul(editedSoul);
-      onClose();
+      setIsEditing(false);
     } catch (err) {
       console.error('Failed to save soul:', err);
     } finally {
@@ -121,25 +122,185 @@ export function SoulEditor({ personaId, personaName, allPersonas, onClose }: Sou
         }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>
-              🧠 Edit Soul: {personaName}
+              🧠 {personaName}'s Soul
             </h2>
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Customize personality, communication style, and behavior
+              {isEditing ? 'Edit personality, communication style, and behavior' : 'Personality, communication style, and behavior'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button onClick={onClose}
               style={{ padding: '0.5rem 1rem', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'none', borderRadius: '0.375rem', cursor: 'pointer' }}>
-              Cancel
+              {isEditing ? 'Cancel' : 'Close'}
             </button>
-            <button onClick={handleSave} disabled={saving}
-              style={{ padding: '0.5rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', fontWeight: 500 }}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            {isEditing ? (
+              <button onClick={handleSave} disabled={saving}
+                style={{ padding: '0.5rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', fontWeight: 500 }}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            ) : (
+              <button onClick={() => setIsEditing(true)}
+                style={{ padding: '0.5rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '0.375rem', cursor: 'pointer', fontWeight: 500 }}>
+                Edit Soul
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Read-only summary view */}
+        {!isEditing && soul && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+            {/* Core Identity */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Core Purpose</div>
+              <p style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>{soul.corePurpose || 'Not set'}</p>
+              {soul.teamRole && (
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--accent)', fontStyle: 'italic' }}>{soul.teamRole}</p>
+              )}
+            </div>
+
+            {/* Values & Expertise */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Values</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                  {(soul.values || []).map((v, i) => (
+                    <span key={i} style={{ padding: '0.2rem 0.5rem', background: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', borderRadius: '0.25rem', fontSize: '0.8rem' }}>{v}</span>
+                  ))}
+                  {(!soul.values || soul.values.length === 0) && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>None set</span>}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Expertise</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                  {(soul.expertise || []).map((e, i) => (
+                    <span key={i} style={{ padding: '0.2rem 0.5rem', background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderRadius: '0.25rem', fontSize: '0.8rem' }}>{e}</span>
+                  ))}
+                  {(!soul.expertise || soul.expertise.length === 0) && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>None set</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Personality Traits */}
+            {soul.traits && soul.traits.length > 0 && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Personality Traits</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {soul.traits.map((trait, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ fontWeight: 500, minWidth: '100px', fontSize: '0.85rem' }}>{trait.name}</span>
+                      <div style={{ flex: 1, height: '6px', background: 'var(--bg-tertiary)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ width: `${trait.intensity * 10}%`, height: '100%', background: 'var(--accent)', borderRadius: '3px' }} />
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', minWidth: '1.5rem', textAlign: 'right' }}>{trait.intensity}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Communication Style */}
+            {soul.communicationStyle && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Communication Style</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ padding: '0.25rem 0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '1rem', fontSize: '0.8rem' }}>
+                    {soul.communicationStyle.formality === 'casual' ? '😊 Casual' : soul.communicationStyle.formality === 'formal' ? '🎩 Formal' : '💼 Balanced'}
+                  </span>
+                  <span style={{ padding: '0.25rem 0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '1rem', fontSize: '0.8rem' }}>
+                    {soul.communicationStyle.verbosity === 'concise' ? '📝 Concise' : soul.communicationStyle.verbosity === 'detailed' ? '📚 Detailed' : '📄 Moderate'}
+                  </span>
+                  <span style={{ padding: '0.25rem 0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '1rem', fontSize: '0.8rem' }}>
+                    {soul.communicationStyle.technicalDepth === 'simple' ? '🌱 Simple' : soul.communicationStyle.technicalDepth === 'deep' ? '🔬 Deep' : '⚙️ Moderate'}
+                  </span>
+                  {soul.communicationStyle.humor !== 'none' && (
+                    <span style={{ padding: '0.25rem 0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '1rem', fontSize: '0.8rem' }}>
+                      😄 {soul.communicationStyle.humor === 'frequent' ? 'Frequent humor' : 'Occasional humor'}
+                    </span>
+                  )}
+                  {soul.communicationStyle.emoji && (
+                    <span style={{ padding: '0.25rem 0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '1rem', fontSize: '0.8rem' }}>
+                      ✨ Uses emoji
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Quirks & Catchphrases */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
+              {soul.quirks && soul.quirks.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Quirks</div>
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                    {soul.quirks.map((q, i) => (
+                      <li key={i} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {soul.catchphrases && soul.catchphrases.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Catchphrases</div>
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem', listStyle: 'none' }}>
+                    {soul.catchphrases.map((p, i) => (
+                      <li key={i} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginBottom: '0.25rem' }}>"{p}"</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Behavioral Guidelines */}
+            {((soul.alwaysDo && soul.alwaysDo.length > 0) || (soul.neverDo && soul.neverDo.length > 0)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
+                {soul.alwaysDo && soul.alwaysDo.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Always Do</div>
+                    {soul.alwaysDo.map((a, i) => (
+                      <div key={i} style={{ padding: '0.35rem 0.6rem', background: 'rgba(34, 197, 94, 0.1)', borderRadius: '0.25rem', fontSize: '0.85rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
+                        {a}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {soul.neverDo && soul.neverDo.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Never Do</div>
+                    {soul.neverDo.map((n, i) => (
+                      <div key={i} style={{ padding: '0.35rem 0.6rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '0.25rem', fontSize: '0.85rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
+                        {n}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Team Relationships */}
+            {soul.relationships && soul.relationships.length > 0 && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Team Relationships</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                  {soul.relationships.map((rel, i) => {
+                    const relPersona = allPersonas.find(p => p.id === rel.personaId);
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: 'var(--bg-secondary)', borderRadius: '0.375rem' }}>
+                        <span>{relPersona?.emoji || '?'}</span>
+                        <span style={{ fontWeight: 500, fontSize: '0.85rem' }}>{relPersona?.name || rel.personaId}</span>
+                        <span style={{ padding: '0.15rem 0.4rem', background: 'var(--bg-tertiary)', borderRadius: '0.25rem', fontSize: '0.7rem', textTransform: 'capitalize' }}>{rel.relationship}</span>
+                        {rel.dynamicNote && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>— {rel.dynamicNote}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tabs (edit mode only) */}
+        {isEditing && (
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 1rem' }}>
           {(['identity', 'personality', 'style', 'team', 'behavior'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
@@ -153,8 +314,10 @@ export function SoulEditor({ personaId, personaName, allPersonas, onClose }: Sou
             </button>
           ))}
         </div>
+        )}
 
-        {/* Content */}
+        {/* Content (edit mode only) */}
+        {isEditing && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
           {error && (
             <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '0.375rem', marginBottom: '1rem', color: 'var(--color-danger)' }}>
@@ -598,6 +761,7 @@ export function SoulEditor({ personaId, personaName, allPersonas, onClose }: Sou
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
