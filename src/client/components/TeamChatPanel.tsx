@@ -8,6 +8,7 @@ interface TeamChatPanelProps {
   channels: ChatChannel[];
   personas: Persona[];
   currentUser: string;
+  unreadCounts?: Record<string, number>;
   onSendMessage: (channelId: string, content: string, replyTo?: string) => void;
   onSwitchChannel: (channel: ChatChannel) => void;
   onCreateTaskChannel: (taskId: string, taskTitle: string) => void;
@@ -16,8 +17,9 @@ interface TeamChatPanelProps {
 
 type ViewMode = 'channels' | 'team' | 'direct';
 
-export default function TeamChatPanel({ 
+export default function TeamChatPanel({
   isOpen, onClose, currentChannel, channels, personas, currentUser,
+  unreadCounts = {},
   onSendMessage, onSwitchChannel, onCreateTaskChannel, onStartDirectChat
 }: TeamChatPanelProps) {
   const [messageInput, setMessageInput] = useState('');
@@ -256,17 +258,40 @@ export default function TeamChatPanel({
           {/* Channel List */}
           <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
             <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
-              {channels.map(channel => (
-                <button key={channel.id} onClick={() => onSwitchChannel(channel)}
-                  style={{
-                    padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.8rem',
-                    whiteSpace: 'nowrap', border: 'none', cursor: 'pointer',
-                    background: currentChannel?.id === channel.id ? 'var(--accent)' : 'var(--bg-tertiary)',
-                    color: currentChannel?.id === channel.id ? '#fff' : 'var(--text-secondary)'
-                  }}>
-                  {channel.type === 'general' ? '🏠' : '📋'} {channel.name}
-                </button>
-              ))}
+              {channels.map(channel => {
+                const unread = unreadCounts[channel.id] || 0;
+                return (
+                  <button key={channel.id} onClick={() => onSwitchChannel(channel)}
+                    style={{
+                      padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.8rem',
+                      whiteSpace: 'nowrap', border: 'none', cursor: 'pointer',
+                      position: 'relative',
+                      background: currentChannel?.id === channel.id ? 'var(--accent)' : unread > 0 ? 'rgba(59, 130, 246, 0.2)' : 'var(--bg-tertiary)',
+                      color: currentChannel?.id === channel.id ? '#fff' : unread > 0 ? 'var(--accent)' : 'var(--text-secondary)',
+                      fontWeight: unread > 0 ? 600 : 500,
+                    }}>
+                    {channel.type === 'general' ? '🏠' : '📋'} {channel.name}
+                    {unread > 0 && (
+                      <span style={{
+                        marginLeft: '0.4rem',
+                        background: '#ef4444',
+                        color: 'white',
+                        borderRadius: '9999px',
+                        minWidth: '16px',
+                        height: '16px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        padding: '0 4px',
+                      }}>
+                        {unread}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

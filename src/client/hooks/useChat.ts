@@ -1,11 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatChannel, ChatMessage } from '../types';
 
+export interface ChatNotification {
+  id: string;
+  channelId: string;
+  channelName: string;
+  author: string;
+  content: string;
+  timestamp: Date;
+}
+
 interface UseChatReturn {
   channels: ChatChannel[];
   currentChannel: ChatChannel | null;
   loading: boolean;
   error: string | null;
+  unreadCounts: Record<string, number>;
+  totalUnread: number;
+  notifications: ChatNotification[];
+  dismissNotification: (id: string) => void;
   switchChannel: (channel: ChatChannel) => void;
   sendMessage: (channelId: string, content: string, replyTo?: string) => Promise<void>;
   createTaskChannel: (taskId: string, taskTitle: string) => Promise<ChatChannel>;
@@ -22,7 +35,22 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
   const [messagePolling, setMessagePolling] = useState<NodeJS.Timeout | null>(null);
   const mentionPollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch all channels
+  // Notification tracking
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [notifications, setNotifications] = useState<ChatNotification[]>([]);
+  // Track last-seen message count per channel to detect new persona messages
+  const lastSeenCountsRef = useRef<Record<string, number>>({});
+  const currentChannelRef = useRef<ChatChannel | null>(null);
+  const chatOpenRef = useRef(false);
+
+  // Keep refs in sync
+  useEffect(() => { currentChannelRef.current = currentChannel; }, [currentChannel]);
+
+  const dismissNotification = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  // Fetch all channels and detect new persona messages
   const refreshChannels = useCallback(async () => {
     try {
       const response = await fetch('/api/chat/channels');
@@ -30,14 +58,69 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
         throw new Error('Failed to fetch channels');
       }
       const data = await response.json();
-      setChannels(data.channels.map((channel: any) => ({
+      const updatedChannels: ChatChannel[] = data.channels.map((channel: any) => ({
         ...channel,
         lastActivity: new Date(channel.lastActivity),
         messages: channel.messages.map((msg: any) => ({
           ...msg,
           createdAt: new Date(msg.createdAt)
         }))
-      })));
+      }));
+
+      // Detect new persona messages across all channels
+      const newNotifications: ChatNotification[] = [];
+      const newUnreads: Record<string, number> = {};
+
+      for (const channel of updatedChannels) {
+        const lastSeen = lastSeenCountsRef.current[channel.id] ?? channel.messages.length;
+        const newMessages = channel.messages.slice(lastSeen);
+        const newPersonaMessages = newMessages.filter((m: ChatMessage) => m.authorType === 'persona');
+
+        // Count unreads (persona messages in channels we're not actively viewing)
+        const isActiveChannel = currentChannelRef.current?.id === channel.id;
+        if (newPersonaMessages.length > 0 && !isActiveChannel) {
+          newUnreads[channel.id] = (newUnreads[channel.id] || 0) + newPersonaMessages.length;
+        }
+
+        // Create toast notifications for new persona messages (only after initial load)
+        if (lastSeenCountsRef.current[channel.id] !== undefined) {
+          for (const msg of newPersonaMessages) {
+            if (!isActiveChannel) {
+              newNotifications.push({
+                id: msg.id,
+                channelId: channel.id,
+                channelName: channel.name,
+                author: msg.author,
+                content: msg.content.length > 120 ? msg.content.substring(0, 120) + '...' : msg.content,
+                timestamp: new Date(msg.createdAt),
+              });
+            }
+          }
+        }
+
+        // Update last-seen counts (mark active channel as fully read)
+        if (isActiveChannel) {
+          lastSeenCountsRef.current[channel.id] = channel.messages.length;
+        } else if (lastSeenCountsRef.current[channel.id] === undefined) {
+          // First load — initialize without creating unreads
+          lastSeenCountsRef.current[channel.id] = channel.messages.length;
+        }
+      }
+
+      if (newNotifications.length > 0) {
+        setNotifications(prev => [...prev, ...newNotifications].slice(-10)); // Keep last 10
+      }
+      if (Object.keys(newUnreads).length > 0) {
+        setUnreadCounts(prev => {
+          const updated = { ...prev };
+          for (const [chId, count] of Object.entries(newUnreads)) {
+            updated[chId] = (updated[chId] || 0) + count;
+          }
+          return updated;
+        });
+      }
+
+      setChannels(updatedChannels);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     }
@@ -51,21 +134,30 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
         throw new Error('Failed to fetch messages');
       }
       const data = await response.json();
-      
+      const messages = data.messages.map((msg: any) => ({
+        ...msg,
+        createdAt: new Date(msg.createdAt)
+      }));
+
+      // If this is the active channel, mark messages as seen and clear unreads
+      if (currentChannelRef.current?.id === channelId) {
+        lastSeenCountsRef.current[channelId] = messages.length;
+        setUnreadCounts(prev => {
+          if (!prev[channelId]) return prev;
+          const updated = { ...prev };
+          delete updated[channelId];
+          return updated;
+        });
+      }
+
       // Update the channel with new messages
       setChannels(prev => prev.map(channel => {
         if (channel.id === channelId) {
-          return {
-            ...channel,
-            messages: data.messages.map((msg: any) => ({
-              ...msg,
-              createdAt: new Date(msg.createdAt)
-            }))
-          };
+          return { ...channel, messages };
         }
         return channel;
       }));
-      
+
       // Update current channel if it matches
       if (currentChannel?.id === channelId) {
         setCurrentChannel(prev => prev ? {
@@ -140,18 +232,27 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
   // Switch to a different channel
   const switchChannel = useCallback(async (channel: ChatChannel) => {
     setCurrentChannel(channel);
-    
+
+    // Clear unread count for this channel
+    setUnreadCounts(prev => {
+      const updated = { ...prev };
+      delete updated[channel.id];
+      return updated;
+    });
+    // Mark all messages as seen
+    lastSeenCountsRef.current[channel.id] = channel.messages.length;
+
     // Stop polling previous channel
     if (messagePolling) {
       clearInterval(messagePolling);
     }
-    
+
     // Start polling new channel for updates
     const interval = setInterval(() => {
       refreshMessages(channel.id);
     }, 2000);
     setMessagePolling(interval);
-    
+
     // Initial refresh
     await refreshMessages(channel.id);
   }, [refreshMessages, messagePolling]);
@@ -284,11 +385,25 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
     };
   }, []); // Empty dependency array = only runs on unmount
 
+  // Background polling for all channels to detect new persona messages
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshChannels();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [refreshChannels]);
+
+  const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+
   return {
     channels,
     currentChannel,
     loading,
     error,
+    unreadCounts,
+    totalUnread,
+    notifications,
+    dismissNotification,
     switchChannel,
     sendMessage,
     createTaskChannel,

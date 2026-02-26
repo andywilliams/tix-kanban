@@ -83,6 +83,10 @@ function AppContent() {
     channels,
     currentChannel,
     loading: chatLoading,
+    unreadCounts,
+    totalUnread,
+    notifications,
+    dismissNotification,
     switchChannel,
     sendMessage,
     createTaskChannel,
@@ -93,6 +97,15 @@ function AppContent() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
+
+  // Auto-dismiss notifications after 8 seconds
+  useEffect(() => {
+    if (notifications.length === 0) return;
+    const timer = setTimeout(() => {
+      dismissNotification(notifications[0].id);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [notifications, dismissNotification]);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -203,7 +216,7 @@ function AppContent() {
           <button
             onClick={() => setChatOpen(!chatOpen)}
             aria-label="Toggle team chat"
-            style={{ 
+            style={{
               backgroundColor: chatOpen ? 'var(--color-primary, #3b82f6)' : '#f59e0b',
               color: 'white',
               border: 'none',
@@ -215,9 +228,32 @@ function AppContent() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              position: 'relative',
             }}
           >
             🤝 Team Chat
+            {totalUnread > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-6px',
+                background: '#ef4444',
+                color: 'white',
+                borderRadius: '9999px',
+                minWidth: '20px',
+                height: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '0 5px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                animation: 'notification-pulse 2s ease-in-out infinite',
+              }}>
+                {totalUnread > 99 ? '99+' : totalUnread}
+              </span>
+            )}
           </button>
           <button
             className="github-settings-btn"
@@ -320,6 +356,7 @@ function AppContent() {
         channels={channels}
         personas={personas}
         currentUser={userName}
+        unreadCounts={unreadCounts}
         onSendMessage={sendMessage}
         onSwitchChannel={switchChannel}
         onCreateTaskChannel={createTaskChannel}
@@ -344,6 +381,59 @@ function AppContent() {
           }
         }}
       />
+
+      {/* Toast notifications for new persona messages */}
+      {notifications.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: '1rem',
+          right: chatOpen ? '30rem' : '1rem',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.5rem',
+          maxWidth: '22rem',
+          transition: 'right 0.3s ease',
+        }}>
+          {notifications.map(n => (
+            <div key={n.id} style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--accent)',
+              borderRadius: '0.75rem',
+              padding: '0.75rem 1rem',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+              animation: 'toast-slide-in 0.3s ease-out',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              const ch = channels.find(c => c.id === n.channelId);
+              if (ch) {
+                setChatOpen(true);
+                switchChannel(ch);
+              }
+              dismissNotification(n.id);
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                  {n.author}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); dismissNotification(n.id); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 0.25rem' }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+                in {n.channelName}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {n.content}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <GitHubSettingsModal
         isOpen={githubSettingsOpen}

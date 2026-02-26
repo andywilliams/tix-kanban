@@ -18,11 +18,12 @@ import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
-import { 
-  generateStandupEntry, 
-  saveStandupEntry, 
-  getAllStandupEntries 
+import {
+  generateStandupEntry,
+  saveStandupEntry,
+  getAllStandupEntries
 } from './standup-storage.js';
+import { createOrGetChannel, addMessage } from './chat-storage.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -40,6 +41,18 @@ function sanitizeForPrompt(content: string): string {
     .substring(0, 2000)
     // Indicate if content was truncated
     + (content.length > 2000 ? '\n[Content truncated for security]' : '');
+}
+
+// Post a proactive status update to the task's chat channel
+async function postTaskUpdate(task: Task, persona: Persona, message: string): Promise<void> {
+  try {
+    const channelId = `task-${task.id}`;
+    await createOrGetChannel(channelId, 'task', task.id, task.title);
+    await addMessage(channelId, persona.name, 'persona', message);
+  } catch (error) {
+    // Non-fatal — don't let chat failures block task processing
+    console.warn(`Failed to post task update for ${task.id}:`, error);
+  }
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
@@ -580,7 +593,10 @@ async function processTask(task: Task): Promise<void> {
         startedAt: new Date(),
       }
     });
-    
+
+    // Notify via chat that work is starting
+    await postTaskUpdate(fullTask, persona, `Starting work on this task. I'll update you when I'm done.`);
+
     // Check if this is a research task and handle differently
     let output: string;
     let success: boolean;
@@ -648,6 +664,8 @@ async function processTask(task: Task): Promise<void> {
         });
         console.log(`🔍 Research task completed: ${fullTask.title}`);
 
+        await postTaskUpdate(fullTask, persona, `Research complete! The report has been saved. Moving this to done.`);
+
         // Update persona stats
         const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
         const completionTimeMinutes = completionTimeMs / (1000 * 60);
@@ -659,6 +677,7 @@ async function processTask(task: Task): Promise<void> {
         const pipelineState = await getTaskPipelineState(fullTask.id);
         if (pipelineState && fullTask.pipelineId) {
           await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
+          await postTaskUpdate(fullTask, persona, `Work complete. Advancing to the next pipeline stage.`);
         } else {
           // No pipeline - try auto-review first, then fall back to manual review
           const reviewState = await initiateAutoReview(fullTask, persona.id);
@@ -669,7 +688,9 @@ async function processTask(task: Task): Promise<void> {
               comments: updatedComments,
               agentActivity: clearedActivity,
             });
-            
+
+            await postTaskUpdate(fullTask, persona, `I've finished my work and it's now being auto-reviewed.`);
+
             // Execute the first review cycle
             const reviewResult = await executeReviewCycle(fullTask.id);
             console.log(`🔍 Auto-review result for ${fullTask.title}: ${reviewResult}`);
@@ -680,6 +701,8 @@ async function processTask(task: Task): Promise<void> {
               comments: updatedComments,
               agentActivity: clearedActivity,
             });
+
+            await postTaskUpdate(fullTask, persona, `Work complete! I've moved this to review — ready for your eyes.`);
           }
         }
       }
@@ -690,6 +713,8 @@ async function processTask(task: Task): Promise<void> {
         comments: updatedComments,
         agentActivity: clearedActivity,
       });
+
+      await postTaskUpdate(fullTask, persona, `I ran into some issues with this task and wasn't able to complete it. Moving it back to the backlog — I'll have another go next cycle.`);
     }
 
     console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);
