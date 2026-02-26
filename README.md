@@ -400,6 +400,7 @@ Personas are AI personalities that process tasks and participate in chat. Each h
 | QA Engineer | QA | Testing, quality assurance |
 | Security Reviewer | SR | Security audits, vulnerability checks |
 | Code Reviewer | CR | PR reviews using lgtm tool for thorough analysis |
+| PR | 📢 | Public Relations specialist for Slack communication and team messaging |
 
 ### Creating Custom Personas
 
