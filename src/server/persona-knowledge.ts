@@ -3,10 +3,21 @@
  *
  * Provides utilities for personas to access and search the knowledge base
  * during conversations and task execution.
+ *
+ * All personas can access knowledge — retrieval is purely query-driven
+ * with a minimum relevance threshold to filter noise.
  */
 
-import { searchKnowledgeDocs, KnowledgeDoc } from './knowledge-storage.js';
+import { searchKnowledgeDocs, getKnowledgeDoc, KnowledgeDoc, KnowledgeSearchResult } from './knowledge-storage.js';
 import { Persona } from '../client/types/index.js';
+
+// Minimum relevance score for a knowledge doc to be included in context
+const MIN_RELEVANCE_SCORE = 15;
+
+// Max content snippet length for standard docs
+const STANDARD_SNIPPET_LENGTH = 300;
+// Max content snippet length for highly relevant docs (score > 50)
+const HIGH_RELEVANCE_SNIPPET_LENGTH = 800;
 
 /**
  * Extract keywords from a message for knowledge search
@@ -17,7 +28,9 @@ export function extractKeywords(text: string): string {
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
     'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
     'how', 'can', 'should', 'would', 'could', 'what', 'which', 'when', 'where',
-    'is', 'are', 'was', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does'
+    'is', 'are', 'was', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does',
+    'i', 'you', 'we', 'they', 'he', 'she', 'it', 'my', 'your', 'our', 'their',
+    'this', 'that', 'these', 'those', 'not', 'just', 'also', 'very', 'really'
   ]);
 
   const words = text.toLowerCase()
@@ -26,7 +39,7 @@ export function extractKeywords(text: string): string {
     .filter(word => word.length > 2 && !commonWords.has(word));
 
   // Look for technical terms and compound words
-  const technicalTerms = [];
+  const technicalTerms: string[] = [];
   for (let i = 0; i < words.length; i++) {
     // Detect hyphenated compound terms already in the text
     if (words[i].includes('-')) {
@@ -38,7 +51,8 @@ export function extractKeywords(text: string): string {
 }
 
 /**
- * Get relevant knowledge for a persona based on the current context
+ * Get relevant knowledge for a persona based on the current context.
+ * All personas can access knowledge — retrieval is query-driven.
  */
 export async function getRelevantKnowledge(
   persona: Persona,
@@ -50,14 +64,26 @@ export async function getRelevantKnowledge(
     // Extract keywords from the message
     const keywords = extractKeywords(message);
 
+    // If no meaningful keywords extracted, skip the search
+    if (!keywords.trim()) {
+      return { docs: [], summary: '' };
+    }
+
     // Search for relevant knowledge
     const searchResults = await searchKnowledgeDocs({
       keywords,
       repo,
-      limit
+      limit: limit + 2 // Fetch extras so we can filter by threshold
     });
 
-    // For Product Manager, prioritize architecture and planning docs
+    // Apply minimum relevance threshold
+    const filteredResults = searchResults.filter(r => r.score >= MIN_RELEVANCE_SCORE);
+
+    if (filteredResults.length === 0) {
+      return { docs: [], summary: '' };
+    }
+
+    // For Product Manager, also pull architecture docs when relevant
     if (persona.id === 'product-manager') {
       const architectureDocs = await searchKnowledgeDocs({
         keywords: 'architecture system design patterns',
@@ -66,7 +92,8 @@ export async function getRelevantKnowledge(
       });
 
       // Combine and deduplicate results
-      const allDocs = [...searchResults, ...architectureDocs];
+      const relevantArch = architectureDocs.filter(r => r.score >= MIN_RELEVANCE_SCORE);
+      const allDocs = [...filteredResults, ...relevantArch];
       const uniqueDocs = Array.from(
         new Map(allDocs.map(r => [r.doc.id, r])).values()
       );
@@ -74,17 +101,17 @@ export async function getRelevantKnowledge(
       // Sort by relevance score
       uniqueDocs.sort((a, b) => b.score - a.score);
 
-      const docs = uniqueDocs.slice(0, limit).map(r => r.doc) as KnowledgeDoc[];
-
-      // Generate summary
-      const summary = generateKnowledgeSummary(docs);
+      const topResults = uniqueDocs.slice(0, limit);
+      const docs = await enrichWithContent(topResults);
+      const summary = generateKnowledgeSummary(docs, topResults);
 
       return { docs, summary };
     }
 
-    // For other personas, use standard search results
-    const docs = searchResults.map(r => r.doc) as KnowledgeDoc[];
-    const summary = generateKnowledgeSummary(docs);
+    // For other personas, use filtered search results
+    const topResults = filteredResults.slice(0, limit);
+    const docs = await enrichWithContent(topResults);
+    const summary = generateKnowledgeSummary(docs, topResults);
 
     return { docs, summary };
   } catch (error) {
@@ -94,14 +121,37 @@ export async function getRelevantKnowledge(
 }
 
 /**
- * Generate a summary of knowledge docs for context
+ * Enrich search results with full content for snippet extraction
  */
-function generateKnowledgeSummary(docs: KnowledgeDoc[]): string {
+async function enrichWithContent(results: KnowledgeSearchResult[]): Promise<KnowledgeDoc[]> {
+  const docs: KnowledgeDoc[] = [];
+  for (const result of results) {
+    try {
+      const fullDoc = await getKnowledgeDoc(result.doc.id);
+      if (fullDoc) {
+        docs.push(fullDoc);
+      }
+    } catch (error) {
+      // Skip docs that can't be loaded
+      console.warn(`Failed to load knowledge doc ${result.doc.id}: ${error}`);
+    }
+  }
+  return docs;
+}
+
+/**
+ * Generate a summary of knowledge docs for context, including content snippets
+ */
+function generateKnowledgeSummary(docs: KnowledgeDoc[], results: KnowledgeSearchResult[]): string {
   if (docs.length === 0) return '';
+
+  // Build a score lookup
+  const scoreMap = new Map(results.map(r => [r.doc.id, r.score]));
 
   const summaryParts = ['## Relevant Knowledge Base Articles\n'];
 
   for (const doc of docs) {
+    const score = scoreMap.get(doc.id) || 0;
     summaryParts.push(`### ${doc.title}`);
     if (doc.description) {
       summaryParts.push(doc.description);
@@ -110,6 +160,15 @@ function generateKnowledgeSummary(docs: KnowledgeDoc[]): string {
     if (doc.tags.length > 0) {
       summaryParts.push(`- Tags: ${doc.tags.join(', ')}`);
     }
+
+    // Include content snippet — more for highly relevant docs
+    if (doc.content) {
+      const snippetLength = score > 50 ? HIGH_RELEVANCE_SNIPPET_LENGTH : STANDARD_SNIPPET_LENGTH;
+      const snippet = doc.content.trim().substring(0, snippetLength);
+      const truncated = snippet.length < doc.content.trim().length;
+      summaryParts.push(`\n${snippet}${truncated ? '...' : ''}`);
+    }
+
     summaryParts.push(''); // Empty line between docs
   }
 
@@ -127,14 +186,16 @@ export async function getArchitectureOverview(): Promise<string> {
       limit: 5
     });
 
-    if (architectureDocs.length === 0) {
+    const filtered = architectureDocs.filter(r => r.score >= MIN_RELEVANCE_SCORE);
+
+    if (filtered.length === 0) {
       return '## Architecture Overview\nNo architecture documentation found in knowledge base.';
     }
 
     const overview = ['## System Architecture Overview\n'];
 
-    for (const result of architectureDocs) {
-      const doc = result.doc as KnowledgeDoc;
+    for (const result of filtered) {
+      const doc = result.doc;
       overview.push(`### ${doc.title}`);
       if (doc.description) {
         overview.push(doc.description);
@@ -168,7 +229,10 @@ export async function searchKnowledgeForTopic(
       limit: options?.limit || 5
     });
 
-    return results.map(r => r.doc as KnowledgeDoc);
+    // Apply threshold
+    const filtered = results.filter(r => r.score >= MIN_RELEVANCE_SCORE);
+    const enriched = await enrichWithContent(filtered);
+    return enriched;
   } catch (error) {
     console.error('Failed to search knowledge for topic:', error);
     return [];
@@ -176,19 +240,10 @@ export async function searchKnowledgeForTopic(
 }
 
 /**
- * Check if a persona should have knowledge base access
+ * Check if a persona should have knowledge base access.
+ * Now returns true for all personas — knowledge is query-driven.
+ * Kept for backward compatibility but always returns true.
  */
-export function shouldIncludeKnowledge(persona: Persona): boolean {
-  // Product Manager always gets knowledge access
-  if (persona.id === 'product-manager') return true;
-
-  // Other personas get knowledge if their specialties suggest they need it
-  const knowledgeSpecialties = [
-    'architecture', 'api-design', 'system-design',
-    'technical-writing', 'documentation'
-  ];
-
-  return persona.specialties.some(s =>
-    knowledgeSpecialties.some(ks => s.includes(ks))
-  );
+export function shouldIncludeKnowledge(_persona: Persona): boolean {
+  return true;
 }

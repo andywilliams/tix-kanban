@@ -54,7 +54,8 @@ import {
   createOrGetChannel,
   addMessage,
   getMessages,
-  getAllChannels
+  getAllChannels,
+  runArchiveMaintenance
 } from './chat-storage.js';
 import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
@@ -2704,6 +2705,8 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
+    // Run archive maintenance on startup to trim old chat messages
+    runArchiveMaintenance().catch(err => console.error('Archive maintenance failed:', err));
     await initializeReportsStorage();
     await initializeKnowledgeStorage();
     await initializeStandupStorage();

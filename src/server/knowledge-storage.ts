@@ -245,39 +245,56 @@ export async function searchKnowledgeDocs(query: {
   try {
     const allDocs = await getAllKnowledgeDocs();
     const results: KnowledgeSearchResult[] = [];
-    
+
+    // Build a content cache for content-aware search (first ~500 chars)
+    const contentCache = new Map<string, string>();
+    if (query.keywords) {
+      for (const doc of allDocs) {
+        try {
+          const fullDoc = await getKnowledgeDoc(doc.id);
+          if (fullDoc?.content) {
+            contentCache.set(doc.id, fullDoc.content.substring(0, 500).toLowerCase());
+          }
+        } catch {
+          // Skip docs that can't be loaded
+        }
+      }
+    }
+
     for (const doc of allDocs) {
       let score = 0;
-      
+
       // Exact repo match gets high score
       if (query.repo && doc.repo === query.repo) {
         score += 50;
       }
-      
+
       // Area match
       if (query.area && doc.area === query.area) {
         score += 30;
       }
-      
+
       // Tag matches
       if (query.tags) {
         const matchingTags = query.tags.filter(tag => doc.tags.includes(tag));
         score += matchingTags.length * 20;
       }
-      
-      // Keyword matching in title, topic, description, tags
+
+      // Keyword matching in title, topic, description, tags, and content
       if (query.keywords) {
         const keywords = query.keywords.toLowerCase().split(/\s+/);
-        const searchableText = [
+        const metadataText = [
           doc.title,
           doc.topic,
           doc.description || '',
           ...doc.tags
         ].join(' ').toLowerCase();
-        
+
+        const contentText = contentCache.get(doc.id) || '';
+
         for (const keyword of keywords) {
-          if (searchableText.includes(keyword)) {
-            // Title matches get higher score
+          if (metadataText.includes(keyword)) {
+            // Title matches get highest score
             if (doc.title.toLowerCase().includes(keyword)) {
               score += 15;
             } else if (doc.topic.toLowerCase().includes(keyword)) {
@@ -286,23 +303,27 @@ export async function searchKnowledgeDocs(query: {
               score += 5;
             }
           }
+          // Content body matches get a lower score
+          if (contentText.includes(keyword)) {
+            score += 3;
+          }
         }
       }
-      
+
       // Only include docs with some relevance
       if (score > 0) {
         results.push({ doc, score });
       }
     }
-    
+
     // Sort by score (highest first)
     results.sort((a, b) => b.score - a.score);
-    
+
     // Apply limit
     if (query.limit && query.limit > 0) {
       return results.slice(0, query.limit);
     }
-    
+
     return results;
   } catch (error) {
     console.error('Failed to search knowledge docs:', error);
