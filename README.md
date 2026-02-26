@@ -1,8 +1,265 @@
-# Tix Kanban 🤖
+# Tix Kanban
 
 A localhost kanban board with AI-powered task processing. Create tasks, assign them to AI personas, and watch Claude Code work through your backlog automatically.
 
+## Table of Contents
+
+- [Setup from Scratch](#setup-from-scratch)
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Integrations](#integrations)
+- [Personas](#personas)
+- [Features](#features)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Development](#development)
+
+---
+
+## Setup from Scratch
+
+This section walks through everything you need to get tix-kanban running on a fresh machine.
+
+### 1. Prerequisites
+
+#### Node.js 18+
+
+```bash
+# Check your version
+node --version
+
+# Install via nvm (recommended)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+nvm install 18
+nvm use 18
+
+# Or via Homebrew (macOS)
+brew install node@18
+```
+
+#### Claude Code CLI (required)
+
+The AI worker and persona chat system both spawn Claude Code to process tasks and generate responses.
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+After installing, authenticate by running `claude` once — it will walk you through Anthropic API key setup. Verify it works:
+
+```bash
+claude -p "Say hello"
+```
+
+#### GitHub CLI (required for PR/GitHub features)
+
+Used for PR creation, status checks, code review, and repository management.
+
+```bash
+# macOS
+brew install gh
+
+# Linux
+sudo apt install gh   # Debian/Ubuntu
+sudo dnf install gh   # Fedora
+
+# Then authenticate
+gh auth login
+```
+
+Follow the interactive prompts to log in via browser. Choose HTTPS and authenticate with your GitHub account.
+
+Verify:
+
+```bash
+gh auth status
+```
+
+> **Note:** If you have a `GITHUB_TOKEN` environment variable set, `gh` will use that instead of its own credentials. To use `gh auth login` interactively, first run `unset GITHUB_TOKEN` and remove the export from your shell profile.
+
+### 2. Clone and Install
+
+```bash
+git clone https://github.com/andywilliams/tix-kanban.git
+cd tix-kanban
+npm install
+```
+
+### 3. Run
+
+```bash
+# Development (hot reload on both client and server)
+npm run dev
+
+# Or build and run production
+npm run build
+npm start
+```
+
+- **Frontend:** http://localhost:3000
+- **API:** http://localhost:3001
+
+On first startup, tix-kanban automatically creates its data directory at `~/.tix-kanban/` and initialises default personas, storage, and worker state.
+
+### 4. Configure GitHub Repos
+
+Open the UI at http://localhost:3000 and click the GitHub settings icon. Add the repositories you want tix-kanban to track (in `owner/repo` format). This enables:
+
+- Linking tasks to PRs
+- PR status tracking (CI checks, reviews, merge state)
+- Automated standup generation from GitHub activity
+- PR cache auto-refresh (every 5 minutes)
+
+Config is stored in `~/.tix-kanban/github-config.json`.
+
+### 5. Optional Integrations
+
+These are not required for core functionality but extend what tix-kanban can do.
+
+#### Notion Sync
+
+Sync tasks from a Notion database into your kanban board.
+
+1. Create a [Notion integration](https://www.notion.so/my-integrations) and copy the API key
+2. Share your Notion database with the integration
+3. Copy the database ID from the Notion URL (the 32-character hex string)
+4. In the tix-kanban UI, go to Notion settings and enter:
+   - **API Key** — your integration token
+   - **Database ID** — the database to sync from
+   - **Status Mappings** — map your Notion status values to kanban columns (backlog, in-progress, review, done)
+5. Click Sync to pull tasks
+
+Config is stored in `~/.tix-kanban/notion-config.json`.
+
+You can also use the Notion MCP server with Claude Code for richer Notion integration. Add it to your Claude Code MCP config:
+
+```json
+{
+  "mcpServers": {
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "env": {
+        "OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer YOUR_NOTION_API_KEY\", \"Notion-Version\": \"2022-06-28\"}"
+      }
+    }
+  }
+}
+```
+
+#### Slack Integration (via SLX)
+
+SLX syncs Slack messages and generates focus digests. It runs as a separate CLI tool that tix-kanban wraps.
+
+1. Install SLX:
+   ```bash
+   npm install -g slx
+   ```
+
+2. Configure SLX:
+   ```bash
+   slx init
+   ```
+   This creates `~/.slx/config.json` with your Slack workspace settings.
+
+3. In the tix-kanban UI, go to Slack settings to configure:
+   - Which channels to monitor
+   - DM sync preferences
+   - Auto-sync interval (default: hourly)
+   - Digest generation settings
+
+SLX syncs Slack data to `~/.tix-kanban/slack/`. The auto-sync scheduler runs in the background and can be toggled from the UI.
+
+You can also enable the Slack MCP server for Claude Code to read Slack channels directly. This is configured in your Claude Code settings (`.claude/settings.local.json`):
+
+```json
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": ["notion"]
+}
+```
+
+The Slack MCP is provided by Anthropic's built-in `claude_ai_Slack` server and doesn't require separate installation — just connect your Slack workspace through Claude Code's settings.
+
+#### LGTM Code Reviews
+
+Automated PR review tool used by the Code Reviewer and QA Engineer personas.
+
+```bash
+npm install -g lgtm
+```
+
+See [docs/lgtm-integration.md](./docs/lgtm-integration.md) for detailed setup and configuration.
+
+### 6. Verify Everything Works
+
+Run through this checklist after setup:
+
+```bash
+# Core tools
+node --version          # Should be 18+
+claude -p "hello"       # Should get a response
+gh auth status          # Should show logged in
+
+# Optional tools
+slx --version           # If using Slack integration
+lgtm --version          # If using code reviews
+```
+
+Then open http://localhost:3000 and:
+
+1. Create a test task with title "Hello world test" and assign it to the Developer persona
+2. The worker should pick it up within 5-10 minutes (or trigger it manually from the worker panel)
+3. Check that Claude processes the task and posts a comment
+
+### Storage Directory Structure
+
+All data is stored locally. Nothing is sent to external services except via the explicit integrations you configure.
+
+```
+~/.tix-kanban/
+  tasks/                 # Individual task JSON files
+  personas/              # Persona definitions and prompts
+    {id}.md              # Persona system prompt
+    {id}/MEMORY.md       # Persona cross-user learnings
+  personas-index.json    # Persona registry
+  agent-memories/        # Per-user, per-persona memory
+    {personaId}/
+      {userId}.json      # Memory entries for this user-persona pair
+  souls/                 # Persona personality data (traits, quirks, catchphrases)
+    {personaId}.json
+  chat/                  # Chat message history
+    {channelId}.json     # Active messages
+    archives/            # Archived older messages (monthly)
+  knowledge/             # Knowledge base articles (markdown + YAML frontmatter)
+  reports/               # Generated reports and analyses
+  standups/              # Daily standup entries
+  cache/                 # GitHub API response cache (2-min TTL)
+  slack/                 # Synced Slack data from SLX
+  worker-state.json      # Worker cron state and settings
+  github-config.json     # GitHub repos and branch settings
+  notion-config.json     # Notion API key and status mappings
+  user-settings.json     # User preferences
+  _summary.json          # Task summary cache
+
+~/.slx/
+  config.json            # SLX Slack configuration (if using Slack integration)
+```
+
+### Ports
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Vite dev server | 3000 | React frontend (dev mode) |
+| Express API | 3001 | REST API + static files (prod) |
+
+In development, Vite proxies `/api` requests to port 3001. In production, Express serves both the API and the built client files.
+
+---
+
 ## Quick Start
+
+If you already have Node 18+, Claude Code, and gh installed:
 
 ```bash
 git clone https://github.com/andywilliams/tix-kanban.git
@@ -11,52 +268,77 @@ npm install
 npm run dev
 ```
 
-- **Frontend:** http://localhost:3000
-- **API:** http://localhost:3001
+Open http://localhost:3000.
+
+---
 
 ## How It Works
 
 1. **Create a task** — give it a title, description, and assign a persona
-2. **Worker picks it up** — the built-in cron checks for backlog tasks every 5–10 minutes
+2. **Worker picks it up** — the built-in cron checks for backlog tasks every 5-10 minutes
 3. **Claude does the work** — spawns a Claude Code session with the persona's prompt + task context
 4. **Result posted** — Claude's output is added as a comment, task moves to Review
 5. **You review** — approve, request changes, or move to Done
 
-## Automated Standups 🌅
+### AI Persona Chat
+
+You can also chat directly with personas via the chat interface. Mention a persona with `@PersonaName` in any channel, or open a direct conversation. Personas have:
+
+- **Personality** — unique traits, communication style, catchphrases
+- **Memory** — remembers your preferences, instructions, and project context across conversations
+- **Knowledge** — accesses the knowledge base for relevant articles when responding
+- **Team awareness** — knows about other personas and can suggest who to ask
+- **Board awareness** — sees relevant tasks, PRs, and project state
+
+### Automated Standups
 
 Tix-Kanban automatically generates daily standups by scanning your:
 
 - **Git commits** from local repositories
 - **GitHub PR/issue activity** via `gh` CLI
-- **What you did yesterday** → generated from actual activity
-- **What you're doing today** → based on current in-progress tasks
-- **Blockers** → stale PRs, review dependencies, etc.
+- **What you did yesterday** — generated from actual activity
+- **What you're doing today** — based on current in-progress tasks
+- **Blockers** — stale PRs, review dependencies, etc.
 
-### Configuration
+**Default schedule:** 9 AM, Monday-Friday (`0 9 * * 1-5`)
 
-- **Default schedule:** 9 AM, Monday-Friday (`0 9 * * 1-5`)
-- **API Controls:**
-  - `POST /api/worker/standup/toggle` — enable/disable
-  - `PUT /api/worker/standup/time` — change schedule (cron expression)
-  - `POST /api/worker/standup/trigger` — manual generation
-- **View standups:** `GET /api/standup/all`
+**API Controls:**
+- `POST /api/worker/standup/toggle` — enable/disable
+- `PUT /api/worker/standup/time` — change schedule (cron expression)
+- `POST /api/worker/standup/trigger` — manual generation
+- `GET /api/standup/all` — view all standups
 
-Instead of manually writing "what I did yesterday," your standup is auto-generated from actual development activity. Perfect for daily standups and progress tracking!
+---
+
+## Integrations
+
+| Integration | Required | What It Does |
+|------------|----------|-------------|
+| Claude Code CLI | Yes | Powers AI task processing and persona chat |
+| GitHub CLI (`gh`) | Recommended | PR tracking, code review, standup generation |
+| Notion | Optional | Sync tasks from Notion databases |
+| Slack (SLX) | Optional | Sync Slack messages, generate focus digests |
+| LGTM | Optional | Automated PR code reviews |
+
+See [Setup from Scratch](#5-optional-integrations) for configuration details.
+
+---
 
 ## Personas
 
-Personas are markdown files in `~/.tix-kanban/personas/`. Each one defines an AI personality and system prompt.
+Personas are AI personalities that process tasks and participate in chat. Each has a system prompt, specialties, and a persistent memory.
 
 ### Default Personas
 
 | Persona | Emoji | Use For |
 |---------|-------|---------|
-| Tech Writer | 📝 | Documentation, READMEs, guides |
-| Bug Fixer | 🐛 | Debugging, error investigation |
-| QA Engineer | 🔍 | Testing, quality assurance, code reviews with lgtm |
-| Security Reviewer | 🔒 | Security audits, vulnerability checks |
-| General Developer | 💻 | Full-stack coding tasks |
-| Code Reviewer | 🔍 | PR reviews using lgtm tool for thorough analysis |
+| Product Manager | PM | Strategic planning, ticket creation, project oversight |
+| Developer | Dev | Full-stack coding tasks |
+| Tech Writer | TW | Documentation, READMEs, guides |
+| Bug Fixer | BF | Debugging, error investigation |
+| QA Engineer | QA | Testing, quality assurance |
+| Security Reviewer | SR | Security audits, vulnerability checks |
+| Code Reviewer | CR | PR reviews using lgtm tool for thorough analysis |
 
 ### Creating Custom Personas
 
@@ -67,7 +349,7 @@ Create a markdown file in `~/.tix-kanban/personas/`:
 
 ---
 name: My Custom Persona
-emoji: 🎨
+emoji: art
 ---
 
 You are a frontend design specialist. You focus on:
@@ -81,10 +363,12 @@ When working on tasks, provide concrete code examples and explain your design de
 
 The persona ID is the filename without `.md` (e.g., `my-persona`).
 
+---
+
 ## Features
 
 ### Kanban Board
-- **4 columns:** Backlog → In Progress → Review → Done
+- **5 columns:** Backlog, In Progress, Auto-Review, Review, Done
 - **Drag and drop** tasks between columns
 - **Filter** by persona, status, or tags
 - **Dark/light mode** toggle
@@ -99,13 +383,20 @@ The persona ID is the filename without `.md` (e.g., `my-persona`).
 ### Task Management
 - **Comments** — add notes, see AI work output
 - **Links** — attach PRs, docs, or references
-- **Priority** — higher number = higher priority (processed first)
+- **Priority** — lower number = higher priority (100=critical, 500=low)
 - **Tags** — organise tasks by category
+- **Activity log** — tracks all state changes
 
 ### GitHub Integration
 - Configure repos via the GitHub settings modal
 - Link tasks to PRs
 - View PR status (checks, reviews, merge state)
+- PR cache with auto-refresh every 5 minutes
+
+### Knowledge Base
+- Store project documentation as markdown articles with metadata
+- Automatically surfaced to personas when relevant to conversations
+- Searchable by topic, area, repo, and tags
 
 ### LGTM Code Review Integration
 - **Automated PR reviews** using the `lgtm` tool
@@ -114,27 +405,9 @@ The persona ID is the filename without `.md` (e.g., `my-persona`).
 - **Comprehensive analysis** covering security, quality, and best practices
 - See [docs/lgtm-integration.md](./docs/lgtm-integration.md) for detailed setup
 
-## Prerequisites
-
-- **Node.js** 18+
-- **Claude Code CLI** — install via `npm install -g @anthropic-ai/claude-code`
-- **GitHub CLI** (optional) — for PR creation and status checks
-- **lgtm** (optional) — for automated code reviews, install via `npm install -g lgtm`
+---
 
 ## Configuration
-
-### Storage
-
-All data is stored locally in `~/.tix-kanban/`:
-
-```
-~/.tix-kanban/
-├── tasks/              # Individual task JSON files
-├── personas/           # Persona prompt markdown files
-├── worker-state.json   # Worker cron state
-├── github-config.json  # GitHub integration settings
-└── _summary.json       # Task summary cache
-```
 
 ### Worker Settings
 
@@ -145,7 +418,11 @@ The worker can be started/stopped from the UI. Configuration is in the worker st
 
 ### Environment
 
-The worker inherits your shell environment, so Claude Code and `gh` CLI should be available in your PATH.
+The worker inherits your shell environment, so `claude`, `gh`, and `slx` should be available in your PATH.
+
+The only environment variable is `PORT` (defaults to 3001) for the API server.
+
+---
 
 ## API Reference
 
@@ -157,7 +434,7 @@ GET /api/tasks
 
 # Create a task
 POST /api/tasks
-{"title": "...", "description": "...", "status": "backlog", "persona": "tech-writer", "priority": 100}
+{"title": "...", "description": "...", "status": "backlog", "persona": "developer", "priority": 400}
 
 # Update a task
 PUT /api/tasks/:id
@@ -176,7 +453,16 @@ GET /api/worker/status
 
 # List personas
 GET /api/personas
+
+# Chat with a persona
+POST /api/chat/:channelId/messages
+{"author": "user", "content": "Hey @Developer, can you help with this?"}
+
+# Health check
+GET /api/health
 ```
+
+---
 
 ## Development
 
@@ -204,14 +490,7 @@ npm run type-check
 
 Vite proxies `/api` calls to the Express server in development.
 
-## Roadmap
-
-- [ ] Notion integration (sync tasks from Notion boards)
-- [ ] Slack integration (post updates to channels)
-- [ ] Real-time updates (WebSocket instead of polling)
-- [ ] Custom persona creation from the UI
-- [ ] Time tracking per task
-- [ ] Task templates
+---
 
 ## License
 
