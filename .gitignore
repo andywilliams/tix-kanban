@@ -47,3 +47,11 @@ Thumbs.db
 tasks/
 runs/
 data/
+
+# Reports and generated docs (should be written to ~/reports/ or ~/.tix-kanban/)
+*-report.md
+research-*.md
+product-manager-*.md
+*-implementation-report.md
+*-audit.md
+*-analysis.md
