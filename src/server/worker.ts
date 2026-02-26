@@ -877,6 +877,151 @@ async function processAutoReviewTasks(): Promise<void> {
   }
 }
 
+// Default threshold for considering a working task as stale (10 minutes)
+const STALE_TASK_THRESHOLD_MS = 10 * 60 * 1000;
+
+// Evaluate whether a stale in-progress task is ready for review
+async function evaluateStaleTask(task: Task, persona: Persona): Promise<'review' | 'backlog'> {
+  try {
+    const aiComments = (task.comments || []).filter(c => c.author.includes('(AI)'));
+    if (aiComments.length === 0) {
+      // No work was done, send back to backlog
+      return 'backlog';
+    }
+
+    const lastComment = aiComments[aiComments.length - 1];
+    const evaluationPrompt = `You are evaluating whether a task has been completed based on prior work output.
+
+## Task
+Title: ${sanitizeForPrompt(task.title)}
+Description: ${sanitizeForPrompt(task.description)}
+Tags: ${(task.tags || []).join(', ')}
+
+## Last Work Output
+${sanitizeForPrompt(lastComment.body)}
+
+Based on the work output above, does it appear that meaningful work was completed on this task?
+Consider: Was code written? Were changes committed or a PR created? Was the deliverable produced?
+
+Reply with ONLY one word: REVIEW (if work appears complete and ready for review) or BACKLOG (if work appears incomplete and needs to be retried).`;
+
+    const model = (task as any).model || persona?.model || undefined;
+    const { stdout } = await executeClaudeWithStdin(
+      evaluationPrompt,
+      ['--dangerously-skip-permissions'],
+      30000, // 30s timeout for quick evaluation
+      undefined,
+      model
+    );
+
+    const response = stdout.trim().toUpperCase();
+    if (response.includes('REVIEW')) {
+      return 'review';
+    }
+    return 'backlog';
+  } catch (error) {
+    console.error(`Failed to evaluate stale task ${task.id}:`, error);
+    // Default to backlog on error so the task gets retried
+    return 'backlog';
+  }
+}
+
+// Recover tasks stuck at in-progress that are no longer being actively worked on
+async function recoverStaleTasks(tasks: Task[]): Promise<void> {
+  const now = Date.now();
+
+  const staleTasks = tasks.filter(task => {
+    if (task.status !== 'in-progress') return false;
+
+    // No agent activity at all — orphaned task
+    if (!task.agentActivity) return true;
+
+    // Agent finished (idle) but task wasn't moved — transition was lost
+    if (task.agentActivity.status === 'idle') return true;
+
+    // Agent marked as working but startedAt is older than threshold — worker crashed
+    if (task.agentActivity.status === 'working') {
+      const startedAt = new Date(task.agentActivity.startedAt).getTime();
+      const taskTimeout = (task as any).timeoutMs || STALE_TASK_THRESHOLD_MS;
+      // Use 2x the task timeout as the stale threshold to avoid false positives
+      return (now - startedAt) > Math.max(taskTimeout * 2, STALE_TASK_THRESHOLD_MS);
+    }
+
+    return false;
+  });
+
+  if (staleTasks.length === 0) return;
+
+  console.log(`🔍 Found ${staleTasks.length} stale in-progress task(s), recovering...`);
+
+  for (const task of staleTasks) {
+    try {
+      const fullTask = await getTask(task.id);
+      if (!fullTask) continue;
+
+      const persona = fullTask.persona ? await getPersona(fullTask.persona) : null;
+      if (!persona) {
+        // No persona — just move back to backlog
+        await updateTask(task.id, {
+          status: 'backlog',
+          agentActivity: undefined,
+        });
+        console.log(`📥 Recovered stale task (no persona) → backlog: ${task.title}`);
+        continue;
+      }
+
+      // Evaluate whether work was done and if it's ready for review
+      const decision = await evaluateStaleTask(fullTask, persona);
+
+      const activityComment: Comment = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId: task.id,
+        body: decision === 'review'
+          ? `⚡ Task was recovered from a stale in-progress state. Prior work appears complete — moved to review.`
+          : `⚡ Task was recovered from a stale in-progress state. Work appears incomplete — returned to backlog for retry.`,
+        author: 'System',
+        createdAt: new Date(),
+      };
+      const updatedComments = [...(fullTask.comments || []), activityComment];
+
+      if (decision === 'review') {
+        // Work looks done — try auto-review flow first
+        const reviewState = await initiateAutoReview(fullTask, persona.id);
+        if (reviewState) {
+          await updateTask(task.id, {
+            status: 'auto-review',
+            comments: updatedComments,
+            agentActivity: undefined,
+          });
+          await executeReviewCycle(task.id);
+          console.log(`🔍 Recovered stale task → auto-review: ${task.title}`);
+        } else {
+          await updateTask(task.id, {
+            status: 'review',
+            comments: updatedComments,
+            agentActivity: undefined,
+          });
+          console.log(`✅ Recovered stale task → review: ${task.title}`);
+        }
+      } else {
+        await updateTask(task.id, {
+          status: 'backlog',
+          comments: updatedComments,
+          agentActivity: undefined,
+        });
+        console.log(`📥 Recovered stale task → backlog: ${task.title}`);
+      }
+    } catch (error) {
+      console.error(`Failed to recover stale task ${task.id}:`, error);
+      // Fail safe: move to backlog
+      await updateTask(task.id, {
+        status: 'backlog',
+        agentActivity: undefined,
+      });
+    }
+  }
+}
+
 // Main worker function
 async function runWorker(): Promise<void> {
   if (workerState.isRunning) {
@@ -900,9 +1045,13 @@ async function runWorker(): Promise<void> {
     
     // First, process any auto-review tasks
     await processAutoReviewTasks();
-    
+
     // Get all tasks
     const tasks = await getAllTasks();
+
+    // Recover any tasks stuck at in-progress (e.g. from worker crash or server restart)
+    await recoverStaleTasks(tasks);
+
     const backlogTasks = tasks
       .filter(task => task.status === 'backlog' && task.persona)
       .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
