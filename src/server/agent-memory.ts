@@ -121,9 +121,10 @@ function findSimilarEntry(
     const overlap = keywordOverlap(existing.keywords, newEntry.keywords);
     if (overlap >= 0.6) return existing;
 
-    // Check content similarity (one contains the other)
+    // Check content similarity (one contains the other, but only for substantial content)
     const existingLower = existing.content.toLowerCase();
-    if (existingLower.includes(contentLower) || contentLower.includes(existingLower)) {
+    const shorterLength = Math.min(existingLower.length, contentLower.length);
+    if (shorterLength >= 30 && (existingLower.includes(contentLower) || contentLower.includes(existingLower))) {
       return existing;
     }
   }
@@ -337,11 +338,7 @@ export async function searchMemories(
       score += (30 - daysSinceUpdate) / 3; // Max +10 for today, decaying to 0 at 30 days
     }
 
-    // Reinforcement bonus
-    const mergedCount = entry.mergedCount || 1;
-    if (mergedCount > 1) {
-      score += Math.min(5, mergedCount);
-    }
+    // Note: mergedCount bonus is already included via getEffectiveImportance above
 
     return { entry, score };
   });

@@ -162,6 +162,22 @@ async function handleRememberCommand(
   }
 }
 
+// Common stop words to exclude from keyword matching
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'from', 'about', 'into', 'through', 'during',
+  'is', 'are', 'was', 'were', 'been', 'be', 'have', 'has', 'had', 'do',
+  'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+  'i', 'you', 'we', 'they', 'he', 'she', 'it', 'that', 'this', 'these',
+  'those', 'what', 'which', 'who', 'when', 'where', 'why', 'how',
+  'not', 'just', 'also', 'very', 'really', 'like', 'know', 'think',
+  'want', 'need', 'help', 'work', 'make', 'take', 'come', 'look',
+  'good', 'well', 'here', 'there', 'some', 'any', 'more', 'much',
+  'task', 'tasks', 'done', 'doing', 'thing', 'things', 'sure', 'okay',
+  'please', 'thanks', 'thank', 'right', 'yeah', 'going', 'been',
+  'something', 'anything', 'everything', 'nothing', 'other', 'another',
+]);
+
 // Build relevance-filtered board context for a persona
 function buildFilteredBoardContext(
   allTasks: Array<{ id: string; title: string; status: string; priority: number; assignee?: string; persona?: string; repo?: string; tags: string[] }>,
@@ -169,7 +185,8 @@ function buildFilteredBoardContext(
   messageContent: string
 ): string {
   const messageLower = messageContent.toLowerCase();
-  const messageWords = messageLower.split(/\s+/).filter(w => w.length > 3);
+  const messageWords = messageLower.split(/\s+/)
+    .filter(w => w.length > 3 && !STOP_WORDS.has(w));
 
   // Categorize tasks by relevance
   const relevant: typeof allTasks = [];
@@ -764,6 +781,18 @@ async function executeAction(
   }
 }
 
+// Check if a response looks like a valid AI reply (not an error or empty junk)
+function isValidResponse(response: string): boolean {
+  if (!response || response.trim().length === 0) return false;
+  // Short responses are fine if they're real words (e.g. "Sure!", "Done.", "Yes")
+  const trimmed = response.trim();
+  if (trimmed.length > 0 && trimmed.length <= 20) {
+    // Accept short responses that contain at least one letter
+    return /[a-zA-Z]/.test(trimmed);
+  }
+  return true;
+}
+
 // Generate AI response with retry on failure
 async function generateAIResponseWithRetry(
   prompt: string,
@@ -775,8 +804,8 @@ async function generateAIResponseWithRetry(
   const elapsed = Date.now() - startTime;
   console.log(`⏱️ ${persona.name} AI response took ${elapsed}ms`);
 
-  // If we got a real response, return it
-  if (response && response.length > 20) {
+  // If we got a valid response, return it
+  if (isValidResponse(response)) {
     return response;
   }
 
@@ -784,7 +813,15 @@ async function generateAIResponseWithRetry(
   console.log(`🔄 Retrying ${persona.name} with simplified prompt...`);
   const simplifiedPrompt = buildChatPrompt(retryContext);
   const retryResponse = await generateAIResponse(simplifiedPrompt, persona, 90000);
-  return retryResponse;
+
+  if (isValidResponse(retryResponse)) {
+    return retryResponse;
+  }
+
+  // Both attempts failed — return a greeting fallback
+  console.warn(`⚠️ Both attempts failed for ${persona.name}, using fallback`);
+  const soul = await getAgentSoul(persona.id);
+  return soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`;
 }
 
 // Generate AI response using Claude Code CLI
@@ -867,7 +904,7 @@ async function extractAndStoreInferredMemory(
   for (const { regex, category } of patterns) {
     const match = userMessage.match(regex);
     if (match) {
-      const content = match[0].trim();
+      const content = match[1] ? match[1].trim() : match[0].trim();
       if (content.length > 10 && content.length < 200) {
         try {
           await addMemoryEntry(personaId, userId, {
@@ -886,7 +923,8 @@ async function extractAndStoreInferredMemory(
   }
 
   // Extract learning from AI response (what advice was given)
-  if (aiResponse.length > 50) {
+  // Rate-limited: only extract from ~1 in 5 responses to avoid polluting memory
+  if (aiResponse.length > 50 && Math.random() < 0.2) {
     const advicePatterns = [
       /(?:I recommend|I suggest|you should|consider) (.{20,120})/i,
       /(?:the best approach|a good pattern) (?:is|would be) (.{20,120})/i,
@@ -900,11 +938,12 @@ async function extractAndStoreInferredMemory(
             content: `Previously advised: ${match[1].trim().substring(0, 100)}`,
             keywords: match[1].toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 5),
             source: 'inferred',
-            importance: 3 // Low importance for AI-generated insights
+            importance: 2 // Very low importance — will be evicted if not reinforced
           });
         } catch (error) {
           // Silently fail
         }
+        break; // Only store one advice per response at most
       }
     }
   }

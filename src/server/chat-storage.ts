@@ -181,9 +181,10 @@ export async function addMessage(channelId: string, author: string, authorType: 
     replyTo,
   };
 
+  // Increment total count before push so the fallback to messages.length is accurate
+  channel.totalMessageCount = (channel.totalMessageCount || channel.messages.length) + 1;
   channel.messages.push(message);
   channel.lastActivity = new Date();
-  channel.totalMessageCount = (channel.totalMessageCount || channel.messages.length) + 1;
 
   // Auto-archive if channel has too many live messages
   if (channel.messages.length > MAX_LIVE_MESSAGES) {
