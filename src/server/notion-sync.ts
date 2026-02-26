@@ -199,7 +199,7 @@ export function mapNotionStatusToKanban(
   }
 
   // Default to backlog
-  console.warn(`Notion sync: unmapped status "${status}", defaulting to backlog`);
+  console.warn(`Notion sync: unmapped status "${notionStatus}", defaulting to backlog`);
   return 'backlog';
 }
 

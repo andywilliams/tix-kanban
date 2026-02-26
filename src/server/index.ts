@@ -150,9 +150,10 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Build an error response with detail from the actual error
-function errorResponse(message: string, error: unknown): { error: string; detail: string } {
+function errorResponse(message: string, error: unknown): { error: string } {
   const detail = error instanceof Error ? error.message : String(error);
-  return { error: message, detail };
+  console.error(`${message}: ${detail}`);
+  return { error: message };
 }
 
 // Safely parse an integer with NaN check and min/max bounds
@@ -2702,7 +2703,7 @@ async function startServer() {
     await initializeStorage();
     await initializePersonas();
     await initializePipelines();
-    initializeChatStorage();
+    await initializeChatStorage();
     await initializeReportsStorage();
     await initializeKnowledgeStorage();
     await initializeStandupStorage();

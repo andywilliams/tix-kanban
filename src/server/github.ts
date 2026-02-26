@@ -182,8 +182,7 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
       try {
         pr = JSON.parse(prData);
       } catch {
-        console.warn(`Failed to parse PR data for ${repo}#${prNumber}`);
-        return null as any;
+        throw new Error(`Failed to parse PR data for ${repo}#${prNumber}`);
       }
       
       // Get check runs (may 404 for repos without CI)
