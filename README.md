@@ -147,6 +147,57 @@ You can also use the Notion MCP server with Claude Code for richer Notion integr
 }
 ```
 
+#### Tix CLI
+
+Tix is a companion developer CLI that bridges Notion tickets and GitHub PRs. It syncs tickets from Notion via Claude Code (no Notion API key needed for basic sync), manages work logs, generates standups, and can push tickets directly to the tix-kanban board.
+
+Tix-kanban reads from the `~/.tix/` directory for activity logs and daily notes, which feed into automated standup generation.
+
+1. Clone and install tix:
+   ```bash
+   git clone https://github.com/andywilliams/tix.git
+   cd tix
+   npm install
+   npm run build
+   npm link
+   ```
+
+2. Run the setup wizard:
+   ```bash
+   tix setup
+   ```
+   This walks you through configuring your Notion workspace, GitHub repos, and identity.
+
+3. To configure Notion sync specifically for the tix-kanban board:
+   ```bash
+   tix setup-notion
+   ```
+
+**Key tix commands:**
+
+| Command | What It Does |
+|---------|-------------|
+| `tix sync` | Sync tickets from Notion via Claude CLI |
+| `tix kanban-sync` | Push Notion tickets directly to tix-kanban (requires tix-kanban running) |
+| `tix status` | Show your assigned Notion tickets |
+| `tix work <ticket>` | Implement a ticket with AI — fetches context, creates branch, runs AI, offers PR |
+| `tix review <pr>` | AI-powered code review for a GitHub PR |
+| `tix log "did X"` | Quick work log entry (read by tix-kanban for standups) |
+| `tix standup` | Generate daily standup from git commits and GitHub activity |
+| `tix prs` | Show all your open GitHub PRs with ticket IDs |
+
+**Data shared with tix-kanban:**
+
+```
+~/.tix/
+  logs/       # Activity log entries — tix-kanban reads these for standup generation
+  notes/      # Daily notes — displayed in the tix-kanban UI
+  tickets/    # Cached Notion ticket data
+  _prs.json   # Cached PR-to-ticket mappings
+```
+
+Tix-kanban exposes this data via API endpoints (`/api/activity-log`, `/api/daily-notes`) and uses it to generate automated standups.
+
 #### Slack Integration (via SLX)
 
 SLX syncs Slack messages and generates focus digests. It runs as a separate CLI tool that tix-kanban wraps.
@@ -201,6 +252,9 @@ node --version          # Should be 18+
 claude -p "hello"       # Should get a response
 gh auth status          # Should show logged in
 
+# Recommended
+tix --help              # If using tix for Notion sync and work logs
+
 # Optional tools
 slx --version           # If using Slack integration
 lgtm --version          # If using code reviews
@@ -241,6 +295,12 @@ All data is stored locally. Nothing is sent to external services except via the 
   notion-config.json     # Notion API key and status mappings
   user-settings.json     # User preferences
   _summary.json          # Task summary cache
+
+~/.tix/                    # Tix CLI data (shared with tix-kanban)
+  logs/                  # Activity log entries (read by tix-kanban for standups)
+  notes/                 # Daily notes (displayed in the tix-kanban UI)
+  tickets/               # Cached Notion ticket data
+  _prs.json              # Cached PR-to-ticket mappings
 
 ~/.slx/
   config.json            # SLX Slack configuration (if using Slack integration)
@@ -316,7 +376,8 @@ Tix-Kanban automatically generates daily standups by scanning your:
 |------------|----------|-------------|
 | Claude Code CLI | Yes | Powers AI task processing and persona chat |
 | GitHub CLI (`gh`) | Recommended | PR tracking, code review, standup generation |
-| Notion | Optional | Sync tasks from Notion databases |
+| Tix CLI | Recommended | Notion ticket sync, work logs, standups, AI-powered ticket implementation |
+| Notion | Optional | Sync tasks from Notion databases (direct API or via tix) |
 | Slack (SLX) | Optional | Sync Slack messages, generate focus digests |
 | LGTM | Optional | Automated PR code reviews |
 
