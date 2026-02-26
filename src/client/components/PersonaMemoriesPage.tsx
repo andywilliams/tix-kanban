@@ -50,10 +50,11 @@ export function PersonaMemoriesPage() {
             fetch(`/api/personas/${persona.id}/soul`),
           ]);
 
+          const soulData = soulRes.ok ? await soulRes.json() : null;
           return {
             persona,
             memory: memRes.ok ? await memRes.json() : null,
-            soul: soulRes.ok ? await soulRes.json() : null,
+            soul: soulData?.soul || null,
             loading: false,
           };
         } catch {
@@ -199,7 +200,7 @@ export function PersonaMemoriesPage() {
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}>
-                    {soul?.archetype || persona.description}
+                    {soul?.corePurpose || persona.description}
                   </div>
                 </div>
                 <div style={{
@@ -247,7 +248,7 @@ export function PersonaMemoriesPage() {
                   <h2 style={{ margin: '0 0 0.25rem', fontSize: '1.5rem' }}>{selectedData.persona.name}</h2>
                   {selectedData.soul && (
                     <p style={{ margin: '0 0 0.5rem', color: 'var(--accent)', fontStyle: 'italic' }}>
-                      "{selectedData.soul.archetype}"
+                      {selectedData.soul.corePurpose}
                     </p>
                   )}
                   <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
@@ -255,23 +256,17 @@ export function PersonaMemoriesPage() {
                   </p>
                   {selectedData.soul && (
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                      <span style={{
-                        padding: '0.2rem 0.5rem',
-                        background: '#3b82f620',
-                        color: '#3b82f6',
-                        borderRadius: '0.25rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 500,
-                      }}>{selectedData.soul.traits.communication}</span>
-                      <span style={{
-                        padding: '0.2rem 0.5rem',
-                        background: '#10b98120',
-                        color: '#10b981',
-                        borderRadius: '0.25rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 500,
-                      }}>{selectedData.soul.traits.approach}</span>
-                      {selectedData.soul.values.slice(0, 3).map((v, i) => (
+                      {selectedData.soul.traits?.slice(0, 3).map((trait: any, i: number) => (
+                        <span key={i} style={{
+                          padding: '0.2rem 0.5rem',
+                          background: '#3b82f620',
+                          color: '#3b82f6',
+                          borderRadius: '0.25rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 500,
+                        }}>{trait.name}</span>
+                      ))}
+                      {selectedData.soul.values?.slice(0, 3).map((v: string, i: number) => (
                         <span key={i} style={{
                           padding: '0.2rem 0.5rem',
                           background: '#a855f720',

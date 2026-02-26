@@ -106,33 +106,68 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
 
       {/* Soul Preview */}
       {soul && (
-        <div className="persona-card-soul">
+        <div style={{
+          margin: '0.75rem 0',
+          padding: '0.75rem',
+          background: 'var(--bg-tertiary)',
+          borderRadius: '0.5rem',
+        }}>
           {/* Traits */}
-          {soul.traits.length > 0 && (
-            <div className="persona-card-traits">
+          {soul.traits && soul.traits.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
               {soul.traits.slice(0, 3).map((trait) => (
-                <span key={trait.name} className="persona-card-trait" title={trait.description}>
+                <span key={trait.name} title={trait.description} style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  padding: '0.2rem 0.6rem',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  borderRadius: '1rem',
+                  fontSize: '0.75rem',
+                  color: '#6ea8fe',
+                  fontWeight: 500,
+                }}>
                   {trait.name}
-                  <span className="trait-intensity">{trait.intensity}</span>
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: '1.2rem',
+                    height: '1.2rem',
+                    padding: '0 0.2rem',
+                    background: 'rgba(59, 130, 246, 0.25)',
+                    borderRadius: '0.6rem',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                  }}>{trait.intensity}</span>
                 </span>
               ))}
             </div>
           )}
-          
+
           {/* Catchphrase */}
-          {soul.catchphrases[0] && (
-            <div className="persona-card-catchphrase">
+          {soul.catchphrases && soul.catchphrases[0] && (
+            <div style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              fontStyle: 'italic',
+              marginBottom: '0.5rem',
+              paddingLeft: '0.5rem',
+              borderLeft: '2px solid var(--border)',
+            }}>
               "{soul.catchphrases[0]}"
             </div>
           )}
-          
+
           {/* Style indicators */}
-          <div className="persona-card-style">
-            <span title="Formality">{soul.communicationStyle.formality === 'casual' ? '😊' : soul.communicationStyle.formality === 'formal' ? '🎩' : '💼'}</span>
-            <span title="Verbosity">{soul.communicationStyle.verbosity === 'concise' ? '📝' : soul.communicationStyle.verbosity === 'detailed' ? '📚' : '📄'}</span>
-            {soul.communicationStyle.humor !== 'none' && <span title="Uses humor">😄</span>}
-            {soul.communicationStyle.emoji && <span title="Uses emoji">✨</span>}
-          </div>
+          {soul.communicationStyle && (
+            <div style={{ display: 'flex', gap: '0.375rem', fontSize: '0.85rem' }}>
+              <span title="Formality" style={{ cursor: 'help' }}>{soul.communicationStyle.formality === 'casual' ? '😊' : soul.communicationStyle.formality === 'formal' ? '🎩' : '💼'}</span>
+              <span title="Verbosity" style={{ cursor: 'help' }}>{soul.communicationStyle.verbosity === 'concise' ? '📝' : soul.communicationStyle.verbosity === 'detailed' ? '📚' : '📄'}</span>
+              {soul.communicationStyle.humor !== 'none' && <span title="Uses humor" style={{ cursor: 'help' }}>😄</span>}
+              {soul.communicationStyle.emoji && <span title="Uses emoji" style={{ cursor: 'help' }}>✨</span>}
+            </div>
+          )}
         </div>
       )}
 
@@ -173,14 +208,48 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
       </div>
 
       {/* Action Buttons */}
-      <div className="persona-card-actions-row">
+      <div style={{
+        display: 'flex',
+        gap: '0.5rem',
+        marginTop: '0.75rem',
+        paddingTop: '0.75rem',
+        borderTop: '1px solid var(--border)',
+      }}>
         {onEditSoul && (
-          <button onClick={onEditSoul} className="persona-card-action-btn">
+          <button onClick={onEditSoul} style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: '0.5rem',
+            color: 'var(--text-muted)',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            textAlign: 'center',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
             🧠 View Soul
           </button>
         )}
         {onViewMemory && (
-          <button onClick={onViewMemory} className="persona-card-action-btn">
+          <button onClick={onViewMemory} style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: '0.5rem',
+            color: 'var(--text-muted)',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            textAlign: 'center',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
             💾 View Memory
           </button>
         )}
