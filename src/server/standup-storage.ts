@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { getUserSettings } from './user-settings.js';
+import { getGitHubConfig } from './github.js';
 import os from 'os';
 
 interface LogEntry {
@@ -95,20 +96,12 @@ export async function initializeStandupStorage(): Promise<void> {
  * Get configured repositories to scan
  */
 async function getConfiguredRepos(): Promise<string[]> {
-  const defaultRepos = [
-    'em-boxes-events',
-    'em-transactions-api', 
-    'em-contracts',
-    'tix',
-    'tix-kanban',
-    'dwlf-charting',
-    'dwlf-indicators',
-    'portfolio-frontend',
-    'serverless-portfolio-tracker'
-  ];
-
-  const githubOrg = 'andywilliams'; // Use default org for now
-  return defaultRepos.map(repo => `${githubOrg}/${repo}`);
+  try {
+    const config = await getGitHubConfig();
+    return config.repos.map(r => typeof r === 'string' ? r : r.name).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 /**

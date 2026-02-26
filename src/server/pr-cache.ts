@@ -28,6 +28,7 @@ const prCache: Map<string, PRCacheEntry> = new Map();
 let lastFullRefresh = 0;
 let refreshInProgress = false;
 let initialLoadDone = false;
+let initialLoadStarted = false;
 let initialLoadResolvers: Array<() => void> = [];
 
 // Config
@@ -58,7 +59,7 @@ async function fetchRepoPRs(repo: string): Promise<CachedPR[]> {
             title: pr.title,
             state: pr.state || 'open',
             author: pr.author
-          };
+          } as CachedPR;
         } catch {
           return null;
         }
@@ -85,7 +86,7 @@ async function doRefresh(): Promise<void> {
     // Get configured repos
     let repos: string[] = [];
     try {
-      const { stdout } = await exec(
+      const { stdout: _stdout } = await exec(
         `gh repo list --json nameWithOwner --jq '.[].nameWithOwner' 2>/dev/null || echo ""`,
         { timeout: 10000 }
       );
@@ -131,8 +132,9 @@ async function doRefresh(): Promise<void> {
     // Resolve initial load waiters
     if (!initialLoadDone) {
       initialLoadDone = true;
-      for (const resolve of initialLoadResolvers) resolve();
+      const resolvers = initialLoadResolvers;
       initialLoadResolvers = [];
+      for (const resolve of resolvers) resolve();
     }
   }
 }
@@ -146,15 +148,19 @@ export async function getCachedPRs(): Promise<string> {
   
   // First call — wait briefly for initial data
   if (!initialLoadDone && prCache.size === 0) {
-    doRefresh().catch(() => {});
+    if (!initialLoadStarted) {
+      initialLoadStarted = true;
+      doRefresh().catch(() => {});
+    }
     await new Promise<void>((resolve) => {
       initialLoadResolvers.push(resolve);
       setTimeout(() => {
         // Timeout — resolve anyway with empty cache
         if (!initialLoadDone) {
           initialLoadDone = true;
-          for (const r of initialLoadResolvers) r();
+          const resolvers = initialLoadResolvers;
           initialLoadResolvers = [];
+          for (const r of resolvers) r();
         }
       }, 5000);
     });

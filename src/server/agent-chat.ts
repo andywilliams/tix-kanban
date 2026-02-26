@@ -8,8 +8,7 @@
  * - Team interactions
  */
 
-import { 
-  getAgentMemory,
+import {
   addMemoryEntry,
   parseRememberCommand,
   buildMemoryContext,
@@ -472,9 +471,9 @@ function parseResponseActions(response: string): { cleanResponse: string; action
 
 // Execute a parsed action
 async function executeAction(
-  action: ResponseAction, 
-  persona: Persona, 
-  channelId: string
+  action: ResponseAction,
+  persona: Persona,
+  _channelId: string
 ): Promise<string | null> {
   switch (action.action) {
     case 'create_task': {
@@ -560,7 +559,7 @@ async function extractAndStoreInferredMemory(
   personaId: string,
   userId: string,
   userMessage: string,
-  response: string
+  _response: string
 ): Promise<void> {
   // Look for patterns that suggest something worth remembering
   const patterns = [

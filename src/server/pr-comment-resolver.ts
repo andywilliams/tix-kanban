@@ -1,5 +1,5 @@
 import * as cron from 'node-cron';
-import { exec as execCallback } from 'child_process';
+import { exec as execCallback, execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import { spawn } from 'child_process';
 import { getUserSettings, saveUserSettings } from './user-settings.js';
@@ -8,6 +8,7 @@ import { executeWithRateLimit } from './github-rate-limit.js';
 import { saveReport } from './reports-storage.js';
 
 const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 
 interface PRComment {
   id: number;
@@ -219,14 +220,16 @@ async function postCommentReply(comment: PRCommentWithContext, reply: string): P
   return executeWithRateLimit(async () => {
     if (comment.isReviewComment) {
       // For review comments, we need to use the review comment reply API
-      await exec(
-        `gh api repos/${comment.repo}/pulls/${comment.prNumber}/comments/${comment.id}/replies -f body="${reply.replace(/"/g, '\\"')}"`
-      );
+      await execFile('gh', [
+        'api', `repos/${comment.repo}/pulls/${comment.prNumber}/comments/${comment.id}/replies`,
+        '-f', `body=${reply}`
+      ]);
     } else {
       // For issue comments, just post a new comment
-      await exec(
-        `gh api repos/${comment.repo}/issues/${comment.prNumber}/comments -f body="${reply.replace(/"/g, '\\"')}"`
-      );
+      await execFile('gh', [
+        'api', `repos/${comment.repo}/issues/${comment.prNumber}/comments`,
+        '-f', `body=${reply}`
+      ]);
     }
   }, `postCommentReply(${comment.repo}#${comment.prNumber})`, 1);
 }

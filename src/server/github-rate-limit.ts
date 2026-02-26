@@ -183,6 +183,19 @@ export async function executeWithRateLimit<T>(
 
 // Cache management for API responses
 const responseCache = new Map<string, CachedResponse>();
+const MAX_CACHE_ENTRIES = 500;
+
+function evictOldestCacheEntries(): void {
+  if (responseCache.size <= MAX_CACHE_ENTRIES) return;
+  // Map iteration order is insertion order; delete oldest entries
+  const excess = responseCache.size - MAX_CACHE_ENTRIES;
+  let removed = 0;
+  for (const key of responseCache.keys()) {
+    if (removed >= excess) break;
+    responseCache.delete(key);
+    removed++;
+  }
+}
 
 export async function getCachedResponse<T>(
   cacheKey: string,
@@ -227,6 +240,7 @@ export async function getCachedResponse<T>(
   
   // Update both caches
   responseCache.set(cacheKey, cachedResponse);
+  evictOldestCacheEntries();
   
   try {
     const cacheFilePath = path.join(CACHE_DIR, `${cacheKey.replace(/[\/\\:*?"<>|]/g, '-')}.json`);

@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
@@ -26,10 +26,8 @@ export interface ChatChannel {
 }
 
 // Initialize chat storage
-export function initializeChatStorage(): void {
-  if (!fs.existsSync(CHAT_DIR)) {
-    fs.mkdirSync(CHAT_DIR, { recursive: true });
-  }
+export async function initializeChatStorage(): Promise<void> {
+  await fs.mkdir(CHAT_DIR, { recursive: true });
 }
 
 // Get channel file path
@@ -41,12 +39,8 @@ function getChannelFilePath(channelId: string): string {
 export async function getChannel(channelId: string): Promise<ChatChannel | null> {
   const filePath = getChannelFilePath(channelId);
   
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-  
   try {
-    const data = fs.readFileSync(filePath, 'utf8');
+    const data = await fs.readFile(filePath, 'utf8');
     const channel = JSON.parse(data);
     
     // Convert date strings back to Date objects
@@ -67,7 +61,7 @@ async function saveChannel(channel: ChatChannel): Promise<void> {
   const filePath = getChannelFilePath(channel.id);
   
   try {
-    fs.writeFileSync(filePath, JSON.stringify(channel, null, 2));
+    await fs.writeFile(filePath, JSON.stringify(channel, null, 2));
   } catch (error) {
     console.error(`Error saving chat channel ${channel.id}:`, error);
     throw error;
@@ -158,11 +152,12 @@ export async function getMessages(channelId: string, limit: number = 50, before?
 
 // Get all channels with recent activity
 export async function getAllChannels(): Promise<ChatChannel[]> {
-  if (!fs.existsSync(CHAT_DIR)) {
+  let files: string[];
+  try {
+    files = (await fs.readdir(CHAT_DIR)).filter(file => file.endsWith('.json'));
+  } catch {
     return [];
   }
-  
-  const files = fs.readdirSync(CHAT_DIR).filter(file => file.endsWith('.json'));
   const channels: ChatChannel[] = [];
   
   for (const file of files) {

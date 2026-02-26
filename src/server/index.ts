@@ -149,6 +149,21 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Build an error response with detail from the actual error
+function errorResponse(message: string, error: unknown): { error: string } {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`${message}: ${detail}`);
+  return { error: message };
+}
+
+// Safely parse an integer with NaN check and min/max bounds
+function clampInt(value: string | undefined, defaultVal: number, min: number, max: number): number {
+  if (value === undefined) return defaultVal;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) return defaultVal;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 // Serve static files from the client build
 const clientBuildPath = path.join(__dirname, '..', '..', 'dist', 'client');
 app.use(express.static(clientBuildPath));
@@ -170,7 +185,7 @@ app.get('/api/tasks', async (_req, res) => {
     res.json({ tasks });
   } catch (error) {
     console.error('GET /api/tasks error:', error);
-    res.status(500).json({ error: 'Failed to fetch tasks' });
+    res.status(500).json(errorResponse('Failed to fetch tasks', error));
   }
 });
 
@@ -184,7 +199,7 @@ app.get('/api/tasks/:id', async (req, res) => {
     res.json({ task });
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to fetch task' });
+    res.status(500).json(errorResponse('Failed to fetch task', error));
   }
 });
 
@@ -210,7 +225,7 @@ app.post('/api/tasks', async (req, res) => {
     res.status(201).json({ task });
   } catch (error) {
     console.error('POST /api/tasks error:', error);
-    res.status(500).json({ error: 'Failed to create task' });
+    res.status(500).json(errorResponse('Failed to create task', error));
   }
 });
 
@@ -261,7 +276,7 @@ app.put('/api/tasks/:id', async (req, res) => {
     res.json({ task });
   } catch (error) {
     console.error(`PUT /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to update task' });
+    res.status(500).json(errorResponse('Failed to update task', error));
   }
 });
 
@@ -277,7 +292,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id} error:`, error);
-    res.status(500).json({ error: 'Failed to delete task' });
+    res.status(500).json(errorResponse('Failed to delete task', error));
   }
 });
 
@@ -290,7 +305,7 @@ app.get('/api/tasks/:id/activity', async (req, res) => {
     res.json({ activity });
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id}/activity error:`, error);
-    res.status(500).json({ error: 'Failed to fetch task activity' });
+    res.status(500).json(errorResponse('Failed to fetch task activity', error));
   }
 });
 
@@ -343,7 +358,7 @@ app.get('/api/activity', async (req, res) => {
     });
   } catch (error) {
     console.error('GET /api/activity error:', error);
-    res.status(500).json({ error: 'Failed to fetch activity' });
+    res.status(500).json(errorResponse('Failed to fetch activity', error));
   }
 });
 
@@ -361,7 +376,7 @@ app.get('/api/tasks/:id/tags/suggest', async (req, res) => {
     res.json(analysis);
   } catch (error) {
     console.error(`GET /api/tasks/${req.params.id}/tags/suggest error:`, error);
-    res.status(500).json({ error: 'Failed to suggest tags' });
+    res.status(500).json(errorResponse('Failed to suggest tags', error));
   }
 });
 
@@ -385,7 +400,7 @@ app.post('/api/tasks/:id/tags/auto-apply', async (req, res) => {
     }
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/tags/auto-apply error:`, error);
-    res.status(500).json({ error: 'Failed to auto-apply tags' });
+    res.status(500).json(errorResponse('Failed to auto-apply tags', error));
   }
 });
 
@@ -424,7 +439,7 @@ app.post('/api/tasks/:id/comments', async (req, res) => {
     res.status(201).json({ comment: newComment, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/comments error:`, error);
-    res.status(500).json({ error: 'Failed to add comment' });
+    res.status(500).json(errorResponse('Failed to add comment', error));
   }
 });
 
@@ -458,7 +473,7 @@ app.post('/api/tasks/:id/links', async (req, res) => {
     res.status(201).json({ link: newLink, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/links error:`, error);
-    res.status(500).json({ error: 'Failed to add link' });
+    res.status(500).json(errorResponse('Failed to add link', error));
   }
 });
 
@@ -483,7 +498,7 @@ app.delete('/api/tasks/:id/links/:linkId', async (req, res) => {
     res.json({ success: true, task: updatedTask });
   } catch (error) {
     console.error(`DELETE /api/tasks/${req.params.id}/links/${req.params.linkId} error:`, error);
-    res.status(500).json({ error: 'Failed to delete link' });
+    res.status(500).json(errorResponse('Failed to delete link', error));
   }
 });
 
@@ -533,7 +548,7 @@ app.post('/api/tasks/:id/rating', async (req, res) => {
     res.json({ success: true, task: updatedTask });
   } catch (error) {
     console.error(`POST /api/tasks/${req.params.id}/rating error:`, error);
-    res.status(500).json({ error: 'Failed to add rating' });
+    res.status(500).json(errorResponse('Failed to add rating', error));
   }
 });
 
@@ -743,7 +758,7 @@ app.post('/api/worker/toggle', async (req, res) => {
     res.json({ status });
   } catch (error) {
     console.error('POST /api/worker/toggle error:', error);
-    res.status(500).json({ error: 'Failed to toggle worker' });
+    res.status(500).json(errorResponse('Failed to toggle worker', error));
   }
 });
 
@@ -755,7 +770,12 @@ app.put('/api/worker/interval', async (req, res) => {
     if (typeof interval !== 'string') {
       return res.status(400).json({ error: 'interval must be a string' });
     }
-    
+
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(interval)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
     await updateWorkerInterval(interval);
     const status = getWorkerStatus();
     
@@ -793,7 +813,12 @@ app.put('/api/worker/standup/time', async (req, res) => {
     if (typeof cronExpression !== 'string') {
       return res.status(400).json({ error: 'cronExpression must be a string' });
     }
-    
+
+    const cronModule = await import('node-cron');
+    if (!cronModule.validate(cronExpression)) {
+      return res.status(400).json({ error: 'Invalid cron expression' });
+    }
+
     await updateStandupTime(cronExpression);
     const status = getWorkerStatus();
     
@@ -1289,7 +1314,7 @@ app.put('/api/personas/:id/soul', async (req, res) => {
 import { calculatePersonaMood, getAllMoodTypes } from './persona-mood.js';
 
 // Auto-tagging
-import { suggestTags, autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
+import { autoApplyTags, analyzeTaskTags, getAllAutoTags } from './auto-tagger.js';
 
 // Achievements
 import { calculateAchievements, getAllAchievements, getRarityColor } from './persona-achievements.js';
@@ -1354,7 +1379,7 @@ app.get('/api/personas/:id/agent-memory/search', async (req, res) => {
     const userId = (req.query.userId as string) || 'default';
     const query = req.query.q as string;
     const category = req.query.category as string;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = clampInt(req.query.limit as string, 10, 1, 100);
     
     if (!query) {
       return res.status(400).json({ error: 'query (q) is required' });
@@ -1514,7 +1539,7 @@ app.get('/api/chat/:channelId', async (req, res) => {
 app.get('/api/chat/:channelId/messages', async (req, res) => {
   try {
     const { channelId } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50, 1, 500);
     const before = req.query.before as string;
     
     const messages = await getMessages(channelId, limit, before);
@@ -2032,7 +2057,7 @@ app.post('/api/pr-resolver/run', async (req, res) => {
 // GET /api/standup/generate - Generate a new standup from recent activity
 app.get('/api/standup/generate', async (req, res) => {
   try {
-    const hours = parseInt(req.query.hours as string) || 24;
+    const hours = clampInt(req.query.hours as string, 24, 1, 168);
     const entry = await generateStandupEntry(hours);
     res.json({ standup: entry });
   } catch (error) {
@@ -2061,7 +2086,7 @@ app.post('/api/standup', async (req, res) => {
 // GET /api/standup/history - Get standup history
 app.get('/api/standup/history', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const entries = await getRecentStandupEntries(days);
     res.json({ standups: entries });
   } catch (error) {
@@ -2369,7 +2394,7 @@ async function writeLogFile(date: string, entries: any[]) {
 // GET /api/activity-log?days=7 — returns log entries
 app.get('/api/activity-log', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const allEntries: Record<string, any[]> = {};
     
     for (let i = 0; i < days; i++) {
@@ -2466,7 +2491,7 @@ async function writeNotesFile(date: string, entries: any[]) {
 // GET /api/daily-notes?days=14 — returns notes grouped by date
 app.get('/api/daily-notes', async (req, res) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
+    const days = clampInt(req.query.days as string, 7, 1, 90);
     const allNotes: Record<string, any[]> = {};
 
     for (let i = 0; i < days; i++) {
@@ -2596,7 +2621,7 @@ async function startSlxAutoSync() {
 }
 
 // GET /api/slx/config - Get slx config
-app.get('/api/slx/config', async (req, res) => {
+app.get('/api/slx/config', async (_req, res) => {
   try {
     const config = await getSlxConfig();
     res.json(config || {});
@@ -2637,7 +2662,7 @@ app.post('/api/slx/sync', async (req, res) => {
 });
 
 // GET /api/slx/data - Get Slack data
-app.get('/api/slx/data', async (req, res) => {
+app.get('/api/slx/data', async (_req, res) => {
   try {
     const data = await getSlackData();
     res.json(data || {});
@@ -2658,7 +2683,7 @@ app.post('/api/slx/digest', async (req, res) => {
 });
 
 // GET /api/slx/status - Get sync status
-app.get('/api/slx/status', async (req, res) => {
+app.get('/api/slx/status', async (_req, res) => {
   try {
     const status = await getSlxStatus();
     res.json(status || {});
@@ -2678,7 +2703,7 @@ async function startServer() {
     await initializeStorage();
     await initializePersonas();
     await initializePipelines();
-    initializeChatStorage();
+    await initializeChatStorage();
     await initializeReportsStorage();
     await initializeKnowledgeStorage();
     await initializeStandupStorage();

@@ -224,12 +224,16 @@ export async function getTaskPipelineState(taskId: string): Promise<TaskPipeline
     // Convert date strings back to Date objects
     state.createdAt = new Date(state.createdAt);
     state.updatedAt = new Date(state.updatedAt);
+    if (isNaN(state.createdAt.getTime()) || isNaN(state.updatedAt.getTime())) {
+      console.warn(`Pipeline state for task ${taskId} has corrupted dates, skipping`);
+      return null;
+    }
     state.stageHistory = state.stageHistory.map((history: any) => ({
       ...history,
       startedAt: new Date(history.startedAt),
       completedAt: history.completedAt ? new Date(history.completedAt) : undefined
     }));
-    
+
     return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
