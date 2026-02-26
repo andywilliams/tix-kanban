@@ -20,6 +20,15 @@ export interface Task {
   activity?: ActivityLog[]; // State change activity log
   model?: string; // Override AI model for this task
   timeoutMs?: number; // Custom timeout in ms for AI worker (default: 320000 dev, 600000 research)
+  agentActivity?: AgentActivity; // Live agent working status
+}
+
+export interface AgentActivity {
+  personaId: string;
+  personaName: string;
+  personaEmoji: string;
+  status: 'working' | 'idle';
+  startedAt: Date;
 }
 
 export interface ActivityLog {

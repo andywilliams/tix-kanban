@@ -387,6 +387,80 @@ body {
   min-width: 1.75rem;
   text-align: center;
   line-height: 1;
+  position: relative;
+}
+
+/* Agent activity indicators */
+.task-card.agent-working {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow);
+}
+
+.task-assignee.agent-active {
+  animation: agent-glow 2s ease-in-out infinite;
+}
+
+.task-assignee-badge.agent-active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.agent-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: agent-pulse-ring 1.5s ease-in-out infinite;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Pulse on the card assignee badge */
+.task-assignee .agent-pulse {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+}
+
+.agent-working-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 0.75rem;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.agent-working-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-working-since {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+@keyframes agent-glow {
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 40%, transparent); }
+  50% { box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
+}
+
+@keyframes agent-pulse-ring {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.4); }
 }
 
 /* Modal */

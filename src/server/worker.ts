@@ -552,23 +552,34 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
 async function processTask(task: Task): Promise<void> {
   try {
     console.log(`📋 Processing task: ${task.title}`);
-    
+
     // Move task to in-progress
     await updateTask(task.id, { status: 'in-progress' });
-    
+
     // Fetch the full task with all history (comments, links)
     const fullTask = await getTask(task.id);
     if (!fullTask) {
       console.error(`❌ Could not fetch full task ${task.id}`);
       return;
     }
-    
+
     // Load persona
     const persona = fullTask.persona ? await getPersona(fullTask.persona) : null;
     if (!persona) {
       console.log(`⚠️  No persona found for task ${fullTask.id}, skipping`);
       return;
     }
+
+    // Mark agent as actively working on this task
+    await updateTask(task.id, {
+      agentActivity: {
+        personaId: persona.id,
+        personaName: persona.name,
+        personaEmoji: persona.emoji,
+        status: 'working',
+        startedAt: new Date(),
+      }
+    });
     
     // Check if this is a research task and handle differently
     let output: string;
@@ -624,12 +635,16 @@ async function processTask(task: Task): Promise<void> {
       }
     }
     
+    // Clear agent activity - work is done
+    const clearedActivity = { personaId: persona.id, personaName: persona.name, personaEmoji: persona.emoji, status: 'idle' as const, startedAt: new Date() };
+
     if (success) {
       // Research tasks go directly to done - no review needed
       if (isResearchTask(fullTask, persona)) {
         await updateTask(fullTask.id, {
           status: 'done',
-          comments: updatedComments
+          comments: updatedComments,
+          agentActivity: clearedActivity,
         });
         console.log(`🔍 Research task completed: ${fullTask.title}`);
 
@@ -649,9 +664,10 @@ async function processTask(task: Task): Promise<void> {
           const reviewState = await initiateAutoReview(fullTask, persona.id);
           if (reviewState) {
             // Auto-review initiated - move to auto-review status
-            await updateTask(fullTask.id, { 
+            await updateTask(fullTask.id, {
               status: 'auto-review',
-              comments: updatedComments
+              comments: updatedComments,
+              agentActivity: clearedActivity,
             });
             
             // Execute the first review cycle
@@ -659,27 +675,32 @@ async function processTask(task: Task): Promise<void> {
             console.log(`🔍 Auto-review result for ${fullTask.title}: ${reviewResult}`);
           } else {
             // Auto-review disabled or failed - move directly to human review
-            await updateTask(fullTask.id, { 
+            await updateTask(fullTask.id, {
               status: 'review',
-              comments: updatedComments
+              comments: updatedComments,
+              agentActivity: clearedActivity,
             });
           }
         }
       }
     } else {
       // Task failed - back to backlog
-      await updateTask(fullTask.id, { 
+      await updateTask(fullTask.id, {
         status: 'backlog',
-        comments: updatedComments
+        comments: updatedComments,
+        agentActivity: clearedActivity,
       });
     }
-    
+
     console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);
   } catch (error) {
     console.error(`Failed to process task ${task.id}:`, error);
-    
-    // Move task back to backlog on error
-    await updateTask(task.id, { status: 'backlog' });
+
+    // Move task back to backlog on error and clear agent activity
+    await updateTask(task.id, {
+      status: 'backlog',
+      agentActivity: undefined,
+    });
   }
 }
 
