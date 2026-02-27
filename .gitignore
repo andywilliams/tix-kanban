@@ -46,6 +46,8 @@ Thumbs.db
 # Markdown files (reports etc.) - except README
 *.md
 !README.md
+!API-REFERENCE.md
+!GITHUB_RATE_LIMITS.md
 
 # Local data (should be in ~/.tix-kanban/)
 tasks/
