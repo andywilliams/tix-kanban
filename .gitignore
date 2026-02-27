@@ -43,6 +43,10 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Markdown files (reports etc.) - except README
+*.md
+!README.md
+
 # Local data (should be in ~/.tix-kanban/)
 tasks/
 runs/
