@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { getAllTasks } from './storage.js';
-import { Task, Link } from '../client/types/index.js';
+import { Task } from '../client/types/index.js';
 import { spawn } from 'child_process';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
@@ -255,22 +255,6 @@ function parseDuration(duration: string): number {
   }
 }
 
-// Calculate age of a task/pr in the requested format
-function calculateAge(date: Date, format: string): string | number {
-  const now = new Date();
-  const ageMs = now.getTime() - date.getTime();
-  const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
-
-  // If format ends with 'd', return as days
-  if (format.endsWith('d')) {
-    return ageDays;
-  }
-
-  // Otherwise return as readable string
-  if (ageDays === 0) return 'today';
-  if (ageDays === 1) return '1 day';
-  return `${ageDays} days`;
-}
 
 // Get PR data from task links
 function getPRData(task: Task): { url?: string; age?: number; approved?: boolean; unresolvedComments?: number } {
@@ -355,7 +339,7 @@ async function sendNotification(action: RuleAction, message: string): Promise<vo
       ? ['send', action.channel, message]
       : ['send', message];
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const slx = spawn('slx', args, { stdio: 'pipe' });
 
       slx.on('error', (err) => {

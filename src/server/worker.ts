@@ -1204,7 +1204,11 @@ export function stopWorker(): void {
     slxSyncCronJob.stop();
     slxSyncCronJob = null;
   }
-  console.log('🛑 Worker, standup, and slx sync schedulers stopped');
+  if (reminderCheckCronJob) {
+    reminderCheckCronJob.stop();
+    reminderCheckCronJob = null;
+  }
+  console.log('🛑 Worker, standup, slx sync, and reminder check schedulers stopped');
 }
 
 // Enable/disable worker

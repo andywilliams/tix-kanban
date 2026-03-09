@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import '../styles/App.css';
+import '../App.css';
 
 interface ReminderRule {
   id: string;
