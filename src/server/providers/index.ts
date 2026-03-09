@@ -42,11 +42,21 @@ export async function initializeProviders(): Promise<void> {
   const config = await loadProviderConfig();
   
   if (config?.ticketProvider) {
-    activeTicketProvider = ticketProviders.get(config.ticketProvider) || null;
+    const provider = ticketProviders.get(config.ticketProvider);
+    if (provider) {
+      activeTicketProvider = provider;
+    } else {
+      console.warn(`Unknown ticket provider "${config.ticketProvider}" in config - using default`);
+    }
   }
   
   if (config?.messageProvider) {
-    activeMessageProvider = messageProviders.get(config.messageProvider) || null;
+    const provider = messageProviders.get(config.messageProvider);
+    if (provider) {
+      activeMessageProvider = provider;
+    } else {
+      console.warn(`Unknown message provider "${config.messageProvider}" in config - using default`);
+    }
   }
 }
 

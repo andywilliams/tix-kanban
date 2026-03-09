@@ -18,16 +18,22 @@ export class SlxProvider implements MessageProvider {
 
     // Run slx sync first
     const lookback = this.config.sync?.lookbackHours || 24;
-    await runSlxSync(lookback);
+    const result = await runSlxSync(lookback);
+    
+    if (!result.success) {
+      console.error('SlxProvider sync failed:', result.error);
+      return [];
+    }
 
     // Then fetch the synced data
     const data = await getSlackData();
     const messages: MessageData[] = [];
 
-    // Convert mentions
+    // Convert mentions - use deterministic IDs based on channel+author+timestamp
     for (const mention of data.mentions || []) {
+      const timestamp = mention.timestamp || new Date().toISOString();
       messages.push({
-        id: `slx-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: `slx-${mention.channel}-${mention.author}-${timestamp}`,
         channel: mention.channel || 'unknown',
         author: mention.author || 'unknown',
         text: mention.text || '',
