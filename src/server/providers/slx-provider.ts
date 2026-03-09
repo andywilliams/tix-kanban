@@ -1,5 +1,6 @@
 // Wrapper around existing slx-service.ts
 
+import crypto from 'crypto';
 import { MessageProvider, MessageData } from './types.js';
 import { getSlxConfig, runSlxSync, getSlackData, SlxConfig } from '../slx-service.js';
 
@@ -29,15 +30,24 @@ export class SlxProvider implements MessageProvider {
     const data = await getSlackData();
     const messages: MessageData[] = [];
 
-    // Convert mentions - use deterministic IDs based on channel+author+timestamp
+    // Convert mentions - use deterministic IDs based on content hash
     for (const mention of data.mentions || []) {
       const timestamp = mention.timestamp || new Date().toISOString();
+      const channel = mention.channel || 'unknown';
+      const author = mention.author || 'unknown';
+      const content = mention.text || '';
+      
+      // Generate deterministic ID from content hash
+      const idSource = `${channel}-${author}-${timestamp}-${content}`;
+      const hash = crypto.createHash('sha256').update(idSource).digest('hex').slice(0, 16);
+      const id = `slx-${hash}`;
+      
       messages.push({
-        id: `slx-${mention.channel}-${mention.author}-${timestamp}`,
-        channel: mention.channel || 'unknown',
-        author: mention.author || 'unknown',
-        text: mention.text || '',
-        timestamp: mention.timestamp || new Date().toISOString(),
+        id,
+        channel,
+        author,
+        text: content,
+        timestamp,
       });
     }
 
