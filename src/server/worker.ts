@@ -24,6 +24,7 @@ import {
   getAllStandupEntries
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { evaluateReminderRules } from './reminder-rules.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -135,6 +136,9 @@ interface WorkerState {
   slxSyncEnabled: boolean; // Slack sync via slx
   slxSyncInterval: string; // cron expression for slx sync frequency
   lastSlxSyncRun?: string;
+  reminderCheckEnabled: boolean; // reminder rules engine
+  reminderCheckInterval: string; // cron expression for reminder check frequency
+  lastReminderCheckRun?: string;
 }
 
 let workerState: WorkerState = {
@@ -146,11 +150,14 @@ let workerState: WorkerState = {
   standupTime: '0 9 * * 1-5', // 9 AM Monday-Friday
   slxSyncEnabled: false, // Slack sync disabled by default
   slxSyncInterval: '0 */1 * * *', // Default: every 1 hour
+  reminderCheckEnabled: false, // Reminder rules engine disabled by default
+  reminderCheckInterval: '0 9 * * 1-5', // Default: 9 AM Monday-Friday
 };
 
 let cronJob: cron.ScheduledTask | null = null;
 let standupCronJob: cron.ScheduledTask | null = null;
 let slxSyncCronJob: cron.ScheduledTask | null = null;
+let reminderCheckCronJob: cron.ScheduledTask | null = null;
 
 // Ensure worker directories exist
 async function ensureWorkerDirectories(): Promise<void> {
@@ -1163,6 +1170,20 @@ export async function startWorker(): Promise<void> {
     } else {
       console.log('💤 slx sync scheduler is disabled');
     }
+
+    // Start reminder check cron job if enabled
+    if (reminderCheckCronJob) {
+      reminderCheckCronJob.stop();
+    }
+    if (workerState.reminderCheckEnabled) {
+      reminderCheckCronJob = cron.schedule(workerState.reminderCheckInterval, runReminderCheck, {
+        scheduled: false
+      });
+      reminderCheckCronJob.start();
+      console.log(`🔔 Reminder check scheduler started: ${workerState.reminderCheckInterval} (${cron.validate(workerState.reminderCheckInterval) ? 'valid' : 'INVALID'} cron expression)`);
+    } else {
+      console.log('💤 Reminder check scheduler is disabled');
+    }
   } catch (error) {
     console.error('Failed to start worker:', error);
     throw error;
@@ -1315,6 +1336,23 @@ async function runSlxSync(): Promise<void> {
   }
 }
 
+// Run reminder check
+async function runReminderCheck(): Promise<void> {
+  try {
+    console.log('🔔 Running reminder check...');
+
+    await evaluateReminderRules(false);
+
+    // Update last run time
+    workerState.lastReminderCheckRun = new Date().toISOString();
+    await saveWorkerState();
+
+    console.log('✅ Reminder check completed');
+  } catch (error) {
+    console.error('❌ Reminder check failed:', error);
+  }
+}
+
 // Enable/disable slx sync scheduler
 export async function toggleSlxSyncScheduler(enabled: boolean): Promise<void> {
   workerState.slxSyncEnabled = enabled;
@@ -1338,6 +1376,29 @@ export async function toggleSlxSyncScheduler(enabled: boolean): Promise<void> {
   }
 }
 
+// Enable/disable reminder check scheduler
+export async function toggleReminderCheckScheduler(enabled: boolean): Promise<void> {
+  workerState.reminderCheckEnabled = enabled;
+  await saveWorkerState();
+
+  if (enabled) {
+    if (reminderCheckCronJob) {
+      reminderCheckCronJob.stop();
+    }
+    reminderCheckCronJob = cron.schedule(workerState.reminderCheckInterval, runReminderCheck, {
+      scheduled: false
+    });
+    reminderCheckCronJob.start();
+    console.log(`🔔 Reminder check scheduler enabled: ${workerState.reminderCheckInterval}`);
+  } else {
+    if (reminderCheckCronJob) {
+      reminderCheckCronJob.stop();
+      reminderCheckCronJob = null;
+    }
+    console.log('💤 Reminder check scheduler disabled');
+  }
+}
+
 // Update slx sync interval
 export async function updateSlxSyncInterval(cronExpression: string): Promise<void> {
   if (!cron.validate(cronExpression)) {
@@ -1357,6 +1418,27 @@ export async function updateSlxSyncInterval(cronExpression: string): Promise<voi
 // Manually trigger slx sync
 export async function triggerSlxSync(): Promise<void> {
   await runSlxSync();
+}
+
+// Update reminder check interval
+export async function updateReminderCheckInterval(cronExpression: string): Promise<void> {
+  if (!cron.validate(cronExpression)) {
+    throw new Error('Invalid cron expression');
+  }
+
+  workerState.reminderCheckInterval = cronExpression;
+  await saveWorkerState();
+
+  if (workerState.reminderCheckEnabled) {
+    // Restart with new schedule
+    await toggleReminderCheckScheduler(false);
+    await toggleReminderCheckScheduler(true);
+  }
+}
+
+// Manually trigger reminder check
+export async function triggerReminderCheck(): Promise<void> {
+  await runReminderCheck();
 }
 
 // Get worker status
