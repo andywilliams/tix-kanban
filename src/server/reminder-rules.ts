@@ -380,7 +380,12 @@ export async function evaluateReminderRules(dryRun: boolean = false): Promise<vo
       if (rule.target === 'task') {
         // Evaluate against each task
         for (const task of tasks) {
-          const age = task.createdAt ? Math.floor((Date.now() - task.createdAt.getTime()) / (24 * 60 * 60 * 1000)) : 0;
+          // Use last status change timestamp for age (time in current status), fallback to createdAt
+          const lastStatusChange = task.activity
+            ?.filter((a: any) => a.type === 'status_change')
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+          const ageBaseTime = lastStatusChange ? new Date(lastStatusChange.timestamp).getTime() : (task.createdAt ? new Date(task.createdAt).getTime() : Date.now());
+          const age = Math.floor((Date.now() - ageBaseTime) / (24 * 60 * 60 * 1000));
           const prData = getPRData(task);
 
           const data = {

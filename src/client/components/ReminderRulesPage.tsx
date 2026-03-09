@@ -184,8 +184,8 @@ const ReminderRulesPage: React.FC = () => {
       description: rule.description,
       enabled: rule.enabled,
       target: rule.target,
-      conditions: rule.conditions,
-      action: rule.action,
+      conditions: rule.conditions.map(c => ({ ...c })),
+      action: { ...rule.action },
       cooldown: rule.cooldown
     });
     setEditingRule(rule);
