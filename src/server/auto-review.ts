@@ -314,7 +314,7 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'reject'; fe
     // Look for the decision format in the output
     const decisionMatch = output.match(/DECISION:\s*(APPROVE|REJECT)/i);
     const confidenceMatch = output.match(/CONFIDENCE:\s*([\d.]+)/);
-    const feedbackMatch = output.match(/FEEDBACK:\s*([\s\S]*?)$/m);
+    const feedbackMatch = output.match(/FEEDBACK:\s*([\s\S]*)/);
     
     if (!decisionMatch) {
       console.warn('Could not parse review decision from output:', output);
