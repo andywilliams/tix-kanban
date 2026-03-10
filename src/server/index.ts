@@ -137,6 +137,7 @@ import {
 import {
   getUserSettings,
   saveUserSettings,
+  resolveBackupDir,
   UserSettings
 } from './user-settings.js';
 import {
@@ -2407,6 +2408,46 @@ app.put('/api/settings', async (req, res) => {
   } catch (error) {
     console.error('PUT /api/settings error:', error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// PUT /api/settings/backup-dir - Set and validate custom backup directory
+app.put('/api/settings/backup-dir', async (req, res) => {
+  try {
+    const { backupDir } = req.body;
+
+    if (backupDir !== undefined && typeof backupDir !== 'string') {
+      return res.status(400).json({ error: 'backupDir must be a string or null/undefined to reset' });
+    }
+
+    const settings = await getUserSettings();
+
+    if (!backupDir) {
+      // Clear the setting — revert to default
+      delete settings.backupDir;
+      await saveUserSettings(settings);
+      return res.json({ backupDir: null, resolved: null, message: 'Reset to default backup directory' });
+    }
+
+    const resolved = resolveBackupDir(backupDir);
+
+    // Validate by attempting to create + write-test
+    const { getBackupStorageDir } = await import('./backup.js');
+    settings.backupDir = backupDir;
+    await saveUserSettings(settings);
+
+    try {
+      await getBackupStorageDir(); // Will throw if not writable
+      res.json({ backupDir, resolved, message: 'Backup directory set and verified' });
+    } catch (err) {
+      // Revert the setting if validation fails
+      delete settings.backupDir;
+      await saveUserSettings(settings);
+      return res.status(400).json({ error: (err as Error).message });
+    }
+  } catch (error) {
+    console.error('PUT /api/settings/backup-dir error:', error);
+    res.status(500).json({ error: 'Failed to update backup directory' });
   }
 });
 

@@ -44,6 +44,26 @@ export interface UserSettings {
   backup?: BackupSchedule;
   backupCategories?: BackupCategories;
   reminderCheckInterval?: number; // Check frequency in minutes (default: 5)
+  /**
+   * Custom directory for backup storage.
+   * Supports ~ expansion and relative paths (resolved from home dir).
+   * Defaults to ~/.tix-kanban if not set.
+   */
+  backupDir?: string;
+}
+
+/**
+ * Resolve a user-supplied backup directory path.
+ * Expands ~ to home dir and resolves relative paths from home.
+ */
+export function resolveBackupDir(backupDir: string): string {
+  if (backupDir.startsWith('~/') || backupDir === '~') {
+    return path.join(os.homedir(), backupDir.slice(2));
+  }
+  if (path.isAbsolute(backupDir)) {
+    return backupDir;
+  }
+  return path.join(os.homedir(), backupDir);
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
