@@ -22,8 +22,20 @@ import {
   triggerStandupGeneration,
   toggleSlxSyncScheduler,
   updateSlxSyncInterval,
-  triggerSlxSync
+  triggerSlxSync,
+  toggleReminderCheckScheduler,
+  updateReminderCheckInterval,
+  triggerReminderCheck
 } from './worker.js';
+import {
+  getRules,
+  addRule,
+  updateRule,
+  deleteRule,
+  evaluateReminderRules,
+  getReminderHistory,
+  clearCooldowns
+} from './reminder-rules.js';
 import {
   getAllPersonas,
   getPersona,
@@ -892,6 +904,157 @@ app.post('/api/worker/slx-sync/trigger', async (_req, res) => {
   } catch (error) {
     console.error('POST /api/worker/slx-sync/trigger error:', error);
     res.status(500).json({ error: 'Failed to trigger slx sync' });
+  }
+});
+
+// POST /api/worker/reminder-check/toggle - Enable/disable reminder check scheduler
+app.post('/api/worker/reminder-check/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    await toggleReminderCheckScheduler(enabled);
+    res.json({ success: true, enabled });
+  } catch (error) {
+    console.error('POST /api/worker/reminder-check/toggle error:', error);
+    res.status(500).json({ error: 'Failed to toggle reminder check scheduler' });
+  }
+});
+
+// POST /api/worker/reminder-check/interval - Update reminder check interval
+app.post('/api/worker/reminder-check/interval', async (req, res) => {
+  try {
+    const { interval } = req.body;
+
+    if (typeof interval !== 'string') {
+      return res.status(400).json({ error: 'interval must be a string' });
+    }
+
+    await updateReminderCheckInterval(interval);
+    res.json({ success: true, interval });
+  } catch (error) {
+    console.error('POST /api/worker/reminder-check/interval error:', error);
+    res.status(500).json({
+      error: error instanceof Error && error.message === 'Invalid cron expression'
+        ? 'Invalid cron expression format'
+        : 'Failed to update reminder check interval'
+    });
+  }
+});
+
+// POST /api/worker/reminder-check/trigger - Manually trigger reminder check
+app.post('/api/worker/reminder-check/trigger', async (_req, res) => {
+  try {
+    await triggerReminderCheck();
+    res.json({ success: true, message: 'Reminder check triggered' });
+  } catch (error) {
+    console.error('POST /api/worker/reminder-check/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger reminder check' });
+  }
+});
+
+// Reminder Rules API routes
+
+// GET /api/reminder-rules - Get all reminder rules
+app.get('/api/reminder-rules', async (_req, res) => {
+  try {
+    const rules = await getRules();
+    res.json({ rules });
+  } catch (error) {
+    console.error('GET /api/reminder-rules error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminder rules' });
+  }
+});
+
+// POST /api/reminder-rules - Create a new reminder rule
+app.post('/api/reminder-rules', async (req, res) => {
+  try {
+    const { name, description, enabled, target, conditions, action, cooldown } = req.body;
+
+    // Validate required fields
+    if (!name || !description || target === undefined || !conditions || !Array.isArray(conditions) || conditions.length === 0 || !action || !cooldown) {
+      return res.status(400).json({ error: 'Missing required fields (conditions must be a non-empty array)' });
+    }
+
+    const rule = await addRule({
+      name,
+      description,
+      enabled: enabled !== false,
+      target,
+      conditions,
+      action,
+      cooldown
+    });
+
+    res.json({ success: true, rule });
+  } catch (error) {
+    console.error('POST /api/reminder-rules error:', error);
+    res.status(500).json({ error: 'Failed to create reminder rule' });
+  }
+});
+
+// PUT /api/reminder-rules/:id - Update a reminder rule
+app.put('/api/reminder-rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    await updateRule(id, updates);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('PUT /api/reminder-rules/:id error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to update reminder rule' });
+  }
+});
+
+// DELETE /api/reminder-rules/:id - Delete a reminder rule
+app.delete('/api/reminder-rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await deleteRule(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('DELETE /api/reminder-rules/:id error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to delete reminder rule' });
+  }
+});
+
+// POST /api/reminder-rules/evaluate - Manually evaluate all rules (dry run option)
+app.post('/api/reminder-rules/evaluate', async (req, res) => {
+  try {
+    const { dryRun } = req.body;
+
+    await evaluateReminderRules(dryRun === true);
+    res.json({ success: true, dryRun: dryRun === true });
+  } catch (error) {
+    console.error('POST /api/reminder-rules/evaluate error:', error);
+    res.status(500).json({ error: 'Failed to evaluate reminder rules' });
+  }
+});
+
+// GET /api/reminder-rules/history - Get reminder trigger history
+app.get('/api/reminder-rules/history', async (_req, res) => {
+  try {
+    const history = await getReminderHistory();
+    res.json({ history });
+  } catch (error) {
+    console.error('GET /api/reminder-rules/history error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminder history' });
+  }
+});
+
+// POST /api/reminder-rules/clear-cooldowns - Clear all cooldowns
+app.post('/api/reminder-rules/clear-cooldowns', async (_req, res) => {
+  try {
+    await clearCooldowns();
+    res.json({ success: true, message: 'Cooldowns cleared' });
+  } catch (error) {
+    console.error('POST /api/reminder-rules/clear-cooldowns error:', error);
+    res.status(500).json({ error: 'Failed to clear cooldowns' });
   }
 });
 

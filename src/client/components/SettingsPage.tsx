@@ -23,6 +23,12 @@ interface SlxSyncConfig {
   lastRun?: string;
 }
 
+interface ReminderCheckConfig {
+  enabled: boolean;
+  interval: string; // cron expression
+  lastRun?: string;
+}
+
 interface SettingsPageProps {
   onSettingsChange?: (settings: UserSettings) => void;
 }
@@ -47,6 +53,9 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [slxSaved, setSlxSaved] = useState(false);
   const [prSaving, setPRSaving] = useState(false);
   const [prSaved, setPRSaved] = useState(false);
+  const [reminderCheckConfig, setReminderCheckConfig] = useState<ReminderCheckConfig>({ enabled: false, interval: '0 9 * * 1-5' });
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderSaved, setReminderSaved] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -93,6 +102,13 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
           enabled: status.slxSyncEnabled ?? false,
           interval: status.slxSyncInterval ?? '0 */1 * * *',
           lastRun: status.lastSlxSyncRun,
+        });
+
+        // Parse reminder check config
+        setReminderCheckConfig({
+          enabled: status.reminderCheckEnabled ?? false,
+          interval: status.reminderCheckInterval ?? '0 9 * * 1-5',
+          lastRun: status.lastReminderCheckRun,
         });
       }
     } catch (error) {
@@ -178,6 +194,47 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     } catch (error) {
       console.error('Failed to trigger slx sync:', error);
       alert('Failed to trigger Slack sync. Is the server running?');
+    }
+  };
+
+  const saveReminderCheckConfig = async () => {
+    setReminderSaving(true);
+    setReminderSaved(false);
+    try {
+      const toggleRes = await fetch('/api/worker/reminder-check/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: reminderCheckConfig.enabled }),
+      });
+      if (!toggleRes.ok) throw new Error('Failed to toggle reminder check');
+
+      const intervalRes = await fetch('/api/worker/reminder-check/interval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval: reminderCheckConfig.interval }),
+      });
+      if (!intervalRes.ok) throw new Error('Failed to update reminder check interval');
+
+      setReminderSaved(true);
+      setTimeout(() => setReminderSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save reminder check config:', error);
+    } finally {
+      setReminderSaving(false);
+    }
+  };
+
+  const triggerReminderCheck = async () => {
+    try {
+      const response = await fetch('/api/worker/reminder-check/trigger', { method: 'POST' });
+      if (response.ok) {
+        alert('Reminder check triggered! Check console or Slack for results.');
+      } else {
+        alert('Failed to trigger reminder check. Check server logs.');
+      }
+    } catch (error) {
+      console.error('Failed to trigger reminder check:', error);
+      alert('Failed to trigger reminder check. Is the server running?');
     }
   };
 
@@ -582,6 +639,68 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               style={{ backgroundColor: '#6366f1' }}
             >
               Sync Now
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>Reminder Rules</h3>
+          <p className="settings-description">
+            Automatically check reminder rules and send notifications based on task conditions.
+            <a href="/settings/reminders" style={{ marginLeft: '8px' }}>Manage Rules →</a>
+          </p>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={reminderCheckConfig.enabled}
+                onChange={e => setReminderCheckConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              Enable reminder checks
+            </label>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="reminderInterval">Check Frequency</label>
+            <select
+              id="reminderInterval"
+              value={reminderCheckConfig.interval}
+              onChange={e => setReminderCheckConfig(prev => ({ ...prev, interval: e.target.value }))}
+            >
+              <option value="0 9 * * 1-5">Daily at 9 AM (weekdays)</option>
+              <option value="0 9,15 * * 1-5">Twice daily at 9 AM & 3 PM (weekdays)</option>
+              <option value="0 */4 * * 1-5">Every 4 hours (weekdays)</option>
+              <option value="0 9 * * *">Daily at 9 AM (every day)</option>
+              <option value="0 */6 * * *">Every 6 hours</option>
+              <option value="0 */2 * * 1-5">Every 2 hours (weekdays)</option>
+              <option value="0 8,12,17 * * 1-5">3 times daily (8 AM, 12 PM, 5 PM weekdays)</option>
+            </select>
+            <small className="form-help">
+              When the reminder rules should be evaluated
+            </small>
+            {reminderCheckConfig.lastRun && (
+              <small className="form-help" style={{ marginTop: '4px' }}>
+                Last run: {new Date(reminderCheckConfig.lastRun).toLocaleString()}
+              </small>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+            <button
+              className="save-btn"
+              onClick={saveReminderCheckConfig}
+              disabled={reminderSaving}
+            >
+              {reminderSaving ? 'Saving...' : reminderSaved ? 'Saved!' : 'Save Reminder Settings'}
+            </button>
+            <button
+              className="save-btn"
+              onClick={triggerReminderCheck}
+              style={{ backgroundColor: '#6366f1' }}
+            >
+              Check Now
             </button>
           </div>
         </div>

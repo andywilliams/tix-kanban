@@ -63,6 +63,7 @@ import { ActivityLogPage } from './components/ActivityLogPage';
 import { DailyNotesPage } from './components/DailyNotesPage';
 import SlackSettings from './components/SlackSettings';
 import SlackView from './components/SlackView';
+import ReminderRulesPage from './components/ReminderRulesPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -345,6 +346,10 @@ function AppContent() {
           <Route
             path="/settings/slack"
             element={<SlackSettings />}
+          />
+          <Route
+            path="/settings/reminders"
+            element={<ReminderRulesPage />}
           />
         </Routes>
       </main>
