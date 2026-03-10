@@ -145,7 +145,10 @@ import {
   updateBackupSchedule,
   startBackupScheduler,
   getBackupCategories,
-  updateBackupCategories
+  updateBackupCategories,
+  createFileBackup,
+  restoreFileBackup,
+  listBackups
 } from './backup.js';
 import {
   initializeStandupStorage,
@@ -1123,18 +1126,20 @@ app.get('/api/reminders', async (req, res) => {
     const { status, type } = req.query;
     let reminders = await getAllReminders();
 
-    // Filter by status (active = not triggered, triggered = triggered)
-    if (status === 'active') {
-      reminders = reminders.filter(r => !r.triggered);
+    // Filter by status
+    if (status === 'active' || status === 'pending') {
+      reminders = reminders.filter(r => r.status === 'pending' || r.status === 'paused');
     } else if (status === 'triggered') {
-      reminders = reminders.filter(r => r.triggered);
+      reminders = reminders.filter(r => r.status === 'triggered');
+    } else if (status === 'completed') {
+      reminders = reminders.filter(r => r.status === 'completed');
+    } else if (typeof status === 'string') {
+      reminders = reminders.filter(r => r.status === status);
     }
 
     // Filter by type
-    if (type === 'adhoc') {
-      reminders = reminders.filter(r => r.type === 'adhoc');
-    } else if (type === 'scheduled') {
-      reminders = reminders.filter(r => r.type === 'scheduled');
+    if (typeof type === 'string') {
+      reminders = reminders.filter(r => r.type === type);
     }
 
     res.json({ reminders });
@@ -1147,12 +1152,13 @@ app.get('/api/reminders', async (req, res) => {
 // POST /api/reminders - Create a new personal reminder
 app.post('/api/reminders', async (req, res) => {
   try {
-    const { message, remindAt, taskId, creator, target, type, recurrence } = req.body;
+    const { message, remindAt, triggerTime, taskId, creator, target, type, recurrence } = req.body;
+    const resolvedTriggerTime = triggerTime || remindAt;
 
-    if (!message || !remindAt || !creator || !target) {
+    if (!message || !resolvedTriggerTime || !creator || !target) {
       return res
         .status(400)
-        .json({ error: 'message, remindAt, creator, and target are required' });
+        .json({ error: 'message, triggerTime (or remindAt), creator, and target are required' });
     }
 
     // Check if this is a recurring reminder
@@ -1170,13 +1176,13 @@ app.post('/api/reminders', async (req, res) => {
         taskId,
         creator,
         target,
-        new Date(remindAt)
+        new Date(resolvedTriggerTime)
       );
       res.status(201).json({ reminder });
     } else {
       const reminder = await createReminder(
         message,
-        new Date(remindAt),
+        new Date(resolvedTriggerTime),
         taskId,
         creator,
         target,
@@ -1279,7 +1285,7 @@ app.post('/api/reminders/:id/trigger', async (req, res) => {
       return res.json({ 
         success: true, 
         message: 'Reminder triggered, next occurrence scheduled',
-        nextOccurrence: nextReminder?.remindAt
+        nextOccurrence: nextReminder?.triggerTime
       });
     }
     
@@ -2484,6 +2490,46 @@ app.post('/api/backup/categories', async (req, res) => {
   } catch (error) {
     console.error('POST /api/backup/categories error:', error);
     res.status(500).json({ error: 'Failed to update backup categories' });
+  }
+});
+
+// POST /api/backup/file - Create a file-based backup (optionally encrypted)
+app.post('/api/backup/file', async (req, res) => {
+  try {
+    const { outputDir, password, categories } = req.body;
+    if (!outputDir) return res.status(400).json({ error: 'outputDir is required' });
+    const result = await createFileBackup({ outputDir, password: password || undefined, categories });
+    res.json({ success: true, backupPath: result.backupPath, metadataPath: result.metadataPath, encrypted: result.encrypted });
+  } catch (error: any) {
+    console.error('POST /api/backup/file error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create backup' });
+  }
+});
+
+// POST /api/backup/restore - Restore from a file-based backup
+app.post('/api/backup/restore', async (req, res) => {
+  try {
+    const { backupDir, password, targetDir } = req.body;
+    if (!backupDir) return res.status(400).json({ error: 'backupDir is required' });
+    const result = await restoreFileBackup({ backupDir, password: password || undefined, targetDir: targetDir || undefined });
+    if (!result.success) return res.status(400).json({ error: result.message, encrypted: result.wasEncrypted });
+    res.json({ success: true, message: result.message, wasEncrypted: result.wasEncrypted });
+  } catch (error: any) {
+    console.error('POST /api/backup/restore error:', error);
+    res.status(500).json({ error: error.message || 'Failed to restore backup' });
+  }
+});
+
+// GET /api/backup/files - List available file backups
+app.get('/api/backup/files', async (req, res) => {
+  try {
+    const { backupDir } = req.query;
+    if (!backupDir || typeof backupDir !== 'string') return res.status(400).json({ error: 'backupDir query parameter is required' });
+    const backups = await listBackups(backupDir);
+    res.json({ backups });
+  } catch (error: any) {
+    console.error('GET /api/backup/files error:', error);
+    res.status(500).json({ error: error.message || 'Failed to list backups' });
   }
 });
 
