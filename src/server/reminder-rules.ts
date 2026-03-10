@@ -78,8 +78,8 @@ const BUILT_IN_RULES: ReminderRule[] = [
   {
     id: 'builtin-stale-pr',
     name: 'Stale PR',
-    description: 'Remind about PRs with no activity',
-    enabled: true,
+    description: 'Remind about PRs with no activity (disabled by default — requires GitHub API integration)',
+    enabled: false,
     target: 'pr',
     conditions: [
       { field: 'prAge', operator: 'greater_than', value: '3d' },
@@ -158,7 +158,7 @@ export async function loadRules(): Promise<ReminderRule[]> {
     if (!existsSync(RULES_FILE)) {
       // Initialize with built-in rules
       await saveRules(BUILT_IN_RULES);
-      return BUILT_IN_RULES;
+      return BUILT_IN_RULES.map(r => ({ ...r }));
     }
 
     const content = await fs.readFile(RULES_FILE, 'utf-8');
@@ -172,7 +172,7 @@ export async function loadRules(): Promise<ReminderRule[]> {
     }));
   } catch (error) {
     console.error('Failed to load reminder rules:', error);
-    return BUILT_IN_RULES;
+    return BUILT_IN_RULES.map(r => ({ ...r }));
   }
 }
 
@@ -236,9 +236,9 @@ async function saveHistory(history: HistoryEntry[]): Promise<void> {
   await fs.writeFile(HISTORY_FILE, JSON.stringify(trimmedHistory, null, 2));
 }
 
-// Parse duration string (e.g. "24h", "5d") to milliseconds
+// Parse duration string (e.g. "30m", "24h", "5d", "1w") to milliseconds
 function parseDuration(duration: string): number {
-  const match = duration.match(/^(\d+)([hdw])$/);
+  const match = duration.match(/^(\d+)([mhdw])$/);
   if (!match) {
     console.warn(`Invalid duration format: ${duration}, defaulting to 24h`);
     return 24 * 60 * 60 * 1000;
@@ -248,6 +248,7 @@ function parseDuration(duration: string): number {
   const value = parseInt(num, 10);
 
   switch (unit) {
+    case 'm': return value * 60 * 1000;
     case 'h': return value * 60 * 60 * 1000;
     case 'd': return value * 24 * 60 * 60 * 1000;
     case 'w': return value * 7 * 24 * 60 * 60 * 1000;
@@ -285,7 +286,7 @@ function evaluateCondition(condition: RuleCondition, data: any): boolean {
 
     case 'greater_than':
       // Handle duration comparisons for age fields
-      if (typeof conditionValue === 'string' && conditionValue.match(/^\d+[hdw]$/)) {
+      if (typeof conditionValue === 'string' && conditionValue.match(/^\d+[mhdw]$/)) {
         const durationMs = parseDuration(conditionValue);
         const ageDays = durationMs / (24 * 60 * 60 * 1000);
         return fieldValue > ageDays;
@@ -293,7 +294,7 @@ function evaluateCondition(condition: RuleCondition, data: any): boolean {
       return fieldValue > conditionValue;
 
     case 'less_than':
-      if (typeof conditionValue === 'string' && conditionValue.match(/^\d+[hdw]$/)) {
+      if (typeof conditionValue === 'string' && conditionValue.match(/^\d+[mhdw]$/)) {
         const durationMs = parseDuration(conditionValue);
         const ageDays = durationMs / (24 * 60 * 60 * 1000);
         return fieldValue < ageDays;

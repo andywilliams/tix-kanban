@@ -263,7 +263,7 @@ const ReminderRulesPage: React.FC = () => {
           <button
             onClick={() => {
               setShowHistory(!showHistory);
-              if (!showHistory && history.length === 0) {
+              if (!showHistory) {
                 loadHistory();
               }
             }}
