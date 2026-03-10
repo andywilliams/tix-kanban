@@ -323,8 +323,9 @@ const ReminderRulesPage: React.FC = () => {
                       placeholder="Field"
                       value={condition.field}
                       onChange={(e) => {
-                        const newConditions = [...formData.conditions];
-                        newConditions[index].field = e.target.value;
+                        const newConditions = formData.conditions.map((c, i) =>
+                          i === index ? { ...c, field: e.target.value } : c
+                        );
                         setFormData({ ...formData, conditions: newConditions });
                       }}
                       style={{ flex: 1 }}
@@ -332,8 +333,9 @@ const ReminderRulesPage: React.FC = () => {
                     <select
                       value={condition.operator}
                       onChange={(e) => {
-                        const newConditions = [...formData.conditions];
-                        newConditions[index].operator = e.target.value as any;
+                        const newConditions = formData.conditions.map((c, i) =>
+                          i === index ? { ...c, operator: e.target.value as any } : c
+                        );
                         setFormData({ ...formData, conditions: newConditions });
                       }}
                     >
@@ -349,8 +351,9 @@ const ReminderRulesPage: React.FC = () => {
                       placeholder="Value"
                       value={condition.value}
                       onChange={(e) => {
-                        const newConditions = [...formData.conditions];
-                        newConditions[index].value = e.target.value;
+                        const newConditions = formData.conditions.map((c, i) =>
+                          i === index ? { ...c, value: e.target.value } : c
+                        );
                         setFormData({ ...formData, conditions: newConditions });
                       }}
                       style={{ flex: 1 }}
