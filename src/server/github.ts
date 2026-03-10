@@ -229,19 +229,10 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
 
 // Get all PRs for a repo (optionally filtered by state)
 export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merged' | 'all' = 'open', prNumbers?: number[]): Promise<PRStatus[]> {
-  // If specific PR numbers are provided, skip the list fetch and get statuses directly
+  // If specific PR numbers are provided, use the batched rate-limited function
   if (prNumbers && prNumbers.length > 0) {
-    const results: PRStatus[] = [];
-    for (const prNumber of prNumbers) {
-      try {
-        await new Promise(resolve => setImmediate(resolve));
-        const status = await getPRStatus(repo, prNumber);
-        results.push(status);
-      } catch (error) {
-        console.error(`Failed to get status for PR #${prNumber}:`, error);
-      }
-    }
-    return results;
+    const statusMap = await batchGetPRStatuses(repo, prNumbers);
+    return Array.from(statusMap.values());
   }
   
   const cacheKey = `repo-prs-${repo}-${state}`;
