@@ -975,8 +975,8 @@ app.post('/api/reminder-rules', async (req, res) => {
     const { name, description, enabled, target, conditions, action, cooldown } = req.body;
 
     // Validate required fields
-    if (!name || !description || target === undefined || !conditions || !action || !cooldown) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!name || !description || target === undefined || !conditions || !Array.isArray(conditions) || conditions.length === 0 || !action || !cooldown) {
+      return res.status(400).json({ error: 'Missing required fields (conditions must be a non-empty array)' });
     }
 
     const rule = await addRule({

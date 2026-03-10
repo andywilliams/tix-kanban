@@ -279,10 +279,10 @@ function evaluateCondition(condition: RuleCondition, data: any): boolean {
 
   switch (condition.operator) {
     case 'equals':
-      return fieldValue == conditionValue;
+      return String(fieldValue) === String(conditionValue);
 
     case 'not_equals':
-      return fieldValue != conditionValue;
+      return String(fieldValue) !== String(conditionValue);
 
     case 'greater_than':
       // Handle duration comparisons for age fields
