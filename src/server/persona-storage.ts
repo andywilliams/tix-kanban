@@ -790,7 +790,16 @@ export async function initializePersonas(): Promise<void> {
 4. Consider edge cases and testing
 5. Provide clear, actionable steps
 
-Be thorough but concise. Focus on fixing the problem efficiently.`
+Be thorough but concise. Focus on fixing the problem efficiently.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind QA to review my PR")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Developer',
@@ -816,7 +825,16 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
 4. Think about testing and documentation
 5. Provide clear implementation steps
 
-Write clean, maintainable code that follows established conventions.`
+Write clean, maintainable code that follows established conventions.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind QA to review my PR")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Tech-Writer',
@@ -842,7 +860,16 @@ Write clean, maintainable code that follows established conventions.`
 4. Include examples and code samples
 5. Consider different use cases
 
-Make complex technical concepts accessible and actionable.`
+Make complex technical concepts accessible and actionable.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind QA to review my PR")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'QA-Engineer',
@@ -882,7 +909,16 @@ This tool helps identify:
 - Performance problems
 - Best practice violations
 
-Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.`
+Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind Developer to fix the bug")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Security-Reviewer',

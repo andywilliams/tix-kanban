@@ -25,6 +25,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
+import { getDueReminders, markReminderTriggered } from './personal-reminders.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -1345,7 +1346,20 @@ async function runReminderCheck(): Promise<void> {
   try {
     console.log('🔔 Running reminder check...');
 
+    // Check rule-based reminders
     await evaluateReminderRules(false);
+
+    // Check personal reminders
+    const dueReminders = await getDueReminders();
+    for (const reminder of dueReminders) {
+      const taskRef = reminder.taskId ? ` (task: ${reminder.taskId})` : '';
+      console.log(`🔔 Personal reminder: ${reminder.message}${taskRef}`);
+      await markReminderTriggered(reminder.id);
+    }
+
+    if (dueReminders.length > 0) {
+      console.log(`✅ Triggered ${dueReminders.length} personal reminder(s)`);
+    }
 
     // Update last run time
     workerState.lastReminderCheckRun = new Date().toISOString();
