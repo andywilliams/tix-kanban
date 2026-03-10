@@ -2490,17 +2490,28 @@ app.post('/api/backup/categories', async (req, res) => {
   }
 });
 
+// Helper: resolve effective backup dir (param > settings > default ~/.tix-kanban)
+async function resolveEffectiveBackupDir(requested?: string): Promise<string> {
+  if (requested) return requested;
+  const settings = await getUserSettings();
+  if (settings.backupDir) {
+    const { resolveBackupDir } = await import('./user-settings.js');
+    return resolveBackupDir(settings.backupDir);
+  }
+  const { join } = await import('path');
+  const { homedir } = await import('os');
+  return join(homedir(), '.tix-kanban');
+}
+
 // POST /api/backup/file - Create a file-based backup (optionally encrypted)
+// outputDir defaults to configured backupDir or ~/.tix-kanban
 app.post('/api/backup/file', async (req, res) => {
   try {
     const { outputDir, password, categories } = req.body;
-
-    if (!outputDir) {
-      return res.status(400).json({ error: 'outputDir is required' });
-    }
+    const effectiveOutputDir = await resolveEffectiveBackupDir(outputDir);
 
     const result = await createFileBackup({
-      outputDir,
+      outputDir: effectiveOutputDir,
       password: password || undefined,
       categories,
     });
@@ -2510,6 +2521,7 @@ app.post('/api/backup/file', async (req, res) => {
       backupPath: result.backupPath,
       metadataPath: result.metadataPath,
       encrypted: result.encrypted,
+      outputDir: effectiveOutputDir,
     });
   } catch (error: any) {
     console.error('POST /api/backup/file error:', error);
@@ -2518,16 +2530,14 @@ app.post('/api/backup/file', async (req, res) => {
 });
 
 // POST /api/backup/restore - Restore from a file-based backup
+// backupDir defaults to configured backupDir or ~/.tix-kanban
 app.post('/api/backup/restore', async (req, res) => {
   try {
     const { backupDir, password, targetDir } = req.body;
-
-    if (!backupDir) {
-      return res.status(400).json({ error: 'backupDir is required' });
-    }
+    const effectiveBackupDir = await resolveEffectiveBackupDir(backupDir);
 
     const result = await restoreFileBackup({
-      backupDir,
+      backupDir: effectiveBackupDir,
       password: password || undefined,
       targetDir: targetDir || undefined,
     });
@@ -2540,6 +2550,7 @@ app.post('/api/backup/restore', async (req, res) => {
       success: true,
       message: result.message,
       wasEncrypted: result.wasEncrypted,
+      restoredFrom: effectiveBackupDir,
     });
   } catch (error: any) {
     console.error('POST /api/backup/restore error:', error);
@@ -2548,16 +2559,16 @@ app.post('/api/backup/restore', async (req, res) => {
 });
 
 // GET /api/backup/files - List available file backups
+// backupDir defaults to configured backupDir or ~/.tix-kanban
 app.get('/api/backup/files', async (req, res) => {
   try {
     const { backupDir } = req.query;
+    const effectiveBackupDir = await resolveEffectiveBackupDir(
+      typeof backupDir === 'string' ? backupDir : undefined
+    );
 
-    if (!backupDir || typeof backupDir !== 'string') {
-      return res.status(400).json({ error: 'backupDir query parameter is required' });
-    }
-
-    const backups = await listBackups(backupDir);
-    res.json({ backups });
+    const backups = await listBackups(effectiveBackupDir);
+    res.json({ backups, backupDir: effectiveBackupDir });
   } catch (error: any) {
     console.error('GET /api/backup/files error:', error);
     res.status(500).json({ error: error.message || 'Failed to list backups' });
