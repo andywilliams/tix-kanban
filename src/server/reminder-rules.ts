@@ -266,7 +266,7 @@ function getPRData(task: Task): { url?: string; age?: number; approved?: boolean
   // In a real implementation, you'd fetch actual PR data from GitHub API
   return {
     url: prLink.url,
-    age: task.updatedAt ? Math.floor((Date.now() - task.updatedAt.getTime()) / (24 * 60 * 60 * 1000)) : 0,
+    age: task.updatedAt ? (Date.now() - task.updatedAt.getTime()) / (24 * 60 * 60 * 1000) : 0,
     approved: false, // Would need GitHub API
     unresolvedComments: 0 // Would need GitHub API
   };
