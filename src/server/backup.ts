@@ -593,11 +593,13 @@ export async function createFileBackup(options: {
   password?: string;
   categories?: BackupCategories;
 }): Promise<{ backupPath: string; metadataPath: string; encrypted: boolean }> {
-  const storageDir = await getBackupStorageDir();
+  // Source = where the data lives (always DEFAULT_STORAGE_DIR / ~/.tix-kanban)
+  // Output = where the backup file goes (configured backup dir)
+  const sourceDir = DEFAULT_STORAGE_DIR;
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const baseName = `backup-${timestamp}`;
   
-  const tarBuffer = await createTarArchive(storageDir);
+  const tarBuffer = await createTarArchive(sourceDir);
   
   let finalBuffer: Buffer;
   let metadata: BackupMetadata;
