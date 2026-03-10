@@ -666,6 +666,10 @@ function buildChatPrompt(context: PromptContext): string {
 
   const sections: string[] = [];
 
+  // Current date/time (needed for reminder scheduling)
+  const now = new Date();
+  sections.push(`\n## Current Date & Time\n${now.toUTCString()} (UTC)\nLocal ISO: ${now.toISOString()}`);
+
   // Soul prompt (personality)
   const soulText = generateSoulPrompt(soul);
   sections.push(tracker.record('soul', buildBudgetedSection('Soul', soulText, budget.soul)));
@@ -783,7 +787,9 @@ Importance: 1-10 (8+ for key people/roles, 6-7 for useful context, 5 for minor d
 Only add memory blocks when the user shares NEW factual information. Do NOT add memory blocks for questions, greetings, or general chat. Extract ALL distinct facts - if the user mentions 5 people, create 5 separate memory blocks.
 
 ## Actions You Can Take
-You can create tickets on the kanban board when the user asks. To create a ticket, include a JSON block in your response like this:
+
+### Create a ticket
+You can create tickets on the kanban board when the user asks. Include a JSON block in your response like this:
 
 \`\`\`action
 {"action":"create_task","title":"Short descriptive title","description":"Detailed description of what needs to be done","assignee":"persona-id","priority":400,"tags":["tag1","tag2"]}
@@ -795,7 +801,21 @@ Guidelines for task creation:
 - **tags** are optional labels
 - Write your conversational response BEFORE the action block
 - Only create a task when the user explicitly asks for one
-- Confirm what you're creating in your response text`;
+- Confirm what you're creating in your response text
+
+### Set a reminder
+You can set reminders for the user. When they ask you to remind them of something at a specific time, include:
+
+\`\`\`action
+{"action":"create_reminder","message":"What to remind them about","remindAt":"2026-03-11T09:00:00.000Z","taskId":"optional-task-id"}
+\`\`\`
+
+Guidelines for reminders:
+- **message** — a clear, concise reminder message (what they asked to be reminded about)
+- **remindAt** — ISO 8601 timestamp. Today's date/time context is in the system prompt. Interpret "tomorrow at 9am", "in 2 hours", "next Monday" etc. relative to now.
+- **taskId** — optional, include if the reminder is about a specific task
+- Always confirm in your response text what you've set and when it will fire
+- If the user doesn't specify a time, ask them when they'd like to be reminded`;
 
   if (persona.id === 'product-manager') {
     instructions += `
@@ -920,6 +940,42 @@ async function executeAction(
 
       const assigneeText = action.assignee ? ` → assigned to **${action.assignee}**` : '';
       return `📋 **Ticket created:** ${task.title} (ID: ${task.id})${assigneeText} — Priority: P${action.priority || 400}`;
+    }
+
+    case 'create_reminder': {
+      if (!action.message || !action.remindAt) {
+        throw new Error('Reminder message and remindAt are required');
+      }
+
+      const remindAt = new Date(action.remindAt);
+      if (isNaN(remindAt.getTime())) {
+        throw new Error(`Invalid remindAt date: "${action.remindAt}"`);
+      }
+
+      // POST to our own reminders API
+      const baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+      const res = await fetch(`${baseUrl}/api/reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: action.message,
+          remindAt: remindAt.toISOString(),
+          taskId: action.taskId || undefined,
+          creator: persona.name,
+          target: action.target || 'human:user',
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(`Failed to create reminder: ${err.error}`);
+      }
+
+      const formatted = remindAt.toLocaleString('en-GB', {
+        weekday: 'short', day: 'numeric', month: 'short',
+        hour: '2-digit', minute: '2-digit'
+      });
+      return `⏰ **Reminder set** for ${formatted}: "${action.message}"`;
     }
 
     default:
