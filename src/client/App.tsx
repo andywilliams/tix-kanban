@@ -62,6 +62,7 @@ import { StandupPage } from './components/StandupPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { DailyNotesPage } from './components/DailyNotesPage';
 import SlackSettings from './components/SlackSettings';
+import { ReminderRulesPage } from './components/ReminderRulesPage';
 import SlackView from './components/SlackView';
 import ReminderRulesPage from './components/ReminderRulesPage';
 import { Task } from './types';
@@ -205,6 +206,12 @@ function AppContent() {
               💬 Slack
             </Link>
             <Link
+              to="/reminders"
+              className={`nav-link ${location.pathname === '/reminders' ? 'active' : ''}`}
+            >
+              🔔 Reminders
+            </Link>
+            <Link
               to="/settings"
               className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}
             >
@@ -338,6 +345,10 @@ function AppContent() {
                 onSettingsChange={(s) => setUserName(s.userName)}
               />
             }
+          />
+          <Route
+            path="/reminders"
+            element={<ReminderRulesPage />}
           />
           <Route
             path="/slack"

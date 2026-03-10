@@ -51,11 +51,11 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [slxSyncConfig, setSlxSyncConfig] = useState<SlxSyncConfig>({ enabled: false, interval: '0 */1 * * *' });
   const [slxSaving, setSlxSaving] = useState(false);
   const [slxSaved, setSlxSaved] = useState(false);
-  const [prSaving, setPRSaving] = useState(false);
-  const [prSaved, setPRSaved] = useState(false);
   const [reminderCheckConfig, setReminderCheckConfig] = useState<ReminderCheckConfig>({ enabled: false, interval: '0 9 * * 1-5' });
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderSaved, setReminderSaved] = useState(false);
+  const [prSaving, setPRSaving] = useState(false);
+  const [prSaved, setPRSaved] = useState(false);
 
   useEffect(() => {
     loadSettings();
