@@ -62,7 +62,6 @@ import { StandupPage } from './components/StandupPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { DailyNotesPage } from './components/DailyNotesPage';
 import SlackSettings from './components/SlackSettings';
-import { ReminderRulesPage } from './components/ReminderRulesPage';
 import SlackView from './components/SlackView';
 import ReminderRulesPage from './components/ReminderRulesPage';
 import { Task } from './types';
