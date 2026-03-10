@@ -2810,6 +2810,8 @@ body {
 
 .knowledge-detail .btn-danger:hover {
   opacity: 0.9;
+}
+
 .team-stat {
   display: flex;
   flex-direction: column;
