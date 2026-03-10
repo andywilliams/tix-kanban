@@ -4,6 +4,16 @@ import os from 'os';
 
 const SETTINGS_FILE = path.join(os.homedir(), '.tix-kanban', 'user-settings.json');
 
+export interface BackupSchedule {
+  enabled: boolean;
+  frequency: 'hourly' | 'daily' | 'custom';
+  customMinutes?: number; // Custom interval in minutes (only used when frequency is 'custom')
+  gitAutoCommit?: boolean; // Whether to auto-commit backups to git (default: false)
+  lastRun?: string; // ISO date of last backup
+  lastStatus?: 'success' | 'failure' | 'skipped';
+  lastError?: string; // Error message from last failed backup
+}
+
 export interface UserSettings {
   userName: string;
   workspaceDir?: string;
@@ -14,6 +24,7 @@ export interface UserSettings {
     frequency: string; // Cron expression for PR checking
     lastRun?: string; // ISO date of last run
   };
+  backup?: BackupSchedule;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
