@@ -25,6 +25,29 @@ export interface UserSettings {
     lastRun?: string; // ISO date of last run
   };
   backup?: BackupSchedule;
+  /**
+   * Custom directory for backup storage.
+   * Supports ~ expansion and relative paths (resolved from home dir).
+   * Defaults to ~/.tix-kanban if not set.
+   * On first use, subdirectories `.tix-kanban/` and `tix-kanban/` are auto-created.
+   */
+  backupDir?: string;
+}
+
+/**
+ * Resolve a user-supplied backup directory path.
+ * Expands ~ to home dir and resolves relative paths from home.
+ * Returns the absolute path.
+ */
+export function resolveBackupDir(backupDir: string): string {
+  if (backupDir.startsWith('~/') || backupDir === '~') {
+    return path.join(os.homedir(), backupDir.slice(2));
+  }
+  if (path.isAbsolute(backupDir)) {
+    return backupDir;
+  }
+  // Relative paths resolved from home dir
+  return path.join(os.homedir(), backupDir);
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

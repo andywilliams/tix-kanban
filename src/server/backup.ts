@@ -3,12 +3,55 @@ import { exec as execCallback } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { getUserSettings, saveUserSettings, BackupSchedule } from './user-settings.js';
+import { getUserSettings, saveUserSettings, BackupSchedule, resolveBackupDir } from './user-settings.js';
 
 const execAsync = promisify(execCallback);
 
-const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
-const BACKUP_STATE_FILE = path.join(STORAGE_DIR, 'backup-state.json');
+const DEFAULT_STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
+const BACKUP_STATE_FILE = path.join(DEFAULT_STORAGE_DIR, 'backup-state.json');
+
+/**
+ * Get the effective backup storage directory.
+ * Uses `backupDir` from settings if configured, otherwise ~/.tix-kanban.
+ * Auto-creates required subdirectories on first use.
+ */
+export async function getBackupStorageDir(): Promise<string> {
+  const settings = await getUserSettings();
+  if (!settings.backupDir) {
+    return DEFAULT_STORAGE_DIR;
+  }
+
+  const resolved = resolveBackupDir(settings.backupDir);
+
+  // Validate/create the directory and required subdirs
+  try {
+    await fs.mkdir(resolved, { recursive: true });
+    await fs.mkdir(path.join(resolved, '.tix-kanban'), { recursive: true });
+    await fs.mkdir(path.join(resolved, 'tix-kanban'), { recursive: true });
+  } catch (err) {
+    throw new Error(
+      `Backup directory "${resolved}" could not be created or accessed: ${(err as Error).message}. ` +
+      `Please check the path in settings (backupDir: "${settings.backupDir}") and ensure it is writable.`
+    );
+  }
+
+  // Quick writable check
+  const testFile = path.join(resolved, '.tix-write-test');
+  try {
+    await fs.writeFile(testFile, '');
+    await fs.unlink(testFile);
+  } catch {
+    throw new Error(
+      `Backup directory "${resolved}" exists but is not writable. ` +
+      `Please check permissions or update backupDir in settings.`
+    );
+  }
+
+  return resolved;
+}
+
+/** @deprecated Use getBackupStorageDir() — kept for internal compat */
+const STORAGE_DIR = DEFAULT_STORAGE_DIR;
 
 interface BackupState {
   lastBackupTime?: string;
@@ -103,7 +146,8 @@ export async function hasChangesSinceLastBackup(): Promise<boolean> {
     const lastBackupTime = new Date(state.lastBackupTime).getTime();
     
     // Check if any files in the storage directory have been modified since last backup
-    const files = await getAllStorageFiles(STORAGE_DIR);
+    const storageDir = await getBackupStorageDir();
+    const files = await getAllStorageFiles(storageDir);
     
     for (const file of files) {
       const stats = await fs.stat(file);
@@ -207,8 +251,11 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
       return { success: true, message: 'No changes since last backup', skipped: true };
     }
 
+    // Resolve the effective backup directory (may be custom)
+    const effectiveStorageDir = await getBackupStorageDir();
+
     // Get list of changed files
-    const files = await getAllStorageFiles(STORAGE_DIR);
+    const files = await getAllStorageFiles(effectiveStorageDir);
     
     if (files.length === 0) {
       console.log(`[backup] No files to backup`);
@@ -225,11 +272,11 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         gitErrorMessage = 'Git is not installed';
       } else {
         // Check if git repo exists, if not initialize it
-        const repoExists = await isGitRepo(STORAGE_DIR);
+        const repoExists = await isGitRepo(effectiveStorageDir);
         
         if (!repoExists) {
           console.log('[backup] Initializing git repository for backups...');
-          const initSuccess = await initGitRepo(STORAGE_DIR);
+          const initSuccess = await initGitRepo(effectiveStorageDir);
           if (!initSuccess) {
             gitErrorMessage = 'Failed to initialize git repository';
           }
@@ -239,17 +286,17 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         if (!gitErrorMessage) {
           try {
             // Stage all files
-            await execAsync(`git add -A`, { cwd: STORAGE_DIR });
+            await execAsync(`git add -A`, { cwd: effectiveStorageDir });
             
             // Check if there are staged changes
-            const { stdout: statusOutput } = await execAsync(`git status --porcelain`, { cwd: STORAGE_DIR });
+            const { stdout: statusOutput } = await execAsync(`git status --porcelain`, { cwd: effectiveStorageDir });
             
             if (!statusOutput.trim()) {
               console.log(`[backup] No changes to commit`);
             } else {
               // Commit the changes
               const commitMessage = `backup: ${new Date().toISOString()}`;
-              await execAsync(`git commit -m "${commitMessage}"`, { cwd: STORAGE_DIR });
+              await execAsync(`git commit -m "${commitMessage}"`, { cwd: effectiveStorageDir });
               console.log(`[backup] Git commit created: ${commitMessage}`);
             }
           } catch (gitError: any) {
