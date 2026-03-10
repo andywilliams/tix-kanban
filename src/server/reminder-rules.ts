@@ -134,8 +134,8 @@ const BUILT_IN_RULES: ReminderRule[] = [
   {
     id: 'builtin-unresolved-comments',
     name: 'Unresolved PR Comments',
-    description: 'PRs with unresolved review comments',
-    enabled: true,
+    description: 'PRs with unresolved review comments (disabled by default — requires GitHub API integration)',
+    enabled: false,
     target: 'pr',
     conditions: [
       { field: 'prUnresolvedComments', operator: 'greater_than', value: 0 },
