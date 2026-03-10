@@ -3,6 +3,7 @@ import { exec as execCallback } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { getUserSettings, saveUserSettings, BackupSchedule, BackupCategories, getBackupCategoriesWithDefaults } from './user-settings.js';
 
 const execAsync = promisify(execCallback);
@@ -457,4 +458,289 @@ export function stopBackupScheduler(): void {
     backupIntervalId = null;
     console.log('[backup] Backup scheduler stopped');
   }
+}
+
+// ============ File-based Backup with Password Encryption ============
+
+export interface BackupMetadata {
+  version: string;
+  createdAt: string;
+  categories?: BackupCategories;
+  encrypted: boolean;
+  algorithm?: string;
+  salt?: string;
+  iv?: string;
+  authTag?: string;
+}
+
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const KEY_LENGTH = 32; // 256 bits
+const SALT_LENGTH = 32;
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
+
+/**
+ * Derive an encryption key from a password using scrypt
+ */
+function deriveKey(password: string, salt: Buffer): Buffer {
+  return crypto.scryptSync(password, salt, KEY_LENGTH, {
+    N: 2 ** 14,
+    r: 8,
+    p: 1,
+  });
+}
+
+/**
+ * Encrypt data with AES-256-GCM
+ */
+function encryptData(data: Buffer, password: string): { encrypted: Buffer; salt: Buffer; iv: Buffer; authTag: Buffer } {
+  const salt = crypto.randomBytes(SALT_LENGTH);
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const key = deriveKey(password, salt);
+
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return { encrypted, salt, iv, authTag };
+}
+
+/**
+ * Decrypt data with AES-256-GCM
+ */
+function decryptData(encrypted: Buffer, password: string, salt: Buffer, iv: Buffer, authTag: Buffer): Buffer {
+  const key = deriveKey(password, salt);
+
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  decipher.setAuthTag(authTag);
+
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+/**
+ * Create a tar archive of the storage directory
+ */
+async function createTarArchive(storageDir: string): Promise<Buffer> {
+  const { spawn } = await import('child_process');
+  
+  const allFiles = await getAllStorageFiles(storageDir);
+  
+  if (allFiles.length === 0) {
+    throw new Error('No files to backup');
+  }
+
+  return new Promise((resolve, reject) => {
+    const tarArgs = ['-cf', '-', '-C', storageDir];
+    const relativeFiles = allFiles.map(f => path.relative(storageDir, f));
+    tarArgs.push(...relativeFiles);
+    
+    const tarProc = spawn('tar', tarArgs);
+    const chunks: Buffer[] = [];
+
+    tarProc.stdout.on('data', (chunk) => chunks.push(chunk));
+    tarProc.on('close', (code) => {
+      if (code === 0) {
+        resolve(Buffer.concat(chunks));
+      } else {
+        reject(new Error(`tar exited with code ${code}`));
+      }
+    });
+    tarProc.on('error', reject);
+  });
+}
+
+/**
+ * Extract a tar archive to a directory
+ */
+async function extractTarArchive(tarBuffer: Buffer, targetDir: string): Promise<void> {
+  const { spawn } = await import('child_process');
+  
+  await fs.mkdir(targetDir, { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    const tarProc = spawn('tar', ['-xf', '-', '-C', targetDir]);
+    
+    tarProc.stdin.write(tarBuffer);
+    tarProc.stdin.end();
+    
+    tarProc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`tar exited with code ${code}`));
+      }
+    });
+    tarProc.on('error', reject);
+  });
+}
+
+/**
+ * Create a file-based backup (optionally encrypted)
+ */
+export async function createFileBackup(options: {
+  outputDir: string;
+  password?: string;
+  categories?: BackupCategories;
+}): Promise<{ backupPath: string; metadataPath: string; encrypted: boolean }> {
+  const storageDir = await getStorageDir();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const baseName = `backup-${timestamp}`;
+  
+  const tarBuffer = await createTarArchive(storageDir);
+  
+  let finalBuffer: Buffer;
+  let metadata: BackupMetadata;
+  
+  if (options.password) {
+    const { encrypted, salt, iv, authTag } = encryptData(tarBuffer, options.password);
+    finalBuffer = encrypted;
+    
+    metadata = {
+      version: '1.0',
+      createdAt: timestamp,
+      categories: options.categories,
+      encrypted: true,
+      algorithm: ENCRYPTION_ALGORITHM,
+      salt: salt.toString('hex'),
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex'),
+    };
+  } else {
+    finalBuffer = tarBuffer;
+    
+    metadata = {
+      version: '1.0',
+      createdAt: timestamp,
+      categories: options.categories,
+      encrypted: false,
+    };
+  }
+  
+  const ext = options.password ? '.tar.enc' : '.tar';
+  const backupPath = path.join(options.outputDir, `${baseName}${ext}`);
+  const metadataPath = path.join(options.outputDir, `${baseName}-metadata.json`);
+  
+  await fs.writeFile(backupPath, finalBuffer);
+  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+  
+  console.log(`[backup] File backup created: ${backupPath} (encrypted: ${!!options.password})`);
+  
+  return { backupPath, metadataPath, encrypted: !!options.password };
+}
+
+/**
+ * Find the latest backup file in a directory
+ */
+async function findLatestBackup(backupDir: string): Promise<{ backupPath: string; metadataPath: string } | null> {
+  const files = await fs.readdir(backupDir);
+  
+  const backupFiles = files.filter(f => f.startsWith('backup-') && (f.endsWith('.tar') || f.endsWith('.tar.enc')));
+  
+  if (backupFiles.length === 0) {
+    return null;
+  }
+  
+  backupFiles.sort().reverse();
+  const latestBackup = backupFiles[0];
+  
+  const baseName = latestBackup.replace(/\.tar(\.enc)?$/, '');
+  const metadataPath = path.join(backupDir, `${baseName}-metadata.json`);
+  
+  return {
+    backupPath: path.join(backupDir, latestBackup),
+    metadataPath,
+  };
+}
+
+/**
+ * Restore a file-based backup (with optional password decryption)
+ */
+export async function restoreFileBackup(options: {
+  backupDir: string;
+  password?: string;
+  targetDir?: string;
+}): Promise<{ success: boolean; message: string; wasEncrypted: boolean }> {
+  const latest = await findLatestBackup(options.backupDir);
+  
+  if (!latest) {
+    return { success: false, message: 'No backup found in directory', wasEncrypted: false };
+  }
+  
+  let metadata: BackupMetadata;
+  try {
+    const metadataContent = await fs.readFile(latest.metadataPath, 'utf8');
+    metadata = JSON.parse(metadataContent);
+  } catch (error) {
+    return { success: false, message: 'Failed to read backup metadata', wasEncrypted: false };
+  }
+  
+  const backupBuffer = await fs.readFile(latest.backupPath);
+  
+  let tarBuffer: Buffer;
+  
+  if (metadata.encrypted) {
+    if (!options.password) {
+      return { success: false, message: 'Backup is encrypted. Please provide a password.', wasEncrypted: true };
+    }
+    
+    try {
+      const salt = Buffer.from(metadata.salt!, 'hex');
+      const iv = Buffer.from(metadata.iv!, 'hex');
+      const authTag = Buffer.from(metadata.authTag!, 'hex');
+      
+      tarBuffer = decryptData(backupBuffer, options.password, salt, iv, authTag);
+    } catch (error) {
+      return { success: false, message: 'Incorrect password or corrupted backup', wasEncrypted: true };
+    }
+  } else {
+    tarBuffer = backupBuffer;
+  }
+  
+  const targetDir = options.targetDir || await getStorageDir();
+  
+  await extractTarArchive(tarBuffer, targetDir);
+  
+  console.log(`[backup] Backup restored to: ${targetDir}`);
+  
+  return { success: true, message: `Backup restored successfully to ${targetDir}`, wasEncrypted: metadata.encrypted };
+}
+
+/**
+ * List available backups in a directory
+ */
+export async function listBackups(backupDir: string): Promise<Array<{
+  filename: string;
+  createdAt: string;
+  encrypted: boolean;
+  categories?: BackupCategories;
+}>> {
+  const files = await fs.readdir(backupDir);
+  
+  const metadataFiles = files.filter(f => f.startsWith('backup-') && f.endsWith('-metadata.json'));
+  
+  const backups = [];
+  for (const metadataFile of metadataFiles) {
+    try {
+      const content = await fs.readFile(path.join(backupDir, metadataFile), 'utf8');
+      const metadata: BackupMetadata = JSON.parse(content);
+      
+      backups.push({
+        filename: metadataFile.replace('-metadata.json', ''),
+        createdAt: metadata.createdAt,
+        encrypted: metadata.encrypted,
+        categories: metadata.categories,
+      });
+    } catch (error) {
+      // Skip invalid metadata files
+    }
+  }
+  
+  backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  
+  return backups;
 }
