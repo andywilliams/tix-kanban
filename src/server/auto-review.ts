@@ -497,7 +497,7 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       });
 
       // Post escalation message to chat
-      await postReviewUpdate(task, reviewerName, `⚠️ Review parse failure — escalating to human review.\n\n${reviewResult.feedback}`);
+      await postReviewUpdate(task, reviewerName, `⚠️ Review session issue — escalating to human review.\n\n${reviewResult.feedback}`);
 
       console.log(`⚠️ Auto-review parse failure for task: ${task.title}, escalating to human review`);
 
