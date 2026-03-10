@@ -2551,7 +2551,7 @@ async function resolveEffectiveBackupDir(requested?: string): Promise<string> {
   }
   const { join } = await import('path');
   const { homedir } = await import('os');
-  return join(homedir(), '.tix-kanban');
+  return join(homedir(), '.tix-kanban-backups');
 }
 
 // POST /api/backup/file - Create a file-based backup (optionally encrypted)
