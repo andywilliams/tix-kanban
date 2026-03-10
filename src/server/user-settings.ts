@@ -43,6 +43,7 @@ export interface UserSettings {
   };
   backup?: BackupSchedule;
   backupCategories?: BackupCategories;
+  reminderCheckInterval?: number; // Check frequency in minutes (default: 5)
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

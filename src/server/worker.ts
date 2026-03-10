@@ -26,10 +26,10 @@ import {
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
 import {
+  PersonalReminder,
   getDueReminders,
   markReminderTriggered,
   cleanupOldReminders,
-  PersonalReminder
 } from './personal-reminders.js';
 
 // Sanitize user content to prevent prompt injection attacks
@@ -1187,6 +1187,10 @@ export async function startWorker(): Promise<void> {
       });
       reminderCheckCronJob.start();
       console.log(`🔔 Reminder check scheduler started: ${workerState.reminderCheckInterval} (${cron.validate(workerState.reminderCheckInterval) ? 'valid' : 'INVALID'} cron expression)`);
+      
+      // Run immediate check on startup to catch any missed reminders from downtime
+      console.log('🔔 Running immediate reminder check on startup...');
+      await runReminderCheck();
     } else {
       console.log('💤 Reminder check scheduler is disabled');
     }
@@ -1346,11 +1350,43 @@ async function runSlxSync(): Promise<void> {
   }
 }
 
+// Send notification for a triggered reminder
+async function sendReminderNotification(reminder: PersonalReminder): Promise<void> {
+  const targetName = reminder.target.startsWith('human:') 
+    ? reminder.target.replace('human:', '') 
+    : reminder.target;
+  
+  const notification = `🔔 REMINDER for ${targetName}: ${reminder.message}`;
+  console.log(notification);
+}
+
 // Run reminder check
 async function runReminderCheck(): Promise<void> {
   try {
     console.log('🔔 Running reminder check...');
 
+    // Check for due reminders (triggerTime <= now and status is 'pending')
+    const dueReminders = await getDueReminders();
+    
+    if (dueReminders.length > 0) {
+      console.log(`📬 Found ${dueReminders.length} due reminder(s)`);
+      
+      // Mark each as triggered and send notification
+      for (const reminder of dueReminders) {
+        await markReminderTriggered(reminder.id);
+        await sendReminderNotification(reminder);
+        console.log(`   ✅ Triggered: ${reminder.id} - "${reminder.message.substring(0, 50)}..."`);
+      }
+    }
+    
+    // Clean up old reminders (cleanupAfter <= now and status is 'triggered' or 'completed')
+    const cleanedCount = await cleanupOldReminders();
+    
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} old reminder(s)`);
+    }
+
+    // Also run the existing reminder rules evaluation
     await evaluateReminderRules(false);
 
     // Update last run time
