@@ -3,7 +3,8 @@ import { exec as execCallback } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { getUserSettings, saveUserSettings, BackupSchedule } from './user-settings.js';
+import crypto from 'crypto';
+import { getUserSettings, saveUserSettings, BackupSchedule, BackupCategories, getBackupCategoriesWithDefaults, expandBackupPath, validateBackupPath } from './user-settings.js';
 
 const execAsync = promisify(execCallback);
 
@@ -179,9 +180,30 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
   let gitErrorMessage: string | undefined;
   
   try {
-    // Get settings to check if git auto-commit is enabled
+    // Get settings
     const settings = await getUserSettings();
     const gitAutoCommit = settings.backup?.gitAutoCommit ?? false;
+    const backupDir = settings.backup?.backupDir;
+    
+    // Validate backup directory if specified
+    if (backupDir && backupDir.trim()) {
+      const validation = await validateBackupPath(backupDir);
+      if (!validation.valid) {
+        return { success: false, message: `Invalid backup directory: ${validation.error}` };
+      }
+      
+      // Initialize the backup directory structure (create subdirectories)
+      const storageDir = expandBackupPath(backupDir);
+      const dataDir = path.join(storageDir, '.tix-kanban');
+      const workDir = path.join(storageDir, 'tix-kanban');
+      await fs.mkdir(dataDir, { recursive: true });
+      await fs.mkdir(workDir, { recursive: true });
+      console.log(`[backup] Backup directory structure initialized at: ${storageDir}`);
+    }
+    
+    // Get the storage directory to use
+    const storageDir = await getStorageDir();
+    console.log(`[backup] Using storage directory: ${storageDir}`);
     
     // Check if there are changes to backup
     const changesExist = await hasChangesSinceLastBackup();
@@ -194,7 +216,7 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         lastBackupResult: 'skipped',
         lastBackupError: undefined
       };
-      await writeBackupState(state);
+      await writeBackupState(storageDir, state);
       
       // Update user settings
       if (settings.backup) {
@@ -208,7 +230,7 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
     }
 
     // Get list of changed files
-    const files = await getAllStorageFiles(STORAGE_DIR);
+    const files = await getAllStorageFiles(storageDir);
     
     if (files.length === 0) {
       console.log(`[backup] No files to backup`);
@@ -225,11 +247,11 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         gitErrorMessage = 'Git is not installed';
       } else {
         // Check if git repo exists, if not initialize it
-        const repoExists = await isGitRepo(STORAGE_DIR);
+        const repoExists = await isGitRepo(storageDir);
         
         if (!repoExists) {
           console.log('[backup] Initializing git repository for backups...');
-          const initSuccess = await initGitRepo(STORAGE_DIR);
+          const initSuccess = await initGitRepo(storageDir);
           if (!initSuccess) {
             gitErrorMessage = 'Failed to initialize git repository';
           }
@@ -239,17 +261,17 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         if (!gitErrorMessage) {
           try {
             // Stage all files
-            await execAsync(`git add -A`, { cwd: STORAGE_DIR });
+            await execAsync(`git add -A`, { cwd: storageDir });
             
             // Check if there are staged changes
-            const { stdout: statusOutput } = await execAsync(`git status --porcelain`, { cwd: STORAGE_DIR });
+            const { stdout: statusOutput } = await execAsync(`git status --porcelain`, { cwd: storageDir });
             
             if (!statusOutput.trim()) {
               console.log(`[backup] No changes to commit`);
             } else {
               // Commit the changes
               const commitMessage = `backup: ${new Date().toISOString()}`;
-              await execAsync(`git commit -m "${commitMessage}"`, { cwd: STORAGE_DIR });
+              await execAsync(`git commit -m "${commitMessage}"`, { cwd: storageDir });
               console.log(`[backup] Git commit created: ${commitMessage}`);
             }
           } catch (gitError: any) {
@@ -270,7 +292,11 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
       lastBackupResult: gitErrorMessage ? 'failure' : 'success',
       lastBackupError: gitErrorMessage
     };
+<<<<<<< Updated upstream
     await writeBackupState(state);
+=======
+    await writeBackupState(storageDir, state);
+>>>>>>> Stashed changes
     
     // Update user settings
     if (settings.backup) {
@@ -290,13 +316,23 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
     const errorMessage = error.message || String(error);
     console.error(`[backup] Backup failed:`, errorMessage);
     
+    // Try to get storage dir for state update
+    let currentStorageDir = STORAGE_DIR;
+    try {
+      currentStorageDir = await getStorageDir();
+    } catch {}
+    
     // Update state with error
     const state: BackupState = {
       lastBackupTime: timestamp,
       lastBackupResult: 'failure',
       lastBackupError: errorMessage
     };
+<<<<<<< Updated upstream
     await writeBackupState(state).catch(() => {});
+=======
+    await writeBackupState(currentStorageDir, state).catch(() => {});
+>>>>>>> Stashed changes
     
     // Update user settings
     const settings = await getUserSettings();
@@ -403,4 +439,330 @@ export function stopBackupScheduler(): void {
     backupIntervalId = null;
     console.log('[backup] Backup scheduler stopped');
   }
+}
+
+// ============ File-based Backup with Password Encryption ============
+
+export interface BackupMetadata {
+  version: string;
+  createdAt: string;
+  categories?: BackupCategories;
+  encrypted: boolean;
+  algorithm?: string;
+  salt?: string;
+  iv?: string;
+  authTag?: string;
+}
+
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const KEY_LENGTH = 32; // 256 bits
+const SALT_LENGTH = 32;
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
+const PBKDF2_ITERATIONS = 100000;
+
+/**
+ * Derive an encryption key from a password using scrypt
+ */
+function deriveKey(password: string, salt: Buffer): Buffer {
+  return crypto.scryptSync(password, salt, KEY_LENGTH, {
+    N: 2 ** 14,
+    r: 8,
+    p: 1,
+  });
+}
+
+/**
+ * Encrypt data with AES-256-GCM
+ */
+function encryptData(data: Buffer, password: string): { encrypted: Buffer; salt: Buffer; iv: Buffer; authTag: Buffer } {
+  const salt = crypto.randomBytes(SALT_LENGTH);
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const key = deriveKey(password, salt);
+
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return { encrypted, salt, iv, authTag };
+}
+
+/**
+ * Decrypt data with AES-256-GCM
+ */
+function decryptData(encrypted: Buffer, password: string, salt: Buffer, iv: Buffer, authTag: Buffer): Buffer {
+  const key = deriveKey(password, salt);
+
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  decipher.setAuthTag(authTag);
+
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+/**
+ * Create a tar archive of the storage directory for selected categories
+ */
+async function createTarArchive(storageDir: string, categories?: BackupCategories): Promise<Buffer> {
+  const { spawn } = await import('child_process');
+  
+  // Get files to include based on categories
+  const allFiles = await getAllStorageFiles(storageDir);
+  
+  if (allFiles.length === 0) {
+    throw new Error('No files to backup');
+  }
+
+  return new Promise((resolve, reject) => {
+    const tarArgs = ['-cf', '-', '-C', storageDir];
+    
+    // Add all files relative to storage dir
+    const relativeFiles = allFiles.map(f => path.relative(storageDir, f));
+    tarArgs.push(...relativeFiles);
+    
+    const tarProc = spawn('tar', tarArgs);
+    const chunks: Buffer[] = [];
+
+    tarProc.stdout.on('data', (chunk) => chunks.push(chunk));
+    tarProc.on('close', (code) => {
+      if (code === 0) {
+        resolve(Buffer.concat(chunks));
+      } else {
+        reject(new Error(`tar exited with code ${code}`));
+      }
+    });
+    tarProc.on('error', reject);
+  });
+}
+
+/**
+ * Extract a tar archive to a directory
+ */
+async function extractTarArchive(tarBuffer: Buffer, targetDir: string): Promise<void> {
+  const { spawn } = await import('child_process');
+  
+  // Ensure target directory exists
+  await fs.mkdir(targetDir, { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    const tarProc = spawn('tar', ['-xf', '-', '-C', targetDir]);
+    
+    tarProc.stdin.write(tarBuffer);
+    tarProc.stdin.end();
+    
+    tarProc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`tar exited with code ${code}`));
+      }
+    });
+    tarProc.on('error', reject);
+  });
+}
+
+/**
+ * Create a file-based backup (optionally encrypted)
+ * Returns the path to the backup file and metadata
+ */
+export async function createFileBackup(options: {
+  outputDir: string;
+  password?: string;
+  categories?: BackupCategories;
+}): Promise<{ backupPath: string; metadataPath: string; encrypted: boolean }> {
+  const storageDir = await getStorageDir();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const baseName = `backup-${timestamp}`;
+  
+  // Create tar archive
+  const tarBuffer = await createTarArchive(storageDir, options.categories);
+  
+  let finalBuffer: Buffer;
+  let metadata: BackupMetadata;
+  
+  if (options.password) {
+    // Encrypt the tar archive
+    const { encrypted, salt, iv, authTag } = encryptData(tarBuffer, options.password);
+    finalBuffer = encrypted;
+    
+    metadata = {
+      version: '1.0',
+      createdAt: timestamp,
+      categories: options.categories,
+      encrypted: true,
+      algorithm: ENCRYPTION_ALGORITHM,
+      salt: salt.toString('hex'),
+      iv: iv.toString('hex'),
+      authTag: authTag.toString('hex'),
+    };
+  } else {
+    // No encryption - use plain tar
+    finalBuffer = tarBuffer;
+    
+    metadata = {
+      version: '1.0',
+      createdAt: timestamp,
+      categories: options.categories,
+      encrypted: false,
+    };
+  }
+  
+  // Determine file extensions
+  const ext = options.password ? '.tar.enc' : '.tar';
+  const backupPath = path.join(options.outputDir, `${baseName}${ext}`);
+  const metadataPath = path.join(options.outputDir, `${baseName}-metadata.json`);
+  
+  // Write files
+  await fs.writeFile(backupPath, finalBuffer);
+  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+  
+  console.log(`[backup] File backup created: ${backupPath} (encrypted: ${!!options.password})`);
+  
+  return { backupPath, metadataPath, encrypted: !!options.password };
+}
+
+/**
+ * Check if a backup file is encrypted by reading its metadata
+ */
+export async function getBackupMetadata(backupDir: string): Promise<BackupMetadata | null> {
+  const files = await fs.readdir(backupDir);
+  
+  // Find metadata file (most recent)
+  const metadataFiles = files.filter(f => f.endsWith('-metadata.json'));
+  if (metadataFiles.length === 0) {
+    return null;
+  }
+  
+  // Sort by name (which includes timestamp) to get most recent
+  metadataFiles.sort().reverse();
+  const latestMetadataFile = metadataFiles[0];
+  
+  const content = await fs.readFile(path.join(backupDir, latestMetadataFile), 'utf8');
+  return JSON.parse(content);
+}
+
+/**
+ * Find the latest backup file in a directory
+ */
+async function findLatestBackup(backupDir: string): Promise<{ backupPath: string; metadataPath: string } | null> {
+  const files = await fs.readdir(backupDir);
+  
+  // Find backup files and their metadata
+  const backupFiles = files.filter(f => f.startsWith('backup-') && (f.endsWith('.tar') || f.endsWith('.tar.enc')));
+  
+  if (backupFiles.length === 0) {
+    return null;
+  }
+  
+  // Sort by name to get most recent (timestamp in name)
+  backupFiles.sort().reverse();
+  const latestBackup = backupFiles[0];
+  
+  const baseName = latestBackup.replace(/\.tar(\.enc)?$/, '');
+  const metadataPath = path.join(backupDir, `${baseName}-metadata.json`);
+  
+  return {
+    backupPath: path.join(backupDir, latestBackup),
+    metadataPath,
+  };
+}
+
+/**
+ * Restore a file-based backup (with optional password decryption)
+ */
+export async function restoreFileBackup(options: {
+  backupDir: string;
+  password?: string;
+  targetDir?: string;
+}): Promise<{ success: boolean; message: string; wasEncrypted: boolean }> {
+  // Find the latest backup
+  const latest = await findLatestBackup(options.backupDir);
+  
+  if (!latest) {
+    return { success: false, message: 'No backup found in directory', wasEncrypted: false };
+  }
+  
+  // Read metadata
+  let metadata: BackupMetadata;
+  try {
+    const metadataContent = await fs.readFile(latest.metadataPath, 'utf8');
+    metadata = JSON.parse(metadataContent);
+  } catch (error) {
+    return { success: false, message: 'Failed to read backup metadata', wasEncrypted: false };
+  }
+  
+  // Read the backup file
+  const backupBuffer = await fs.readFile(latest.backupPath);
+  
+  let tarBuffer: Buffer;
+  
+  if (metadata.encrypted) {
+    // Decrypt the backup
+    if (!options.password) {
+      return { success: false, message: 'Backup is encrypted. Please provide a password.', wasEncrypted: true };
+    }
+    
+    try {
+      const salt = Buffer.from(metadata.salt!, 'hex');
+      const iv = Buffer.from(metadata.iv!, 'hex');
+      const authTag = Buffer.from(metadata.authTag!, 'hex');
+      
+      tarBuffer = decryptData(backupBuffer, options.password, salt, iv, authTag);
+    } catch (error) {
+      return { success: false, message: 'Incorrect password or corrupted backup', wasEncrypted: true };
+    }
+  } else {
+    // No encryption - use as-is
+    tarBuffer = backupBuffer;
+  }
+  
+  // Determine target directory
+  const targetDir = options.targetDir || await getStorageDir();
+  
+  // Extract tar archive
+  await extractTarArchive(tarBuffer, targetDir);
+  
+  console.log(`[backup] Backup restored to: ${targetDir}`);
+  
+  return { success: true, message: `Backup restored successfully to ${targetDir}`, wasEncrypted: metadata.encrypted };
+}
+
+/**
+ * List available backups in a directory
+ */
+export async function listBackups(backupDir: string): Promise<Array<{
+  filename: string;
+  createdAt: string;
+  encrypted: boolean;
+  categories?: BackupCategories;
+}>> {
+  const files = await fs.readdir(backupDir);
+  
+  const metadataFiles = files.filter(f => f.startsWith('backup-') && f.endsWith('-metadata.json'));
+  
+  const backups = [];
+  for (const metadataFile of metadataFiles) {
+    try {
+      const content = await fs.readFile(path.join(backupDir, metadataFile), 'utf8');
+      const metadata: BackupMetadata = JSON.parse(content);
+      
+      backups.push({
+        filename: metadataFile.replace('-metadata.json', '.tar.enc'),
+        createdAt: metadata.createdAt,
+        encrypted: metadata.encrypted,
+        categories: metadata.categories,
+      });
+    } catch (error) {
+      // Skip invalid metadata files
+    }
+  }
+  
+  // Sort by creation date (newest first)
+  backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  
+  return backups;
 }

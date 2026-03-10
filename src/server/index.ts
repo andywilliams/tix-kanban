@@ -132,7 +132,8 @@ import {
 import {
   getUserSettings,
   saveUserSettings,
-  UserSettings
+  UserSettings,
+  validateBackupPath
 } from './user-settings.js';
 import {
   runBackup,
@@ -2367,6 +2368,54 @@ app.post('/api/backup/toggle', async (req, res) => {
   }
 });
 
+<<<<<<< Updated upstream
+=======
+// POST /api/backup/validate-dir - Validate backup directory path
+app.post('/api/backup/validate-dir', async (req, res) => {
+  try {
+    const { backupDir } = req.body;
+
+    if (!backupDir || typeof backupDir !== 'string') {
+      return res.status(400).json({ valid: false, error: 'backupDir must be a non-empty string' });
+    }
+
+    const result = await validateBackupPath(backupDir);
+    res.json(result);
+  } catch (error) {
+    console.error('POST /api/backup/validate-dir error:', error);
+    res.status(500).json({ valid: false, error: 'Failed to validate backup directory' });
+  }
+});
+
+// GET /api/backup/categories - Get backup category settings
+app.get('/api/backup/categories', async (_req, res) => {
+  try {
+    const categories = await getBackupCategories();
+    res.json({ categories });
+  } catch (error) {
+    console.error('GET /api/backup/categories error:', error);
+    res.status(500).json({ error: 'Failed to fetch backup categories' });
+  }
+});
+
+// POST /api/backup/categories - Update backup category settings
+app.post('/api/backup/categories', async (req, res) => {
+  try {
+    const { categories } = req.body;
+
+    if (!categories || typeof categories !== 'object') {
+      return res.status(400).json({ error: 'categories must be an object' });
+    }
+
+    const updatedCategories = await updateBackupCategories(categories);
+    res.json({ categories: updatedCategories });
+  } catch (error) {
+    console.error('POST /api/backup/categories error:', error);
+    res.status(500).json({ error: 'Failed to update backup categories' });
+  }
+});
+
+>>>>>>> Stashed changes
 // PR Comment Resolver API routes
 
 // GET /api/pr-resolver/status - Get PR resolver status
