@@ -5,6 +5,7 @@ import { Task, Comment } from '../client/types/index.js';
 import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
+import { createOrGetChannel, addMessage } from './chat-storage.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -95,6 +96,18 @@ const DEFAULT_CONFIG: AutoReviewConfig = {
   },
   escalationOnMaxCycles: 'human-review'
 };
+
+// Post update to task chat channel (non-fatal on failure)
+async function postReviewUpdate(task: Task, reviewerName: string, message: string): Promise<void> {
+  try {
+    const channelId = `task-${task.id}`;
+    await createOrGetChannel(channelId, 'task', task.id, task.title);
+    await addMessage(channelId, reviewerName, 'persona', message);
+  } catch (error) {
+    console.error(`Failed to post review update to chat:`, error);
+    // Non-fatal - continue even if chat fails
+  }
+}
 
 // Load auto-review configuration
 async function loadAutoReviewConfig(): Promise<AutoReviewConfig> {
@@ -388,13 +401,20 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       console.error(`Missing task or review state for ${taskId}`);
       return 'escalated';
     }
-    
+
+    // Get reviewer name for chat messages
+    const reviewer = await getPersona(reviewState.reviewerId);
+    const reviewerName = reviewer?.name || reviewState.reviewerId;
+
     // Check if we've exceeded max cycles
     if (reviewState.currentReviewCycle > config.maxReviewCycles) {
       console.log(`⚠️ Max review cycles exceeded for task ${task.title}, escalating`);
-      await handleMaxCyclesReached(task, reviewState, config);
+      await handleMaxCyclesReached(task, reviewState, config, reviewerName);
       return 'escalated';
     }
+    
+    // Post that review is starting (only if we're actually going to review)
+    await postReviewUpdate(task, reviewerName, `Picking up this task for QA review (cycle ${reviewState.currentReviewCycle}). I'll let you know what I find.`);
     
     // Execute the review
     const reviewResult = await spawnReviewSession(task, reviewState.reviewerId, reviewState);
@@ -437,6 +457,9 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
         comments: updatedComments 
       });
       
+      // Post approval message to chat
+      await postReviewUpdate(task, reviewerName, `Looks good to me ✅ Moving to human review.\n\nConfidence: ${Math.round(reviewResult.confidence * 100)}%`);
+
       // Clean up review state
       await deleteTaskReviewState(taskId);
       
@@ -451,6 +474,9 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
         comments: updatedComments
       });
       
+      // Post rejection message to chat
+      await postReviewUpdate(task, reviewerName, `Found some issues ❌ Sending back to the developer.\n\n${reviewResult.feedback}`);
+
       console.log(`❌ Auto-review rejected task: ${task.title} (cycle ${reviewAttempt.cycle})`);
       return 'rejected';
     }
@@ -464,8 +490,12 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
 async function handleMaxCyclesReached(
   task: Task, 
   reviewState: TaskReviewState, 
-  config: AutoReviewConfig
+  config: AutoReviewConfig,
+  reviewerName: string
 ): Promise<void> {
+  // Post escalation message to chat
+  await postReviewUpdate(task, reviewerName, `Reached max review cycles (${config.maxReviewCycles}) — this needs a human to take a look. Escalating.`);
+
   const escalationComment: Comment = {
     id: Math.random().toString(36).substr(2, 9),
     taskId: task.id,
