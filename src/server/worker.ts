@@ -25,6 +25,12 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
+import {
+  getDueReminders,
+  markReminderTriggered,
+  cleanupOldReminders,
+  PersonalReminder
+} from './personal-reminders.js';
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -150,8 +156,8 @@ let workerState: WorkerState = {
   standupTime: '0 9 * * 1-5', // 9 AM Monday-Friday
   slxSyncEnabled: false, // Slack sync disabled by default
   slxSyncInterval: '0 */1 * * *', // Default: every 1 hour
-  reminderCheckEnabled: false, // Reminder rules engine disabled by default
-  reminderCheckInterval: '0 9 * * 1-5', // Default: 9 AM Monday-Friday
+  reminderCheckEnabled: true, // Enable personal reminders check by default
+  reminderCheckInterval: '*/5 * * * *', // Default: every 5 minutes
 };
 
 let cronJob: cron.ScheduledTask | null = null;
