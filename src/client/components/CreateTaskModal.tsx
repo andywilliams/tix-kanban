@@ -107,7 +107,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
                     priority: parseInt(e.target.value) || 0 
                   })}
                   min="0"
-                  max="200"
+                  max="1000"
                 />
               </div>
             </div>
