@@ -57,10 +57,27 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [prSaving, setPRSaving] = useState(false);
   const [prSaved, setPRSaved] = useState(false);
 
+  // Backup state
+  const [backupDir, setBackupDir] = useState('');
+  const [backupDirSaving, setBackupDirSaving] = useState(false);
+  const [backupDirSaved, setBackupDirSaved] = useState(false);
+  const [backupDirError, setBackupDirError] = useState('');
+  const [backupEnabled, setBackupEnabled] = useState(false);
+  const [backupTriggering, setBackupTriggering] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<{ lastBackup?: string; nextBackup?: string } | null>(null);
+  const [backupFiles, setBackupFiles] = useState<Array<{ name: string; path: string; size: number; createdAt: string; encrypted: boolean }>>([]);
+  const [backupPassword, setBackupPassword] = useState('');
+  const [restorePassword, setRestorePassword] = useState('');
+  const [restoring, setRestoring] = useState(false);
+  const [backupCategories, setBackupCategories] = useState<Record<string, boolean>>({});
+  const [categoriesSaving, setCategoriesSaving] = useState(false);
+
   useEffect(() => {
     loadSettings();
     loadWorkerConfig();
     loadPRResolverStatus();
+    loadBackupStatus();
+    loadBackupCategories();
   }, []);
 
   const loadSettings = async () => {
@@ -289,6 +306,140 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to trigger PR resolver:', error);
+    }
+  };
+
+  const loadBackupStatus = async () => {
+    try {
+      const [statusRes, filesRes, settingsRes] = await Promise.all([
+        fetch('/api/backup/status'),
+        fetch('/api/backup/files'),
+        fetch('/api/settings'),
+      ]);
+      if (statusRes.ok) {
+        const data = await statusRes.json();
+        setBackupStatus(data.status);
+        setBackupEnabled(data.status?.enabled ?? false);
+      }
+      if (filesRes.ok) {
+        const data = await filesRes.json();
+        setBackupFiles(data.backups || []);
+      }
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
+        setBackupDir(data.settings?.backupDir || '');
+      }
+    } catch (error) {
+      console.error('Failed to load backup status:', error);
+    }
+  };
+
+  const loadBackupCategories = async () => {
+    try {
+      const res = await fetch('/api/backup/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setBackupCategories(data.categories || {});
+      }
+    } catch (error) {
+      console.error('Failed to load backup categories:', error);
+    }
+  };
+
+  const saveBackupDir = async () => {
+    setBackupDirSaving(true);
+    setBackupDirSaved(false);
+    setBackupDirError('');
+    try {
+      const res = await fetch('/api/settings/backup-dir', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backupDir: backupDir || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBackupDirError(data.error || 'Failed to save backup directory');
+      } else {
+        setBackupDirSaved(true);
+        setTimeout(() => setBackupDirSaved(false), 2000);
+        await loadBackupStatus();
+      }
+    } catch (error) {
+      setBackupDirError('Failed to save backup directory');
+    } finally {
+      setBackupDirSaving(false);
+    }
+  };
+
+  const toggleBackup = async (enabled: boolean) => {
+    setBackupEnabled(enabled);
+    try {
+      await fetch('/api/backup/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle backup:', error);
+    }
+  };
+
+  const triggerBackup = async () => {
+    setBackupTriggering(true);
+    try {
+      const res = await fetch('/api/backup/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: backupPassword || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Backup created: ${data.backupPath}${data.encrypted ? ' (encrypted)' : ''}`);
+        await loadBackupStatus();
+      } else {
+        alert(`Backup failed: ${data.error}`);
+      }
+    } catch (error) {
+      alert('Backup failed — check console for details');
+    } finally {
+      setBackupTriggering(false);
+    }
+  };
+
+  const restoreBackup = async () => {
+    if (!confirm('Restore backup? This will overwrite your current data.')) return;
+    setRestoring(true);
+    try {
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: restorePassword || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Restored successfully from backup.`);
+      } else {
+        alert(`Restore failed: ${data.error}`);
+      }
+    } catch (error) {
+      alert('Restore failed — check console for details');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const saveBackupCategories = async () => {
+    setCategoriesSaving(true);
+    try {
+      await fetch('/api/backup/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories: backupCategories }),
+      });
+    } catch (error) {
+      console.error('Failed to save categories:', error);
+    } finally {
+      setCategoriesSaving(false);
     }
   };
 
@@ -704,6 +855,118 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Backup Section */}
+      <div className="settings-section">
+        <h2>Backup</h2>
+
+        <div className="form-group">
+          <label htmlFor="backupDir">Backup Directory</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              id="backupDir"
+              type="text"
+              value={backupDir}
+              onChange={e => setBackupDir(e.target.value)}
+              placeholder="~/.tix-kanban (default)"
+              style={{ flex: 1 }}
+            />
+            <button className="save-btn" onClick={saveBackupDir} disabled={backupDirSaving}>
+              {backupDirSaving ? 'Saving...' : backupDirSaved ? 'Saved!' : 'Set'}
+            </button>
+          </div>
+          {backupDirError && <small style={{ color: 'var(--error, #ef4444)', marginTop: '4px', display: 'block' }}>{backupDirError}</small>}
+          <small className="form-help">Leave empty to use the default (~/.tix-kanban). Supports ~ paths.</small>
+        </div>
+
+        <div className="form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={backupEnabled}
+              onChange={e => toggleBackup(e.target.checked)}
+              style={{ width: '18px', height: '18px' }}
+            />
+            Enable automatic backups
+          </label>
+          {backupStatus?.lastBackup && (
+            <small className="form-help">Last backup: {new Date(backupStatus.lastBackup).toLocaleString()}</small>
+          )}
+        </div>
+
+        {Object.keys(backupCategories).length > 0 && (
+          <div className="form-group">
+            <label>Include in backup</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+              {Object.entries(backupCategories).map(([key, enabled]) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', textTransform: 'capitalize' }}>
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={e => setBackupCategories(prev => ({ ...prev, [key]: e.target.checked }))}
+                    style={{ width: '16px', height: '16px' }}
+                  />
+                  {key.replace(/-/g, ' ')}
+                </label>
+              ))}
+            </div>
+            <button className="save-btn" onClick={saveBackupCategories} disabled={categoriesSaving} style={{ marginTop: '10px' }}>
+              {categoriesSaving ? 'Saving...' : 'Save Categories'}
+            </button>
+          </div>
+        )}
+
+        <div className="form-group">
+          <label htmlFor="backupPassword">Encryption Password (optional)</label>
+          <input
+            id="backupPassword"
+            type="password"
+            value={backupPassword}
+            onChange={e => setBackupPassword(e.target.value)}
+            placeholder="Leave empty for unencrypted backup"
+          />
+          <small className="form-help">AES-256-GCM encryption. Password is never stored — keep it safe.</small>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+          <button className="save-btn" onClick={triggerBackup} disabled={backupTriggering}>
+            {backupTriggering ? 'Backing up...' : '💾 Backup Now'}
+          </button>
+        </div>
+
+        {backupFiles.length > 0 && (
+          <div className="form-group" style={{ marginTop: '20px' }}>
+            <label>Available Backups ({backupFiles.length})</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+              {backupFiles.slice(0, 5).map(f => (
+                <div key={f.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'var(--bg-secondary, #1e1e2e)', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  <span>{f.name} {f.encrypted && '🔒'}</span>
+                  <span style={{ color: 'var(--text-secondary, #888)' }}>{new Date(f.createdAt).toLocaleString()} · {(f.size / 1024).toFixed(0)}KB</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="form-group" style={{ marginTop: '16px' }}>
+              <label htmlFor="restorePassword">Restore Password (if encrypted)</label>
+              <input
+                id="restorePassword"
+                type="password"
+                value={restorePassword}
+                onChange={e => setRestorePassword(e.target.value)}
+                placeholder="Required only for encrypted backups"
+              />
+            </div>
+            <button
+              className="save-btn"
+              onClick={restoreBackup}
+              disabled={restoring}
+              style={{ backgroundColor: 'var(--error, #ef4444)', marginTop: '8px' }}
+            >
+              {restoring ? 'Restoring...' : '⚠️ Restore Latest Backup'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="settings-actions">
