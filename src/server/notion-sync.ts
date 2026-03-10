@@ -23,6 +23,8 @@ export interface NotionTask {
   lastUpdated: string;
   url: string;
   notionId: string;
+  parentNotionId?: string; // For subtasks - links back to parent page
+  isSubtask?: boolean;     // Marks this task as a subtask
 }
 
 const NOTION_CONFIG_FILE = path.join(os.homedir(), '.tix-kanban', 'notion-config.json');
@@ -108,6 +110,42 @@ function convertPriorityToNumber(priority: string): number {
 }
 
 /**
+ * Fetch subtasks (to_do blocks) from a Notion page
+ */
+async function fetchPageSubtasks(
+  notion: Client,
+  pageId: string
+): Promise<Array<{ id: string; title: string; checked: boolean }>> {
+  try {
+    const response = await notion.blocks.children.list({
+      block_id: pageId,
+      page_size: 100,
+    });
+
+    const subtasks: Array<{ id: string; title: string; checked: boolean }> = [];
+
+    for (const block of response.results) {
+      if ((block as any).type === 'to_do') {
+        const todoBlock = block as any;
+        const text = todoBlock.to_do?.rich_text?.map((t: any) => t.plain_text).join('') || '';
+        if (text.trim()) {
+          subtasks.push({
+            id: block.id,
+            title: text.trim(),
+            checked: todoBlock.to_do?.checked || false,
+          });
+        }
+      }
+    }
+
+    return subtasks;
+  } catch (err) {
+    console.warn(`Failed to fetch subtasks for page ${pageId}:`, err);
+    return [];
+  }
+}
+
+/**
  * Sync tasks from Notion database
  */
 export async function syncTasksFromNotion(config: NotionConfig): Promise<NotionTask[]> {
@@ -149,6 +187,7 @@ export async function syncTasksFromNotion(config: NotionConfig): Promise<NotionT
       // Skip if no title or empty
       if (!title || title.trim() === '') continue;
 
+      // Add parent task
       tasks.push({
         id: `notion-${pageId}`, // Prefix to avoid conflicts with local tasks
         title: title.trim(),
@@ -160,6 +199,26 @@ export async function syncTasksFromNotion(config: NotionConfig): Promise<NotionT
         url,
         notionId: pageId,
       });
+
+      // Fetch and add subtasks
+      const subtasks = await fetchPageSubtasks(notion, pageId);
+      const subtaskStatus = status.toLowerCase().includes('done') || status.toLowerCase().includes('complete') ? 'done' : status;
+
+      for (const subtask of subtasks) {
+        tasks.push({
+          id: `notion-${pageId}-${subtask.id}`, // Composite ID to prevent duplicates on re-sync
+          title: subtask.title,
+          status: subtask.checked ? 'done' : subtaskStatus,
+          description: undefined,
+          priority,
+          assignee: config.userName,
+          lastUpdated,
+          url,
+          notionId: subtask.id,
+          parentNotionId: pageId,
+          isSubtask: true,
+        });
+      }
     }
 
     return tasks;
