@@ -790,7 +790,16 @@ export async function initializePersonas(): Promise<void> {
 4. Consider edge cases and testing
 5. Provide clear, actionable steps
 
-Be thorough but concise. Focus on fixing the problem efficiently.`
+Be thorough but concise. Focus on fixing the problem efficiently.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind QA to review my fix")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Developer',
@@ -816,7 +825,16 @@ Be thorough but concise. Focus on fixing the problem efficiently.`
 4. Think about testing and documentation
 5. Provide clear implementation steps
 
-Write clean, maintainable code that follows established conventions.`
+Write clean, maintainable code that follows established conventions.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-test after deploy")
+- Other personas (e.g., "Remind QA to review my PR")
+- Humans (e.g., "Remind Andy to check the deployment")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Tech-Writer',
@@ -842,7 +860,16 @@ Write clean, maintainable code that follows established conventions.`
 4. Include examples and code samples
 5. Consider different use cases
 
-Make complex technical concepts accessible and actionable.`
+Make complex technical concepts accessible and actionable.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to review docs after update")
+- Other personas (e.g., "Remind Developer to write docs for this feature")
+- Humans (e.g., "Remind Andy to review the documentation")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'QA-Engineer',
@@ -882,7 +909,16 @@ This tool helps identify:
 - Performance problems
 - Best practice violations
 
-Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.`
+Be thorough but fair. Approve work that meets standards, reject work that has significant issues. Provide specific, actionable feedback.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-check after fixes")
+- Other personas (e.g., "Remind Developer to fix the bugs")
+- Humans (e.g., "Remind Andy to review the QA report")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Security-Reviewer',
@@ -908,7 +944,16 @@ Be thorough but fair. Approve work that meets standards, reject work that has si
 4. Look for input validation and sanitization
 5. Assess potential attack vectors
 
-Focus on security-critical issues. Approve secure implementations, reject those with significant security risks. Provide clear guidance on security improvements.`
+Focus on security-critical issues. Approve secure implementations, reject those with significant security risks. Provide clear guidance on security improvements.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-check after fixes")
+- Other personas (e.g., "Remind Developer to address vulnerabilities")
+- Humans (e.g., "Remind Andy to review security findings")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Code-Reviewer',
@@ -1000,7 +1045,16 @@ Structure your review feedback as:
 - **Request Changes**: Critical issues found that must be addressed
 - **Comment**: Need more information or discussion before deciding
 
-Always provide actionable, constructive feedback that helps developers improve their code. Reference specific line numbers and files when discussing issues found by lgtm.`
+Always provide actionable, constructive feedback that helps developers improve their code. Reference specific line numbers and files when discussing issues found by lgtm.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to re-check after developer fixes")
+- Other personas (e.g., "Remind Developer to address review comments")
+- Humans (e.g., "Remind Andy to merge the PR")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'Product-Manager',
@@ -1094,7 +1148,16 @@ When creating multiple related tickets:
 - Consider knowledge transfer needs
 - Identify when specialist input is needed
 
-Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.`
+Remember: Your goal is to translate user needs into actionable, well-planned work that the development team can execute successfully.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to check on task progress")
+- Other personas (e.g., "Remind Developer to pick up this ticket")
+- Humans (e.g., "Remind Andy to provide feedback")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       },
       {
         name: 'PR',
@@ -1232,7 +1295,16 @@ When discussing responses with users:
 4. Factor in current team workload
 5. Suggest optimal timing for messages
 
-Remember: Your goal is to facilitate smooth team communication, maintain positive relationships, and ensure important information flows effectively through Slack channels.`
+Remember: Your goal is to facilitate smooth team communication, maintain positive relationships, and ensure important information flows effectively through Slack channels.
+
+## Reminders
+
+You can create and receive reminders. You can set reminders for:
+- Yourself (e.g., "Remind me to follow up on a message")
+- Other personas (e.g., "Remind Developer to respond to this thread")
+- Humans (e.g., "Remind Andy to review this message")
+
+When a reminder is triggered, you'll be notified. Include task context when relevant.`
       }
     ];
 

@@ -37,6 +37,16 @@ import {
   clearCooldowns
 } from './reminder-rules.js';
 import {
+  createReminder,
+  getAllReminders,
+  getPendingReminders,
+  getDueReminders,
+  getRemindersForTarget,
+  markReminderTriggered,
+  deleteReminder,
+  clearTriggeredReminders
+} from './personal-reminders.js';
+import {
   getAllPersonas,
   getPersona,
   createPersona,
@@ -1061,6 +1071,105 @@ app.post('/api/reminder-rules/clear-cooldowns', async (_req, res) => {
   } catch (error) {
     console.error('POST /api/reminder-rules/clear-cooldowns error:', error);
     res.status(500).json({ error: 'Failed to clear cooldowns' });
+  }
+});
+
+// Personal Reminders API routes (cross-persona reminders)
+
+// POST /api/reminders - Create a new personal reminder with creator and target
+app.post('/api/reminders', async (req, res) => {
+  try {
+    const { message, remindAt, taskId, creator, target } = req.body;
+
+    if (!message || !remindAt || !creator || !target) {
+      return res.status(400).json({ error: 'message, remindAt, creator, and target are required' });
+    }
+
+    const reminder = await createReminder(message, new Date(remindAt), taskId, creator, target);
+    res.status(201).json({ reminder });
+  } catch (error) {
+    console.error('POST /api/reminders error:', error);
+    res.status(500).json({ error: 'Failed to create reminder' });
+  }
+});
+
+// GET /api/reminders - Get all personal reminders
+app.get('/api/reminders', async (_req, res) => {
+  try {
+    const reminders = await getAllReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminders' });
+  }
+});
+
+// GET /api/reminders/pending - Get pending (not triggered) reminders
+app.get('/api/reminders/pending', async (_req, res) => {
+  try {
+    const reminders = await getPendingReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/pending error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending reminders' });
+  }
+});
+
+// GET /api/reminders/due - Get due reminders
+app.get('/api/reminders/due', async (_req, res) => {
+  try {
+    const reminders = await getDueReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/due error:', error);
+    res.status(500).json({ error: 'Failed to fetch due reminders' });
+  }
+});
+
+// GET /api/reminders/target/:target - Get reminders for a specific target
+app.get('/api/reminders/target/:target', async (req, res) => {
+  try {
+    const { target } = req.params;
+    const reminders = await getRemindersForTarget(target);
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/target/:target error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminders for target' });
+  }
+});
+
+// POST /api/reminders/:id/trigger - Mark a reminder as triggered
+app.post('/api/reminders/:id/trigger', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await markReminderTriggered(id);
+    res.json({ success: true, message: 'Reminder marked as triggered' });
+  } catch (error) {
+    console.error('POST /api/reminders/:id/trigger error:', error);
+    res.status(404).json({ error: error instanceof Error ? error.message : 'Failed to trigger reminder' });
+  }
+});
+
+// DELETE /api/reminders/:id - Delete a reminder
+app.delete('/api/reminders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteReminder(id);
+    res.json({ success: true, message: 'Reminder deleted' });
+  } catch (error) {
+    console.error('DELETE /api/reminders/:id error:', error);
+    res.status(404).json({ error: error instanceof Error ? error.message : 'Failed to delete reminder' });
+  }
+});
+
+// POST /api/reminders/clear-triggered - Clear all triggered reminders
+app.post('/api/reminders/clear-triggered', async (_req, res) => {
+  try {
+    await clearTriggeredReminders();
+    res.json({ success: true, message: 'Triggered reminders cleared' });
+  } catch (error) {
+    console.error('POST /api/reminders/clear-triggered error:', error);
+    res.status(500).json({ error: 'Failed to clear triggered reminders' });
   }
 });
 
