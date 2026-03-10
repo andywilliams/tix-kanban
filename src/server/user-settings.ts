@@ -42,11 +42,39 @@ export interface UserSettings {
     lastRun?: string; // ISO date of last run
   };
   backup?: BackupSchedule;
+  backupCategories?: BackupCategories;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   userName: 'User',
 };
+
+// Default backup categories - all enabled by default
+export const DEFAULT_BACKUP_CATEGORIES: BackupCategories = {
+  tasks: true,
+  chat: true,
+  userSettings: true,
+  githubSettings: true,
+  personas: true,
+  agentMemories: true,
+  souls: true,
+  knowledge: true,
+  reports: true,
+  pipelines: true,
+  autoReviewConfig: true,
+  slack: true,
+  reviewStates: true,
+};
+
+/**
+ * Get backup categories with defaults applied (all true if not specified)
+ */
+export function getBackupCategoriesWithDefaults(categories?: BackupCategories): BackupCategories {
+  return {
+    ...DEFAULT_BACKUP_CATEGORIES,
+    ...categories,
+  };
+}
 
 /**
  * Expand ~ to home directory and resolve relative paths
