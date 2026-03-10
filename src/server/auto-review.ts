@@ -325,7 +325,10 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles
 - Worker completed this task and it needs quality validation before human review
-- Your feedback will guide either approval → human review OR rejection → back to worker`;
+- Your feedback will guide one of three paths:
+  - APPROVE → human review (ready for final approval)
+  - APPROVE_WITH_NOTES → human review (with notes/feedback preserved for the human reviewer)
+  - REJECT → back to worker (needs fixes)`;
 }
 
 // Parse AI reviewer output to extract decision, feedback, and confidence
