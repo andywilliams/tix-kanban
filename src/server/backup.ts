@@ -14,9 +14,9 @@ const BACKUP_STATE_FILE = path.join(DEFAULT_STORAGE_DIR, 'backup-state.json');
 
 export async function getBackupStorageDir(): Promise<string> {
   const settings = await getUserSettings();
-  if (!settings.backupDir) return DEFAULT_BACKUP_DIR;
+  const resolved = settings.backupDir ? resolveBackupDir(settings.backupDir) : DEFAULT_BACKUP_DIR;
 
-  const resolved = resolveBackupDir(settings.backupDir);
+  // Always ensure the directory exists (auto-create on first use)
   try {
     await fs.mkdir(resolved, { recursive: true });
   } catch (err) {

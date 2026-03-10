@@ -2543,15 +2543,14 @@ app.post('/api/backup/categories', async (req, res) => {
 
 // Helper: resolve effective backup dir (param > settings > default ~/.tix-kanban)
 async function resolveEffectiveBackupDir(requested?: string): Promise<string> {
-  if (requested) return requested;
-  const settings = await getUserSettings();
-  if (settings.backupDir) {
-    const { resolveBackupDir } = await import('./user-settings.js');
-    return resolveBackupDir(settings.backupDir);
+  // Always delegate to getBackupStorageDir so the directory is auto-created
+  if (requested) {
+    const fsModule = await import('fs/promises');
+    await fsModule.mkdir(requested, { recursive: true });
+    return requested;
   }
-  const { join } = await import('path');
-  const { homedir } = await import('os');
-  return join(homedir(), '.tix-kanban-backups');
+  const { getBackupStorageDir } = await import('./backup.js');
+  return getBackupStorageDir();
 }
 
 // POST /api/backup/file - Create a file-based backup (optionally encrypted)
