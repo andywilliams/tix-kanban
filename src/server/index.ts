@@ -126,7 +126,8 @@ import {
   runBackup,
   getBackupStatus,
   updateBackupSchedule,
-  startBackupScheduler
+  startBackupScheduler,
+  stopBackupScheduler
 } from './backup.js';
 import {
   initializeStandupStorage,
@@ -2151,6 +2152,14 @@ app.post('/api/backup/toggle', async (req, res) => {
     }
 
     const schedule = await updateBackupSchedule({ enabled });
+
+    // Start/stop the scheduler immediately so the change takes effect without restart
+    if (enabled) {
+      await startBackupScheduler();
+    } else {
+      stopBackupScheduler();
+    }
+
     res.json({ schedule });
   } catch (error) {
     console.error('POST /api/backup/toggle error:', error);

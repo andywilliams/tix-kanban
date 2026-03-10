@@ -33,8 +33,11 @@ async function isGitInstalled(): Promise<boolean> {
  */
 async function isGitRepo(dir: string): Promise<boolean> {
   try {
-    await execAsync('git rev-parse --is-inside-work-tree', { cwd: dir });
-    return true;
+    // Use --git-dir and compare to expected .git dir to avoid matching parent repos
+    const { stdout } = await execAsync('git rev-parse --git-dir', { cwd: dir });
+    const gitDir = path.resolve(dir, stdout.trim());
+    const expectedGitDir = path.join(dir, '.git');
+    return gitDir === expectedGitDir;
   } catch (error) {
     return false;
   }
@@ -102,14 +105,18 @@ export async function hasChangesSinceLastBackup(): Promise<boolean> {
 
     const lastBackupTime = new Date(state.lastBackupTime).getTime();
     
-    // Check if any files in the storage directory have been modified since last backup
+    // Check if any DATA files in the storage directory have been modified since last backup
+    // Exclude backup metadata files that are updated on every backup run
+    const EXCLUDED = new Set([
+      path.join(STORAGE_DIR, 'backup-state.json'),
+      path.join(STORAGE_DIR, 'user-settings.json'),
+    ]);
     const files = await getAllStorageFiles(STORAGE_DIR);
-    
+
     for (const file of files) {
+      if (EXCLUDED.has(file)) continue;
       const stats = await fs.stat(file);
-      const mtime = stats.mtimeMs;
-      
-      if (mtime > lastBackupTime) {
+      if (stats.mtimeMs > lastBackupTime) {
         return true;
       }
     }
