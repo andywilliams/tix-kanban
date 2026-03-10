@@ -1,0 +1,406 @@
+import { promisify } from 'util';
+import { exec as execCallback } from 'child_process';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+import { getUserSettings, saveUserSettings, BackupSchedule } from './user-settings.js';
+
+const execAsync = promisify(execCallback);
+
+const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
+const BACKUP_STATE_FILE = path.join(STORAGE_DIR, 'backup-state.json');
+
+interface BackupState {
+  lastBackupTime?: string;
+  lastBackupResult?: 'success' | 'failure' | 'skipped';
+  lastBackupError?: string;
+}
+
+/**
+ * Check if git is installed on the system
+ */
+async function isGitInstalled(): Promise<boolean> {
+  try {
+    await execAsync('git --version');
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Check if the storage directory is already a git repository
+ */
+async function isGitRepo(dir: string): Promise<boolean> {
+  try {
+    await execAsync('git rev-parse --is-inside-work-tree', { cwd: dir });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Initialize a git repository in the storage directory if not already initialized
+ */
+async function initGitRepo(dir: string): Promise<boolean> {
+  try {
+    await execAsync('git init', { cwd: dir });
+    console.log('[backup] Git repository initialized');
+    return true;
+  } catch (error: any) {
+    console.warn('[backup] Failed to initialize git repository:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Get the interval in milliseconds based on the backup schedule config
+ */
+export function getBackupIntervalMs(schedule: BackupSchedule): number {
+  switch (schedule.frequency) {
+    case 'hourly':
+      return 60 * 60 * 1000; // 1 hour
+    case 'daily':
+      return 24 * 60 * 60 * 1000; // 24 hours
+    case 'custom':
+      return (schedule.customMinutes || 60) * 60 * 1000;
+    default:
+      return 24 * 60 * 60 * 1000; // Default to daily
+  }
+}
+
+/**
+ * Check if a backup is needed based on the schedule
+ */
+export function isBackupNeeded(schedule: BackupSchedule): boolean {
+  if (!schedule.enabled) {
+    return false;
+  }
+
+  if (!schedule.lastRun) {
+    return true; // Never run, need to run
+  }
+
+  const lastRun = new Date(schedule.lastRun);
+  const now = new Date();
+  const intervalMs = getBackupIntervalMs(schedule);
+  
+  return (now.getTime() - lastRun.getTime()) >= intervalMs;
+}
+
+/**
+ * Check if there are any changes since the last backup by looking at file modification times
+ */
+export async function hasChangesSinceLastBackup(): Promise<boolean> {
+  try {
+    const state = await readBackupState();
+    
+    if (!state.lastBackupTime) {
+      return true; // Never backed up, need to backup
+    }
+
+    const lastBackupTime = new Date(state.lastBackupTime).getTime();
+    
+    // Check if any files in the storage directory have been modified since last backup
+    const files = await getAllStorageFiles(STORAGE_DIR);
+    
+    for (const file of files) {
+      const stats = await fs.stat(file);
+      const mtime = stats.mtimeMs;
+      
+      if (mtime > lastBackupTime) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('[backup] Error checking for changes:', error);
+    return true; // If error, assume there are changes to be safe
+  }
+}
+
+/**
+ * Get all files in the storage directory recursively
+ */
+async function getAllStorageFiles(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      
+      // Skip git directory and other system files
+      if (entry.name === '.git' || entry.name.startsWith('.')) {
+        continue;
+      }
+      
+      if (entry.isDirectory()) {
+        const subFiles = await getAllStorageFiles(fullPath);
+        files.push(...subFiles);
+      } else if (entry.isFile()) {
+        files.push(fullPath);
+      }
+    }
+  } catch (error) {
+    // Ignore errors for missing directories
+  }
+  
+  return files;
+}
+
+/**
+ * Read backup state from file
+ */
+async function readBackupState(): Promise<BackupState> {
+  try {
+    const content = await fs.readFile(BACKUP_STATE_FILE, 'utf8');
+    return JSON.parse(content);
+  } catch (error) {
+    return {};
+  }
+}
+
+/**
+ * Write backup state to file
+ */
+async function writeBackupState(state: BackupState): Promise<void> {
+  await fs.writeFile(BACKUP_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+}
+
+/**
+ * Run the backup - optionally commit all changes to git
+ */
+export async function runBackup(): Promise<{ success: boolean; message: string; skipped?: boolean }> {
+  const timestamp = new Date().toISOString();
+  let gitErrorMessage: string | undefined;
+  
+  try {
+    // Get settings to check if git auto-commit is enabled
+    const settings = await getUserSettings();
+    const gitAutoCommit = settings.backup?.gitAutoCommit ?? false;
+    
+    // Check if there are changes to backup
+    const changesExist = await hasChangesSinceLastBackup();
+    
+    if (!changesExist) {
+      console.log(`[backup] No changes since last backup, skipping`);
+      
+      const state: BackupState = {
+        lastBackupTime: timestamp,
+        lastBackupResult: 'skipped',
+        lastBackupError: undefined
+      };
+      await writeBackupState(state);
+      
+      // Update user settings
+      if (settings.backup) {
+        settings.backup.lastRun = timestamp;
+        settings.backup.lastStatus = 'skipped';
+        settings.backup.lastError = undefined;
+        await saveUserSettings(settings);
+      }
+      
+      return { success: true, message: 'No changes since last backup', skipped: true };
+    }
+
+    // Get list of changed files
+    const files = await getAllStorageFiles(STORAGE_DIR);
+    
+    if (files.length === 0) {
+      console.log(`[backup] No files to backup`);
+      return { success: true, message: 'No files to backup', skipped: true };
+    }
+
+    // Handle git auto-commit if enabled
+    if (gitAutoCommit) {
+      // Check if git is installed
+      const gitInstalled = await isGitInstalled();
+      
+      if (!gitInstalled) {
+        console.warn('[backup] Git is not installed, skipping git auto-commit');
+        gitErrorMessage = 'Git is not installed';
+      } else {
+        // Check if git repo exists, if not initialize it
+        const repoExists = await isGitRepo(STORAGE_DIR);
+        
+        if (!repoExists) {
+          console.log('[backup] Initializing git repository for backups...');
+          const initSuccess = await initGitRepo(STORAGE_DIR);
+          if (!initSuccess) {
+            gitErrorMessage = 'Failed to initialize git repository';
+          }
+        }
+        
+        // If git repo is ready, perform commit
+        if (!gitErrorMessage) {
+          try {
+            // Stage all files
+            await execAsync(`git add -A`, { cwd: STORAGE_DIR });
+            
+            // Check if there are staged changes
+            const { stdout: statusOutput } = await execAsync(`git status --porcelain`, { cwd: STORAGE_DIR });
+            
+            if (!statusOutput.trim()) {
+              console.log(`[backup] No changes to commit`);
+            } else {
+              // Commit the changes
+              const commitMessage = `backup: ${new Date().toISOString()}`;
+              await execAsync(`git commit -m "${commitMessage}"`, { cwd: STORAGE_DIR });
+              console.log(`[backup] Git commit created: ${commitMessage}`);
+            }
+          } catch (gitError: any) {
+            gitErrorMessage = gitError.message || String(gitError);
+            console.warn('[backup] Git commit failed:', gitErrorMessage);
+          }
+        }
+      }
+    } else {
+      console.log('[backup] Git auto-commit is disabled');
+    }
+    
+    console.log(`[backup] Backup completed successfully at ${timestamp}`);
+    
+    // Update state
+    const state: BackupState = {
+      lastBackupTime: timestamp,
+      lastBackupResult: gitErrorMessage ? 'failure' : 'success',
+      lastBackupError: gitErrorMessage
+    };
+    await writeBackupState(state);
+    
+    // Update user settings
+    if (settings.backup) {
+      settings.backup.lastRun = timestamp;
+      settings.backup.lastStatus = gitErrorMessage ? 'failure' : 'success';
+      settings.backup.lastError = gitErrorMessage;
+      await saveUserSettings(settings);
+    }
+    
+    if (gitErrorMessage) {
+      return { success: true, message: `Backup completed but git auto-commit failed: ${gitErrorMessage}` };
+    }
+    
+    return { success: true, message: 'Backup completed successfully' };
+    
+  } catch (error: any) {
+    const errorMessage = error.message || String(error);
+    console.error(`[backup] Backup failed:`, errorMessage);
+    
+    // Update state with error
+    const state: BackupState = {
+      lastBackupTime: timestamp,
+      lastBackupResult: 'failure',
+      lastBackupError: errorMessage
+    };
+    await writeBackupState(state).catch(() => {});
+    
+    // Update user settings
+    const settings = await getUserSettings();
+    if (settings.backup) {
+      settings.backup.lastRun = timestamp;
+      settings.backup.lastStatus = 'failure';
+      settings.backup.lastError = errorMessage;
+      await saveUserSettings(settings).catch(() => {});
+    }
+    
+    return { success: false, message: `Backup failed: ${errorMessage}` };
+  }
+}
+
+/**
+ * Get current backup status
+ */
+export async function getBackupStatus(): Promise<{
+  configured: boolean;
+  enabled: boolean;
+  frequency?: string;
+  gitAutoCommit?: boolean;
+  lastRun?: string;
+  lastStatus?: string;
+  lastError?: string;
+}> {
+  const settings = await getUserSettings();
+  
+  if (!settings.backup) {
+    return { configured: false, enabled: false };
+  }
+  
+  return {
+    configured: true,
+    enabled: settings.backup.enabled,
+    frequency: settings.backup.frequency,
+    gitAutoCommit: settings.backup.gitAutoCommit,
+    lastRun: settings.backup.lastRun,
+    lastStatus: settings.backup.lastStatus,
+    lastError: settings.backup.lastError
+  };
+}
+
+/**
+ * Update backup schedule configuration
+ */
+export async function updateBackupSchedule(updates: Partial<BackupSchedule>): Promise<BackupSchedule> {
+  const settings = await getUserSettings();
+  
+  if (!settings.backup) {
+    settings.backup = {
+      enabled: false,
+      frequency: 'daily',
+      customMinutes: 60,
+      gitAutoCommit: false
+    };
+  }
+  
+  settings.backup = { ...settings.backup, ...updates };
+  await saveUserSettings(settings);
+  
+  return settings.backup;
+}
+
+/**
+ * Start the backup scheduler
+ */
+let backupIntervalId: NodeJS.Timeout | null = null;
+
+export async function startBackupScheduler(): Promise<void> {
+  const settings = await getUserSettings();
+  
+  if (!settings.backup || !settings.backup.enabled) {
+    console.log('[backup] Backup scheduler not enabled');
+    return;
+  }
+  
+  const intervalMs = getBackupIntervalMs(settings.backup);
+  console.log(`[backup] Starting backup scheduler with ${settings.backup.frequency} frequency (${intervalMs / 1000 / 60} minutes)`);
+  
+  // Run initial backup check on startup if needed
+  if (isBackupNeeded(settings.backup)) {
+    console.log('[backup] Running overdue backup on startup...');
+    await runBackup();
+  }
+  
+  // Schedule periodic backups
+  backupIntervalId = setInterval(async () => {
+    const currentSettings = await getUserSettings();
+    
+    if (currentSettings.backup?.enabled && isBackupNeeded(currentSettings.backup)) {
+      console.log('[backup] Running scheduled backup...');
+      await runBackup();
+    }
+  }, intervalMs);
+}
+
+/**
+ * Stop the backup scheduler
+ */
+export function stopBackupScheduler(): void {
+  if (backupIntervalId) {
+    clearInterval(backupIntervalId);
+    backupIntervalId = null;
+    console.log('[backup] Backup scheduler stopped');
+  }
+}

@@ -123,6 +123,12 @@ import {
   UserSettings
 } from './user-settings.js';
 import {
+  runBackup,
+  getBackupStatus,
+  updateBackupSchedule,
+  startBackupScheduler
+} from './backup.js';
+import {
   initializeStandupStorage,
   generateStandupEntry,
   saveStandupEntry,
@@ -2099,6 +2105,59 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
+// Backup API routes
+
+// GET /api/backup/status - Get backup status
+app.get('/api/backup/status', async (_req, res) => {
+  try {
+    const status = await getBackupStatus();
+    res.json({ status });
+  } catch (error) {
+    console.error('GET /api/backup/status error:', error);
+    res.status(500).json({ error: 'Failed to fetch backup status' });
+  }
+});
+
+// POST /api/backup/schedule - Update backup schedule
+app.post('/api/backup/schedule', async (req, res) => {
+  try {
+    const updates = req.body;
+    const schedule = await updateBackupSchedule(updates);
+    res.json({ schedule });
+  } catch (error) {
+    console.error('POST /api/backup/schedule error:', error);
+    res.status(500).json({ error: 'Failed to update backup schedule' });
+  }
+});
+
+// POST /api/backup/trigger - Manually trigger a backup
+app.post('/api/backup/trigger', async (_req, res) => {
+  try {
+    const result = await runBackup();
+    res.json(result);
+  } catch (error) {
+    console.error('POST /api/backup/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger backup' });
+  }
+});
+
+// POST /api/backup/toggle - Enable/disable backup scheduler
+app.post('/api/backup/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    const schedule = await updateBackupSchedule({ enabled });
+    res.json({ schedule });
+  } catch (error) {
+    console.error('POST /api/backup/toggle error:', error);
+    res.status(500).json({ error: 'Failed to toggle backup' });
+  }
+});
+
 // PR Comment Resolver API routes
 
 // GET /api/pr-resolver/status - Get PR resolver status
@@ -2855,6 +2914,7 @@ async function startServer() {
     await startPRResolver();
     startPRCacheAutoRefresh();
     await startSlxAutoSync();
+    await startBackupScheduler();
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
