@@ -46,7 +46,12 @@ import {
   markReminderTriggered,
   snoozeReminder,
   deleteReminder,
-  clearTriggeredReminders
+  clearTriggeredReminders,
+  createRecurringReminder,
+  scheduleNextOccurrence,
+  pauseReminder,
+  resumeReminder,
+  Recurrence
 } from './personal-reminders.js';
 import {
   getAllPersonas,
@@ -1141,7 +1146,7 @@ app.get('/api/reminders', async (req, res) => {
 // POST /api/reminders - Create a new personal reminder
 app.post('/api/reminders', async (req, res) => {
   try {
-    const { message, remindAt, taskId, creator, target, type } = req.body;
+    const { message, remindAt, taskId, creator, target, type, recurrence } = req.body;
 
     if (!message || !remindAt || !creator || !target) {
       return res
@@ -1149,15 +1154,35 @@ app.post('/api/reminders', async (req, res) => {
         .json({ error: 'message, remindAt, creator, and target are required' });
     }
 
-    const reminder = await createReminder(
-      message,
-      new Date(remindAt),
-      taskId,
-      creator,
-      target,
-      type || 'adhoc'
-    );
-    res.status(201).json({ reminder });
+    // Check if this is a recurring reminder
+    if (recurrence) {
+      const validRecurrence: Recurrence = {
+        type: recurrence.type || 'simple',
+        interval: recurrence.interval,
+        weekday: recurrence.weekday,
+        cronExpr: recurrence.cronExpr
+      };
+      
+      const reminder = await createRecurringReminder(
+        message,
+        validRecurrence,
+        taskId,
+        creator,
+        target,
+        new Date(remindAt)
+      );
+      res.status(201).json({ reminder });
+    } else {
+      const reminder = await createReminder(
+        message,
+        new Date(remindAt),
+        taskId,
+        creator,
+        target,
+        type || 'adhoc'
+      );
+      res.status(201).json({ reminder });
+    }
   } catch (error) {
     console.error('POST /api/reminders error:', error);
     res.status(500).json({ error: 'Failed to create reminder' });
@@ -1239,13 +1264,78 @@ app.post('/api/reminders/:id/snooze', async (req, res) => {
 app.post('/api/reminders/:id/trigger', async (req, res) => {
   try {
     const { id } = req.params;
+    const reminder = await getReminderById(id);
+    
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    
     await markReminderTriggered(id);
+    
+    // If this is a recurring reminder, schedule the next occurrence
+    if (reminder.recurrence) {
+      const nextReminder = await scheduleNextOccurrence(id);
+      return res.json({ 
+        success: true, 
+        message: 'Reminder triggered, next occurrence scheduled',
+        nextOccurrence: nextReminder?.remindAt
+      });
+    }
+    
     res.json({ success: true, message: 'Reminder marked as triggered' });
   } catch (error) {
     console.error(`POST /api/reminders/${req.params.id}/trigger error:`, error);
     res
       .status(404)
       .json({ error: error instanceof Error ? error.message : 'Failed to trigger reminder' });
+  }
+});
+
+// POST /api/reminders/:id/pause - Pause a recurring reminder
+app.post('/api/reminders/:id/pause', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reminder = await getReminderById(id);
+    
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    
+    if (!reminder.recurrence) {
+      return res.status(400).json({ error: 'Only recurring reminders can be paused' });
+    }
+    
+    const pausedReminder = await pauseReminder(id);
+    res.json({ success: true, reminder: pausedReminder });
+  } catch (error) {
+    console.error(`POST /api/reminders/${req.params.id}/pause error:`, error);
+    res
+      .status(404)
+      .json({ error: error instanceof Error ? error.message : 'Failed to pause reminder' });
+  }
+});
+
+// POST /api/reminders/:id/resume - Resume a paused recurring reminder
+app.post('/api/reminders/:id/resume', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reminder = await getReminderById(id);
+    
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    
+    if (!reminder.recurrence) {
+      return res.status(400).json({ error: 'Only recurring reminders can be resumed' });
+    }
+    
+    const resumedReminder = await resumeReminder(id);
+    res.json({ success: true, reminder: resumedReminder });
+  } catch (error) {
+    console.error(`POST /api/reminders/${req.params.id}/resume error:`, error);
+    res
+      .status(404)
+      .json({ error: error instanceof Error ? error.message : 'Failed to resume reminder' });
   }
 });
 

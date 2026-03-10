@@ -3,12 +3,35 @@ import { exec as execCallback } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { getUserSettings, saveUserSettings, BackupSchedule } from './user-settings.js';
+import { getUserSettings, saveUserSettings, BackupSchedule, expandBackupPath, validateBackupPath } from './user-settings.js';
 
 const execAsync = promisify(execCallback);
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
-const BACKUP_STATE_FILE = path.join(STORAGE_DIR, 'backup-state.json');
+const BACKUP_STATE_FILE = 'backup-state.json';
+
+/**
+ * Get the actual storage directory to use for backups
+ * Uses the configured backupDir if set, otherwise defaults to ~/.tix-kanban
+ */
+async function getStorageDir(): Promise<string> {
+  const settings = await getUserSettings();
+  const backupDir = settings.backup?.backupDir;
+  
+  if (backupDir && backupDir.trim()) {
+    return expandBackupPath(backupDir);
+  }
+  
+  // Default to ~/.tix-kanban
+  return STORAGE_DIR;
+}
+
+/**
+ * Get the backup state file path for the current storage directory
+ */
+async function getBackupStatePath(storageDir: string): Promise<string> {
+  return path.join(storageDir, BACKUP_STATE_FILE);
+}
 
 interface BackupState {
   lastBackupTime?: string;
