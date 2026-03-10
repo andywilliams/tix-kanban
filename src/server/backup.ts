@@ -10,7 +10,7 @@ const execAsync = promisify(execCallback);
 
 const DEFAULT_STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const DEFAULT_BACKUP_DIR = path.join(os.homedir(), '.tix-kanban-backups');
-const BACKUP_STATE_FILE = path.join(DEFAULT_STORAGE_DIR, 'backup-state.json');
+const BACKUP_STATE_FILE = 'backup-state.json';
 
 export async function getBackupStorageDir(): Promise<string> {
   const settings = await getUserSettings();
