@@ -232,7 +232,15 @@ export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merge
   // If specific PR numbers are provided, use the batched rate-limited function
   if (prNumbers && prNumbers.length > 0) {
     const statusMap = await batchGetPRStatuses(repo, prNumbers);
-    return Array.from(statusMap.values());
+    const prs = Array.from(statusMap.values());
+    
+    // Filter by state if provided
+    if (state === 'open') {
+      return prs.filter(pr => pr.state === 'open');
+    } else if (state === 'closed') {
+      return prs.filter(pr => pr.state === 'closed' || pr.state === 'merged');
+    }
+    return prs;
   }
   
   const cacheKey = `repo-prs-${repo}-${state}`;
