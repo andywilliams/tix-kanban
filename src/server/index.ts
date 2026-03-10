@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs/promises';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import {
   getAllTasks,
@@ -85,6 +87,15 @@ import {
   runArchiveMaintenance
 } from './chat-storage.js';
 import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import {
+  loadProviderConfig,
+  listProviders,
+  setTicketProvider,
+  setMessageProvider,
+  getTicketProvider,
+  getMessageProvider,
+} from './providers/index.js';
+import type { ProviderConfig } from './providers/types.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
 import {
   getAgentMemory,
@@ -2622,6 +2633,76 @@ app.get('/api/backup/files', async (req, res) => {
   } catch (error: any) {
     console.error('GET /api/backup/files error:', error);
     res.status(500).json({ error: error.message || 'Failed to list backups' });
+  }
+});
+
+// Provider API routes
+
+// GET /api/providers - List available providers and active config
+app.get('/api/providers', async (_req, res) => {
+  try {
+    const available = listProviders();
+    const config = await loadProviderConfig();
+    res.json({ available, config });
+  } catch (error) {
+    console.error('GET /api/providers error:', error);
+    res.status(500).json({ error: 'Failed to fetch providers' });
+  }
+});
+
+// PUT /api/providers/config - Update active providers
+app.put('/api/providers/config', async (req, res) => {
+  try {
+    const { ticketProvider, messageProvider } = req.body as Partial<ProviderConfig>;
+
+    const errors: string[] = [];
+    if (ticketProvider && !setTicketProvider(ticketProvider)) {
+      errors.push(`Unknown ticket provider: "${ticketProvider}"`);
+    }
+    if (messageProvider && !setMessageProvider(messageProvider)) {
+      errors.push(`Unknown message provider: "${messageProvider}"`);
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors.join(', ') });
+    }
+
+    // Persist to disk
+    const configPath = path.join(os.homedir(), '.tix-kanban', 'providers.json');
+    const existing = await loadProviderConfig() || {};
+    const updated: ProviderConfig = {
+      ...existing,
+      ...(ticketProvider ? { ticketProvider } : {}),
+      ...(messageProvider ? { messageProvider } : {}),
+    };
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(updated, null, 2), 'utf8');
+
+    res.json({ config: updated });
+  } catch (error) {
+    console.error('PUT /api/providers/config error:', error);
+    res.status(500).json({ error: 'Failed to update provider config' });
+  }
+});
+
+// POST /api/providers/sync - Manually trigger a provider sync
+app.post('/api/providers/sync', async (_req, res) => {
+  try {
+    const ticketProvider = getTicketProvider();
+    const messageProvider = getMessageProvider();
+
+    const results: Record<string, any> = {};
+    if (ticketProvider) {
+      const tickets = await ticketProvider.sync();
+      results.tickets = { provider: ticketProvider.name, count: tickets.length };
+    }
+    if (messageProvider) {
+      const messages = await messageProvider.sync();
+      results.messages = { provider: messageProvider.name, count: messages.length };
+    }
+    res.json({ results });
+  } catch (error: any) {
+    console.error('POST /api/providers/sync error:', error);
+    res.status(500).json({ error: error.message || 'Sync failed' });
   }
 });
 

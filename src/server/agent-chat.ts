@@ -773,18 +773,29 @@ Respond naturally as ${persona.name}. Be conversational and helpful.
 - Don't start with "As ${persona.name}..." - just respond naturally
 
 ## Memory Extraction
-When the user shares information worth remembering (people/roles, preferences, project details, team structure, workflows, instructions), include memory blocks at the END of your response. These are parsed automatically and NOT shown to the user. Include ONE block per distinct fact.
+Occasionally, when the user shares something genuinely worth keeping long-term, you may silently add a memory block at the END of your response. These are parsed automatically and NOT shown to the user.
 
 \`\`\`memory
 {"category":"relationships","content":"Mac is the user's direct manager","importance":8}
 \`\`\`
-\`\`\`memory
-{"category":"relationships","content":"Craig and Sumanta are peers on the same team","importance":7}
-\`\`\`
 
-Categories: "relationships" (people, roles, team structure), "preferences" (how user likes things done), "instructions" (explicit rules/directions to follow), "context" (project info, domain knowledge, technical details)
-Importance: 1-10 (8+ for key people/roles, 6-7 for useful context, 5 for minor details)
-Only add memory blocks when the user shares NEW factual information. Do NOT add memory blocks for questions, greetings, or general chat. Extract ALL distinct facts - if the user mentions 5 people, create 5 separate memory blocks.
+**Only save a memory if ALL of these are true:**
+- It's a clear, durable fact (a person's role, an explicit preference, a standing instruction)
+- The user stated it directly — don't infer or paraphrase casual remarks
+- It's something you'd genuinely want to recall weeks from now
+- You haven't already stored this fact
+
+**Never save a memory for:**
+- Questions, greetings, or back-and-forth chat
+- Things the user is just mentioning in passing
+- Rephrasing what they just said back at them
+- General discussion or opinions
+- Anything you're uncertain about
+
+Categories: "relationships" (people, roles), "preferences" (how user likes things done), "instructions" (explicit standing rules), "context" (key project/domain facts)
+Importance: 8+ for key people/roles, 6-7 for genuinely useful context. If in doubt, don't save it.
+
+**Most messages need zero memory blocks. Prioritise being a good conversationalist over collecting facts.**
 
 ## Actions You Can Take
 

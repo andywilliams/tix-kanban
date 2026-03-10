@@ -57,6 +57,14 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [prSaving, setPRSaving] = useState(false);
   const [prSaved, setPRSaved] = useState(false);
 
+  // Provider state
+  const [providerConfig, setProviderConfig] = useState<{ ticketProvider: string; messageProvider: string }>({ ticketProvider: 'tix', messageProvider: 'slx' });
+  const [availableProviders, setAvailableProviders] = useState<{ tickets: string[]; messages: string[] }>({ tickets: [], messages: [] });
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [providerSaved, setProviderSaved] = useState(false);
+  const [providerSyncing, setProviderSyncing] = useState(false);
+  const [providerSyncResult, setProviderSyncResult] = useState<string>('');
+
   // Backup state
   const [backupDir, setBackupDir] = useState('');
   const [backupDirSaving, setBackupDirSaving] = useState(false);
@@ -78,6 +86,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     loadPRResolverStatus();
     loadBackupStatus();
     loadBackupCategories();
+    loadProviders();
   }, []);
 
   const loadSettings = async () => {
@@ -306,6 +315,66 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to trigger PR resolver:', error);
+    }
+  };
+
+  const loadProviders = async () => {
+    try {
+      const res = await fetch('/api/providers');
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableProviders(data.available || { tickets: [], messages: [] });
+        setProviderConfig({
+          ticketProvider: data.config?.ticketProvider || 'tix',
+          messageProvider: data.config?.messageProvider || 'slx',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load providers:', error);
+    }
+  };
+
+  const saveProviderConfig = async () => {
+    setProviderSaving(true);
+    setProviderSaved(false);
+    try {
+      const res = await fetch('/api/providers/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(providerConfig),
+      });
+      if (res.ok) {
+        setProviderSaved(true);
+        setTimeout(() => setProviderSaved(false), 2000);
+      } else {
+        const data = await res.json();
+        alert(`Failed to save: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to save provider config:', error);
+    } finally {
+      setProviderSaving(false);
+    }
+  };
+
+  const triggerProviderSync = async () => {
+    setProviderSyncing(true);
+    setProviderSyncResult('');
+    try {
+      const res = await fetch('/api/providers/sync', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const parts = [];
+        if (data.results?.tickets) parts.push(`Tickets: ${data.results.tickets.count} from ${data.results.tickets.provider}`);
+        if (data.results?.messages) parts.push(`Messages: ${data.results.messages.count} from ${data.results.messages.provider}`);
+        setProviderSyncResult(parts.join(' · ') || 'Sync complete');
+      } else {
+        setProviderSyncResult(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setProviderSyncResult('Sync failed');
+    } finally {
+      setProviderSyncing(false);
     }
   };
 
@@ -855,6 +924,67 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Providers Section */}
+      <div className="settings-section">
+        <h2>Providers</h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '0.9rem' }}>
+          Choose where tix-kanban pulls tickets and messages from. Switching providers lets you use different tools without changing how the board works.
+        </p>
+
+        <div className="form-group">
+          <label htmlFor="ticketProvider">Ticket Source</label>
+          <select
+            id="ticketProvider"
+            value={providerConfig.ticketProvider}
+            onChange={e => setProviderConfig(prev => ({ ...prev, ticketProvider: e.target.value }))}
+          >
+            {availableProviders.tickets.length > 0
+              ? availableProviders.tickets.map(p => <option key={p} value={p}>{p}</option>)
+              : <option value="tix">tix (Notion sync)</option>
+            }
+          </select>
+          <small className="form-help">
+            <strong>tix</strong> — syncs from Notion via the tix CLI
+          </small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="messageProvider">Message Source</label>
+          <select
+            id="messageProvider"
+            value={providerConfig.messageProvider}
+            onChange={e => setProviderConfig(prev => ({ ...prev, messageProvider: e.target.value }))}
+          >
+            {availableProviders.messages.length > 0
+              ? availableProviders.messages.map(p => <option key={p} value={p}>{p}</option>)
+              : <option value="slx">slx (Slack sync)</option>
+            }
+          </select>
+          <small className="form-help">
+            <strong>slx</strong> — syncs from Slack via the slx CLI
+          </small>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', marginTop: '16px', alignItems: 'center' }}>
+          <button className="save-btn" onClick={saveProviderConfig} disabled={providerSaving}>
+            {providerSaving ? 'Saving...' : providerSaved ? 'Saved!' : 'Save Providers'}
+          </button>
+          <button
+            className="save-btn"
+            onClick={triggerProviderSync}
+            disabled={providerSyncing}
+            style={{ backgroundColor: '#6366f1' }}
+          >
+            {providerSyncing ? 'Syncing...' : '🔄 Sync Now'}
+          </button>
+        </div>
+        {providerSyncResult && (
+          <small style={{ marginTop: '8px', display: 'block', color: providerSyncResult.startsWith('Error') ? 'var(--error, #ef4444)' : 'var(--success, #22c55e)' }}>
+            {providerSyncResult}
+          </small>
+        )}
       </div>
 
       {/* Backup Section */}
