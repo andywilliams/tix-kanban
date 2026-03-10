@@ -301,12 +301,14 @@ function evaluateCondition(condition: RuleCondition, data: any): boolean {
       return fieldValue < conditionValue;
 
     case 'contains':
+      if (fieldValue == null) return false;
       if (Array.isArray(fieldValue)) {
         return fieldValue.includes(conditionValue);
       }
       return String(fieldValue).includes(String(conditionValue));
 
     case 'not_contains':
+      if (fieldValue == null) return true;
       if (Array.isArray(fieldValue)) {
         return !fieldValue.includes(conditionValue);
       }
@@ -360,7 +362,10 @@ async function sendNotification(action: RuleAction, message: string): Promise<vo
 // Interpolate message template
 function interpolateMessage(template: string, data: Record<string, any>): string {
   return template.replace(/\{(\w+)\}/g, (match, key) => {
-    return data[key] !== undefined ? String(data[key]) : match;
+    if (data[key] === undefined) return match;
+    // Round numeric values for display (e.g. age in days)
+    if (typeof data[key] === 'number') return String(Math.round(data[key]));
+    return String(data[key]);
   });
 }
 
@@ -385,7 +390,7 @@ export async function evaluateReminderRules(dryRun: boolean = false): Promise<vo
             ?.filter((a: any) => a.type === 'status_change')
             .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
           const ageBaseTime = lastStatusChange ? new Date(lastStatusChange.timestamp).getTime() : (task.createdAt ? new Date(task.createdAt).getTime() : Date.now());
-          const age = Math.floor((Date.now() - ageBaseTime) / (24 * 60 * 60 * 1000));
+          const age = (Date.now() - ageBaseTime) / (24 * 60 * 60 * 1000);
           const prData = getPRData(task);
 
           const data = {
