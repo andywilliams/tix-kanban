@@ -385,6 +385,87 @@ See [Setup from Scratch](#5-optional-integrations) for configuration details.
 
 ---
 
+## Providers
+
+Providers are the abstraction layer between tix-kanban and external tools. They let you swap out where tickets and messages come from without changing anything else.
+
+### Built-in Providers
+
+| Name | Type | Source |
+|------|------|--------|
+| `tix` | Ticket | Notion via the tix CLI |
+| `slx` | Message | Slack via the slx CLI |
+
+Switch providers in **Settings → Providers**, or via API:
+
+```bash
+curl -X PUT http://localhost:3000/api/providers/config \
+  -H "Content-Type: application/json" \
+  -d '{"ticketProvider": "tix", "messageProvider": "slx"}'
+```
+
+### Adding a Custom Provider
+
+**1. Create the provider file** in `src/server/providers/`:
+
+```ts
+// src/server/providers/github-issues-provider.ts
+import { TicketProvider, TicketData } from './types.js';
+
+class GitHubIssuesProvider implements TicketProvider {
+  name = 'github-issues';
+
+  async sync(): Promise<TicketData[]> {
+    // Fetch issues from GitHub API and map to TicketData
+    const issues = await fetch('https://api.github.com/repos/owner/repo/issues')
+      .then(r => r.json());
+
+    return issues.map((issue: any) => ({
+      id: `gh-${issue.number}`,
+      title: issue.title,
+      status: issue.state === 'open' ? 'backlog' : 'done',
+      description: issue.body,
+      externalId: String(issue.number),
+      externalUrl: issue.html_url,
+    }));
+  }
+}
+
+export const githubIssuesProvider = new GitHubIssuesProvider();
+```
+
+**2. Register it** in `src/server/providers/index.ts`:
+
+```ts
+import { githubIssuesProvider } from './github-issues-provider.js';
+
+const ticketProviders: Map<string, TicketProvider> = new Map([
+  ['tix', tixProvider],
+  ['github-issues', githubIssuesProvider], // ← add here
+]);
+```
+
+That's it — it will appear in the Settings dropdown immediately.
+
+### Provider Interface Reference
+
+```ts
+interface TicketProvider {
+  name: string;
+  sync(): Promise<TicketData[]>;         // Pull tickets from external source
+  push?(ticket: TicketData): Promise<void>; // Optional: write updates back
+  configure?(config: any): Promise<void>;   // Optional: runtime configuration
+}
+
+interface MessageProvider {
+  name: string;
+  sync(): Promise<MessageData[]>;        // Pull messages from external source
+  configure?(config: any): Promise<void>;
+}
+```
+
+---
+
 ## Personas
 
 Personas are AI personalities that process tasks and participate in chat. Each has a system prompt, specialties, and a persistent memory.
