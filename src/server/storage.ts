@@ -199,7 +199,7 @@ export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'upda
 
   // Fix up link taskIds if links were provided during creation
   if (task.links && task.links.length > 0) {
-    task.links = task.links.map(link => ({ ...link, taskId }));
+    task.links = task.links.map(link => ({ ...link, taskId: id }));
   }
   
   // Add creation activity
