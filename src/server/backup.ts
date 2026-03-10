@@ -725,6 +725,7 @@ export async function listBackups(backupDir: string): Promise<Array<{
   filename: string;
   createdAt: string;
   encrypted: boolean;
+  size?: number;
   categories?: BackupCategories;
 }>> {
   const files = await fs.readdir(backupDir);
@@ -736,11 +737,26 @@ export async function listBackups(backupDir: string): Promise<Array<{
     try {
       const content = await fs.readFile(path.join(backupDir, metadataFile), 'utf8');
       const metadata: BackupMetadata = JSON.parse(content);
-      
+
+      // createdAt is stored as filename-safe timestamp (dashes instead of colons/dots)
+      // Convert back to a parseable ISO string: 2026-03-10T16-45-00-000Z → 2026-03-10T16:45:00.000Z
+      const isoCreatedAt = metadata.createdAt
+        .replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3}Z)$/, 'T$1:$2:$3.$4');
+
+      // Get the size of the backup file itself
+      const backupFilename = metadataFile.replace('-metadata.json', '');
+      const ext = metadata.encrypted ? '.tar.enc' : '.tar';
+      let size: number | undefined;
+      try {
+        const stat = await fs.stat(path.join(backupDir, `${backupFilename}${ext}`));
+        size = stat.size;
+      } catch { /* file might not exist */ }
+
       backups.push({
-        filename: metadataFile.replace('-metadata.json', ''),
-        createdAt: metadata.createdAt,
+        filename: backupFilename,
+        createdAt: isoCreatedAt,
         encrypted: metadata.encrypted,
+        size,
         categories: metadata.categories,
       });
     } catch (error) {

@@ -942,7 +942,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               {backupFiles.slice(0, 5).map(f => (
                 <div key={f.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'var(--bg-secondary, #1e1e2e)', borderRadius: '6px', fontSize: '0.85rem' }}>
                   <span>{f.name} {f.encrypted && '🔒'}</span>
-                  <span style={{ color: 'var(--text-secondary, #888)' }}>{new Date(f.createdAt).toLocaleString()} · {(f.size / 1024).toFixed(0)}KB</span>
+                  <span style={{ color: 'var(--text-secondary, #888)' }}>{new Date(f.createdAt).toLocaleString()} · {f.size ? `${(f.size / 1024).toFixed(0)}KB` : ''}</span>
                 </div>
               ))}
             </div>
