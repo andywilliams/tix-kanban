@@ -187,11 +187,11 @@ export async function getTask(taskId: string): Promise<Task | null> {
 }
 
 // Create new task
-export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>, actor: string = 'system'): Promise<Task> {
-  const taskId = Math.random().toString(36).substr(2, 9);
+export async function createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>, actor: string = 'system', taskId?: string): Promise<Task> {
+  const id = taskId || Math.random().toString(36).substr(2, 9);
   const task: Task = {
     ...taskData,
-    id: taskId,
+    id: id,
     createdAt: new Date(),
     updatedAt: new Date(),
     activity: [], // Initialize empty activity array

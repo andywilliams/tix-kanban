@@ -21,6 +21,9 @@ export interface Task {
   model?: string; // Override AI model for this task
   timeoutMs?: number; // Custom timeout in ms for AI worker (default: 320000 dev, 600000 research)
   agentActivity?: AgentActivity; // Live agent working status
+  notionId?: string; // Notion page/block ID for synced tasks
+  parentTaskId?: string; // Parent task ID for subtasks
+  isSubtask?: boolean; // Marks this task as a subtask
 }
 
 export interface AgentActivity {

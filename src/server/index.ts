@@ -2261,6 +2261,9 @@ app.post('/api/notion/sync', async (_req, res) => {
             status: kanbanStatus,
             priority: notionTask.priority || 100,
             updatedAt: new Date(),
+            notionId: notionTask.notionId,
+            parentTaskId: notionTask.parentNotionId ? `notion-${notionTask.parentNotionId}` : undefined,
+            isSubtask: notionTask.isSubtask,
           });
           tasksSkipped.push(notionTask.title);
         } else {
@@ -2281,7 +2284,10 @@ app.post('/api/notion/sync', async (_req, res) => {
               title: 'Notion Page',
               type: 'reference'
             }],
-          });
+            notionId: notionTask.notionId,
+            parentTaskId: notionTask.parentNotionId ? `notion-${notionTask.parentNotionId}` : undefined,
+            isSubtask: notionTask.isSubtask,
+          }, 'system', notionTask.id); // Pass taskId to preserve composite ID for subtasks
           tasksCreated.push(notionTask.title);
         }
       } catch (taskError) {
