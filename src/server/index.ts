@@ -144,7 +144,9 @@ import {
   getBackupStatus,
   updateBackupSchedule,
   startBackupScheduler,
-  stopBackupScheduler
+  stopBackupScheduler,
+  getBackupCategories,
+  updateBackupCategories
 } from './backup.js';
 import {
   initializeStandupStorage,
@@ -2463,6 +2465,34 @@ app.post('/api/backup/toggle', async (req, res) => {
   } catch (error) {
     console.error('POST /api/backup/toggle error:', error);
     res.status(500).json({ error: 'Failed to toggle backup' });
+  }
+});
+
+// GET /api/backup/categories - Get backup category settings
+app.get('/api/backup/categories', async (_req, res) => {
+  try {
+    const categories = await getBackupCategories();
+    res.json({ categories });
+  } catch (error) {
+    console.error('GET /api/backup/categories error:', error);
+    res.status(500).json({ error: 'Failed to fetch backup categories' });
+  }
+});
+
+// POST /api/backup/categories - Update backup category settings
+app.post('/api/backup/categories', async (req, res) => {
+  try {
+    const { categories } = req.body;
+
+    if (!categories || typeof categories !== 'object') {
+      return res.status(400).json({ error: 'categories must be an object' });
+    }
+
+    const updatedCategories = await updateBackupCategories(categories);
+    res.json({ categories: updatedCategories });
+  } catch (error) {
+    console.error('POST /api/backup/categories error:', error);
+    res.status(500).json({ error: 'Failed to update backup categories' });
   }
 });
 

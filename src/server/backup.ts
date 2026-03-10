@@ -3,7 +3,7 @@ import { exec as execCallback } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { getUserSettings, saveUserSettings, BackupSchedule, expandBackupPath, validateBackupPath } from './user-settings.js';
+import { getUserSettings, saveUserSettings, BackupSchedule, BackupCategories, getBackupCategoriesWithDefaults } from './user-settings.js';
 
 const execAsync = promisify(execCallback);
 
@@ -19,18 +19,15 @@ async function getStorageDir(): Promise<string> {
   const backupDir = settings.backup?.backupDir;
   
   if (backupDir && backupDir.trim()) {
-    return expandBackupPath(backupDir);
+    // Expand ~ to home directory
+    const expandedDir = backupDir.startsWith('~') 
+      ? path.join(os.homedir(), backupDir.slice(1).replace(/^\//, ''))
+      : path.resolve(backupDir);
+    return expandedDir;
   }
   
   // Default to ~/.tix-kanban
   return STORAGE_DIR;
-}
-
-/**
- * Get the backup state file path for the current storage directory
- */
-async function getBackupStatePath(storageDir: string): Promise<string> {
-  return path.join(storageDir, BACKUP_STATE_FILE);
 }
 
 interface BackupState {
@@ -120,7 +117,8 @@ export function isBackupNeeded(schedule: BackupSchedule): boolean {
  */
 export async function hasChangesSinceLastBackup(): Promise<boolean> {
   try {
-    const state = await readBackupState();
+    const storageDir = await getStorageDir();
+    const state = await readBackupState(storageDir);
     
     if (!state.lastBackupTime) {
       return true; // Never backed up, need to backup
@@ -131,10 +129,10 @@ export async function hasChangesSinceLastBackup(): Promise<boolean> {
     // Check if any DATA files in the storage directory have been modified since last backup
     // Exclude backup metadata files that are updated on every backup run
     const EXCLUDED = new Set([
-      path.join(STORAGE_DIR, 'backup-state.json'),
-      path.join(STORAGE_DIR, 'user-settings.json'),
+      path.join(storageDir, 'backup-state.json'),
+      path.join(storageDir, 'user-settings.json'),
     ]);
-    const files = await getAllStorageFiles(STORAGE_DIR);
+    const files = await getAllStorageFiles(storageDir);
 
     for (const file of files) {
       if (EXCLUDED.has(file)) continue;
@@ -185,9 +183,10 @@ async function getAllStorageFiles(dir: string): Promise<string[]> {
 /**
  * Read backup state from file
  */
-async function readBackupState(): Promise<BackupState> {
+async function readBackupState(storageDir: string): Promise<BackupState> {
+  const statePath = path.join(storageDir, BACKUP_STATE_FILE);
   try {
-    const content = await fs.readFile(BACKUP_STATE_FILE, 'utf8');
+    const content = await fs.readFile(statePath, 'utf8');
     return JSON.parse(content);
   } catch (error) {
     return {};
@@ -197,8 +196,9 @@ async function readBackupState(): Promise<BackupState> {
 /**
  * Write backup state to file
  */
-async function writeBackupState(state: BackupState): Promise<void> {
-  await fs.writeFile(BACKUP_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+async function writeBackupState(storageDir: string, state: BackupState): Promise<void> {
+  const statePath = path.join(storageDir, BACKUP_STATE_FILE);
+  await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf8');
 }
 
 /**
@@ -224,7 +224,7 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
         lastBackupResult: 'skipped',
         lastBackupError: undefined
       };
-      await writeBackupState(state);
+      await writeBackupState(STORAGE_DIR, state);
       
       // Update user settings
       if (settings.backup) {
@@ -300,7 +300,7 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
       lastBackupResult: gitErrorMessage ? 'failure' : 'success',
       lastBackupError: gitErrorMessage
     };
-    await writeBackupState(state);
+    await writeBackupState(STORAGE_DIR, state);
     
     // Update user settings
     if (settings.backup) {
@@ -326,7 +326,7 @@ export async function runBackup(): Promise<{ success: boolean; message: string; 
       lastBackupResult: 'failure',
       lastBackupError: errorMessage
     };
-    await writeBackupState(state).catch(() => {});
+    await writeBackupState(STORAGE_DIR, state).catch(() => {});
     
     // Update user settings
     const settings = await getUserSettings();
@@ -389,6 +389,30 @@ export async function updateBackupSchedule(updates: Partial<BackupSchedule>): Pr
   await saveUserSettings(settings);
   
   return settings.backup;
+}
+
+/**
+ * Get current backup category settings
+ */
+export async function getBackupCategories(): Promise<BackupCategories> {
+  const settings = await getUserSettings();
+  return getBackupCategoriesWithDefaults(settings.backupCategories);
+}
+
+/**
+ * Update backup category settings
+ */
+export async function updateBackupCategories(categories: Partial<BackupCategories>): Promise<BackupCategories> {
+  const settings = await getUserSettings();
+  
+  if (!settings.backupCategories) {
+    settings.backupCategories = {};
+  }
+  
+  settings.backupCategories = { ...settings.backupCategories, ...categories };
+  await saveUserSettings(settings);
+  
+  return getBackupCategoriesWithDefaults(settings.backupCategories);
 }
 
 /**
