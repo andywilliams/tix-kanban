@@ -228,7 +228,23 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
 }
 
 // Get all PRs for a repo (optionally filtered by state)
-export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merged' | 'all' = 'open'): Promise<PRStatus[]> {
+export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merged' | 'all' = 'open', prNumbers?: number[]): Promise<PRStatus[]> {
+  // If specific PR numbers are provided, use the batched rate-limited function
+  if (prNumbers && prNumbers.length > 0) {
+    const statusMap = await batchGetPRStatuses(repo, prNumbers);
+    const prs = Array.from(statusMap.values());
+    
+    // Filter by state if provided
+    if (state === 'open') {
+      return prs.filter(pr => pr.state === 'open');
+    } else if (state === 'closed') {
+      return prs.filter(pr => pr.state === 'closed' || pr.state === 'merged');
+    } else if (state === 'merged') {
+      return prs.filter(pr => pr.state === 'merged');
+    }
+    return prs;
+  }
+  
   const cacheKey = `repo-prs-${repo}-${state}`;
   
   return getCachedResponse(cacheKey, async () => {

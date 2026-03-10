@@ -1822,8 +1822,11 @@ app.get('/api/github/prs/:repo', async (req, res) => {
   try {
     const repo = `${req.params.repo}`.replace('--', '/'); // Convert owner--repo back to owner/repo
     const state = req.query.state as 'open' | 'closed' | 'merged' | 'all' || 'open';
+    // Optional: pass specific PR numbers to avoid fetching all
+    const prNumbersParam = req.query.prNumbers as string | undefined;
+    const prNumbers = prNumbersParam ? prNumbersParam.split(',').map(n => parseInt(n, 10)).filter(n => !isNaN(n)) : undefined;
     
-    const prs = await getRepoPRs(repo, state);
+    const prs = await getRepoPRs(repo, state, prNumbers);
     res.json({ prs });
   } catch (error) {
     console.error(`GET /api/github/prs/${req.params.repo} error:`, error);
