@@ -104,7 +104,8 @@ export async function getPendingReminders(): Promise<PersonalReminder[]> {
 export async function getDueReminders(): Promise<PersonalReminder[]> {
   const reminders = await loadReminders();
   const now = new Date();
-  return reminders.filter(r => !r.triggered && r.remindAt <= now);
+  // Exclude paused reminders — they should not fire until resumed
+  return reminders.filter(r => r.status === 'pending' && r.triggerTime <= now);
 }
 
 // Get reminders for a specific target (persona-id or 'human:name')
@@ -259,8 +260,10 @@ export function calculateNextOccurrence(recurrence: Recurrence, fromDate: Date =
         break;
         
       case 'monthly':
+        // Set date to 1 BEFORE incrementing month to avoid overflow
+        // (e.g. Jan 31 + 1 month → Mar 3 without this fix)
+        next.setDate(1);
         next.setMonth(next.getMonth() + 1);
-        next.setDate(1); // First of month
         next.setHours(9, 0, 0, 0);
         break;
     }
