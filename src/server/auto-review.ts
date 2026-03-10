@@ -406,15 +406,15 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
     const reviewer = await getPersona(reviewState.reviewerId);
     const reviewerName = reviewer?.name || reviewState.reviewerId;
 
-    // Post that review is starting
-    await postReviewUpdate(task, reviewerName, `Picking up this task for QA review (cycle ${reviewState.currentReviewCycle}). I'll let you know what I find.`);
-    
     // Check if we've exceeded max cycles
     if (reviewState.currentReviewCycle > config.maxReviewCycles) {
       console.log(`⚠️ Max review cycles exceeded for task ${task.title}, escalating`);
-      await handleMaxCyclesReached(task, reviewState, config);
+      await handleMaxCyclesReached(task, reviewState, config, reviewerName);
       return 'escalated';
     }
+    
+    // Post that review is starting (only if we're actually going to review)
+    await postReviewUpdate(task, reviewerName, `Picking up this task for QA review (cycle ${reviewState.currentReviewCycle}). I'll let you know what I find.`);
     
     // Execute the review
     const reviewResult = await spawnReviewSession(task, reviewState.reviewerId, reviewState);
@@ -490,11 +490,10 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
 async function handleMaxCyclesReached(
   task: Task, 
   reviewState: TaskReviewState, 
-  config: AutoReviewConfig
+  config: AutoReviewConfig,
+  reviewerName: string
 ): Promise<void> {
   // Post escalation message to chat
-  const reviewer = await getPersona(reviewState.reviewerId);
-  const reviewerName = reviewer?.name || reviewState.reviewerId;
   await postReviewUpdate(task, reviewerName, `Reached max review cycles (${config.maxReviewCycles}) — this needs a human to take a look. Escalating.`);
 
   const escalationComment: Comment = {
