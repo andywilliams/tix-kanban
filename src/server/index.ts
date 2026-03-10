@@ -1163,7 +1163,41 @@ app.post('/api/reminders', async (req, res) => {
   }
 });
 
-// GET /api/reminders/:id - Get a single reminder
+// GET /api/reminders/pending - Get pending reminders (must be before /:id)
+app.get('/api/reminders/pending', async (_req, res) => {
+  try {
+    const reminders = await getPendingReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/pending error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending reminders' });
+  }
+});
+
+// GET /api/reminders/due - Get due reminders (must be before /:id)
+app.get('/api/reminders/due', async (_req, res) => {
+  try {
+    const reminders = await getDueReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/due error:', error);
+    res.status(500).json({ error: 'Failed to fetch due reminders' });
+  }
+});
+
+// GET /api/reminders/target/:target - Get reminders for a specific target (must be before /:id)
+app.get('/api/reminders/target/:target', async (req, res) => {
+  try {
+    const { target } = req.params;
+    const reminders = await getRemindersForTarget(target);
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/target/:target error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminders for target' });
+  }
+});
+
+// GET /api/reminders/:id - Get a single reminder (after specific routes)
 app.get('/api/reminders/:id', async (req, res) => {
   try {
     const reminder = await getReminderById(req.params.id);
@@ -1197,40 +1231,6 @@ app.post('/api/reminders/:id/snooze', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Failed to snooze reminder' });
     }
-  }
-});
-
-// GET /api/reminders/pending - Get pending (not triggered) reminders
-app.get('/api/reminders/pending', async (_req, res) => {
-  try {
-    const reminders = await getPendingReminders();
-    res.json({ reminders });
-  } catch (error) {
-    console.error('GET /api/reminders/pending error:', error);
-    res.status(500).json({ error: 'Failed to fetch pending reminders' });
-  }
-});
-
-// GET /api/reminders/due - Get due reminders
-app.get('/api/reminders/due', async (_req, res) => {
-  try {
-    const reminders = await getDueReminders();
-    res.json({ reminders });
-  } catch (error) {
-    console.error('GET /api/reminders/due error:', error);
-    res.status(500).json({ error: 'Failed to fetch due reminders' });
-  }
-});
-
-// GET /api/reminders/target/:target - Get reminders for a specific target
-app.get('/api/reminders/target/:target', async (req, res) => {
-  try {
-    const { target } = req.params;
-    const reminders = await getRemindersForTarget(target);
-    res.json({ reminders });
-  } catch (error) {
-    console.error('GET /api/reminders/target/:target error:', error);
-    res.status(500).json({ error: 'Failed to fetch reminders for target' });
   }
 });
 
