@@ -869,7 +869,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               type="text"
               value={backupDir}
               onChange={e => setBackupDir(e.target.value)}
-              placeholder="~/.tix-kanban (default)"
+              placeholder="~/.tix-kanban-backups (default)"
               style={{ flex: 1 }}
             />
             <button className="save-btn" onClick={saveBackupDir} disabled={backupDirSaving}>
@@ -877,7 +877,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             </button>
           </div>
           {backupDirError && <small style={{ color: 'var(--error, #ef4444)', marginTop: '4px', display: 'block' }}>{backupDirError}</small>}
-          <small className="form-help">Leave empty to use the default (~/.tix-kanban). Supports ~ paths.</small>
+          <small className="form-help">Leave empty to use the default (~/.tix-kanban-backups). Supports ~ paths. Directory is created automatically if it doesn't exist.</small>
         </div>
 
         <div className="form-group">
