@@ -239,6 +239,8 @@ export async function getRepoPRs(repo: string, state: 'open' | 'closed' | 'merge
       return prs.filter(pr => pr.state === 'open');
     } else if (state === 'closed') {
       return prs.filter(pr => pr.state === 'closed' || pr.state === 'merged');
+    } else if (state === 'merged') {
+      return prs.filter(pr => pr.state === 'merged');
     }
     return prs;
   }
