@@ -37,6 +37,18 @@ import {
   clearCooldowns
 } from './reminder-rules.js';
 import {
+  createReminder,
+  getAllReminders,
+  getPendingReminders,
+  getDueReminders,
+  getRemindersForTarget,
+  getReminderById,
+  markReminderTriggered,
+  snoozeReminder,
+  deleteReminder,
+  clearTriggeredReminders
+} from './personal-reminders.js';
+import {
   getAllPersonas,
   getPersona,
   createPersona,
@@ -1061,6 +1073,203 @@ app.post('/api/reminder-rules/clear-cooldowns', async (_req, res) => {
   } catch (error) {
     console.error('POST /api/reminder-rules/clear-cooldowns error:', error);
     res.status(500).json({ error: 'Failed to clear cooldowns' });
+  }
+});
+
+// Personal Reminders API routes
+
+// Parse snooze duration to Date
+function parseSnoozeDuration(duration: string): Date {
+  const now = new Date();
+  switch (duration) {
+    case '1h':
+      return new Date(now.getTime() + 60 * 60 * 1000);
+    case '4h':
+      return new Date(now.getTime() + 4 * 60 * 60 * 1000);
+    case 'tomorrow': {
+      const d = new Date(now);
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    }
+    case 'next week': {
+      const d = new Date(now);
+      d.setDate(d.getDate() + 7);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    }
+    default: {
+      const match = duration?.match(/^(\d+)([hm])$/);
+      if (match) {
+        return new Date(
+          now.getTime() + parseInt(match[1]) * (match[2] === 'h' ? 3600000 : 60000)
+        );
+      }
+      throw new Error(`Unknown duration: ${duration}`);
+    }
+  }
+}
+
+// GET /api/reminders - Get all personal reminders (with optional filters)
+app.get('/api/reminders', async (req, res) => {
+  try {
+    const { status, type } = req.query;
+    let reminders = await getAllReminders();
+
+    // Filter by status (active = not triggered, triggered = triggered)
+    if (status === 'active') {
+      reminders = reminders.filter(r => !r.triggered);
+    } else if (status === 'triggered') {
+      reminders = reminders.filter(r => r.triggered);
+    }
+
+    // Filter by type
+    if (type === 'adhoc') {
+      reminders = reminders.filter(r => r.type === 'adhoc');
+    } else if (type === 'scheduled') {
+      reminders = reminders.filter(r => r.type === 'scheduled');
+    }
+
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminders' });
+  }
+});
+
+// POST /api/reminders - Create a new personal reminder
+app.post('/api/reminders', async (req, res) => {
+  try {
+    const { message, remindAt, taskId, creator, target, type } = req.body;
+
+    if (!message || !remindAt || !creator || !target) {
+      return res
+        .status(400)
+        .json({ error: 'message, remindAt, creator, and target are required' });
+    }
+
+    const reminder = await createReminder(
+      message,
+      new Date(remindAt),
+      taskId,
+      creator,
+      target,
+      type || 'adhoc'
+    );
+    res.status(201).json({ reminder });
+  } catch (error) {
+    console.error('POST /api/reminders error:', error);
+    res.status(500).json({ error: 'Failed to create reminder' });
+  }
+});
+
+// GET /api/reminders/:id - Get a single reminder
+app.get('/api/reminders/:id', async (req, res) => {
+  try {
+    const reminder = await getReminderById(req.params.id);
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    res.json({ reminder });
+  } catch (error) {
+    console.error(`GET /api/reminders/${req.params.id} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch reminder' });
+  }
+});
+
+// POST /api/reminders/:id/snooze - Snooze a reminder
+app.post('/api/reminders/:id/snooze', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { duration } = req.body;
+
+    if (!duration) {
+      return res.status(400).json({ error: 'duration is required (e.g., 1h, 4h, tomorrow, next week)' });
+    }
+
+    const newTime = parseSnoozeDuration(duration);
+    const reminder = await snoozeReminder(id, newTime);
+    res.json({ reminder });
+  } catch (error) {
+    console.error(`POST /api/reminders/${req.params.id}/snooze error:`, error);
+    if (error instanceof Error && error.message.includes('not found')) {
+      res.status(404).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to snooze reminder' });
+    }
+  }
+});
+
+// GET /api/reminders/pending - Get pending (not triggered) reminders
+app.get('/api/reminders/pending', async (_req, res) => {
+  try {
+    const reminders = await getPendingReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/pending error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending reminders' });
+  }
+});
+
+// GET /api/reminders/due - Get due reminders
+app.get('/api/reminders/due', async (_req, res) => {
+  try {
+    const reminders = await getDueReminders();
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/due error:', error);
+    res.status(500).json({ error: 'Failed to fetch due reminders' });
+  }
+});
+
+// GET /api/reminders/target/:target - Get reminders for a specific target
+app.get('/api/reminders/target/:target', async (req, res) => {
+  try {
+    const { target } = req.params;
+    const reminders = await getRemindersForTarget(target);
+    res.json({ reminders });
+  } catch (error) {
+    console.error('GET /api/reminders/target/:target error:', error);
+    res.status(500).json({ error: 'Failed to fetch reminders for target' });
+  }
+});
+
+// POST /api/reminders/:id/trigger - Mark a reminder as triggered
+app.post('/api/reminders/:id/trigger', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await markReminderTriggered(id);
+    res.json({ success: true, message: 'Reminder marked as triggered' });
+  } catch (error) {
+    console.error(`POST /api/reminders/${req.params.id}/trigger error:`, error);
+    res
+      .status(404)
+      .json({ error: error instanceof Error ? error.message : 'Failed to trigger reminder' });
+  }
+});
+
+// DELETE /api/reminders/:id - Delete a reminder
+app.delete('/api/reminders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteReminder(id);
+    res.json({ success: true, message: 'Reminder deleted' });
+  } catch (error) {
+    console.error(`DELETE /api/reminders/${req.params.id} error:`, error);
+    res
+      .status(404)
+      .json({ error: error instanceof Error ? error.message : 'Failed to delete reminder' });
+  }
+});
+
+// POST /api/reminders/clear-triggered - Clear all triggered reminders
+app.post('/api/reminders/clear-triggered', async (_req, res) => {
+  try {
+    await clearTriggeredReminders();
+    res.json({ success: true, message: 'Triggered reminders cleared' });
+  } catch (error) {
+    console.error('POST /api/reminders/clear-triggered error:', error);
+    res.status(500).json({ error: 'Failed to clear triggered reminders' });
   }
 });
 
