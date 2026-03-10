@@ -402,7 +402,7 @@ export function getBuiltinRules(): ReminderRule[] {
       conditions: [
         { field: 'state', operator: '=', value: 'open' },
         { field: 'days_since_update', operator: '>', value: 3 },
-        { field: 'approved', operator: '!=', value: 'true' }
+        { field: 'approved', operator: '!=', value: true }
       ],
       action: {
         type: 'console',
