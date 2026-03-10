@@ -120,7 +120,7 @@ export function isBackupNeeded(schedule: BackupSchedule): boolean {
  */
 export async function hasChangesSinceLastBackup(): Promise<boolean> {
   try {
-    const storageDir = await getStorageDir();
+    const storageDir = await getBackupStorageDir();
     const state = await readBackupState(storageDir);
     
     if (!state.lastBackupTime) {
@@ -131,7 +131,6 @@ export async function hasChangesSinceLastBackup(): Promise<boolean> {
     
     // Check if any DATA files in the storage directory have been modified since last backup
     // Exclude metadata files updated on every backup run
-    const storageDir = await getBackupStorageDir();
     const EXCLUDED = new Set([
       path.join(storageDir, 'backup-state.json'),
       path.join(storageDir, 'user-settings.json'),
@@ -593,7 +592,7 @@ export async function createFileBackup(options: {
   password?: string;
   categories?: BackupCategories;
 }): Promise<{ backupPath: string; metadataPath: string; encrypted: boolean }> {
-  const storageDir = await getStorageDir();
+  const storageDir = await getBackupStorageDir();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const baseName = `backup-${timestamp}`;
   
@@ -707,7 +706,7 @@ export async function restoreFileBackup(options: {
     tarBuffer = backupBuffer;
   }
   
-  const targetDir = options.targetDir || await getStorageDir();
+  const targetDir = options.targetDir || await getBackupStorageDir();
   
   await extractTarArchive(tarBuffer, targetDir);
   

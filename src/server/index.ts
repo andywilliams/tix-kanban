@@ -1129,18 +1129,18 @@ app.get('/api/reminders', async (req, res) => {
     const { status, type } = req.query;
     let reminders = await getAllReminders();
 
-    // Filter by status (active = pending, triggered = triggered)
+    // Filter by status
     if (status === 'active') {
-      reminders = reminders.filter(r => !r.triggered);
+      reminders = reminders.filter(r => r.status === 'pending');
     } else if (status === 'triggered') {
-      reminders = reminders.filter(r => r.triggered);
+      reminders = reminders.filter(r => r.status === 'triggered');
     }
 
     // Filter by type
     if (type === 'adhoc') {
       reminders = reminders.filter(r => r.type === 'adhoc');
-    } else if (type === 'scheduled') {
-      reminders = reminders.filter(r => r.type === 'scheduled');
+    } else if (type === 'recurring') {
+      reminders = reminders.filter(r => r.type === 'recurring');
     }
 
     res.json({ reminders });
