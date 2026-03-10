@@ -197,6 +197,47 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     }
   };
 
+  const saveReminderCheckConfig = async () => {
+    setReminderSaving(true);
+    setReminderSaved(false);
+    try {
+      const toggleRes = await fetch('/api/worker/reminder-check/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: reminderCheckConfig.enabled }),
+      });
+      if (!toggleRes.ok) throw new Error('Failed to toggle reminder check');
+
+      const intervalRes = await fetch('/api/worker/reminder-check/interval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval: reminderCheckConfig.interval }),
+      });
+      if (!intervalRes.ok) throw new Error('Failed to update reminder check interval');
+
+      setReminderSaved(true);
+      setTimeout(() => setReminderSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save reminder check config:', error);
+    } finally {
+      setReminderSaving(false);
+    }
+  };
+
+  const triggerReminderCheck = async () => {
+    try {
+      const response = await fetch('/api/worker/reminder-check/trigger', { method: 'POST' });
+      if (response.ok) {
+        alert('Reminder check triggered! Check console or Slack for results.');
+      } else {
+        alert('Failed to trigger reminder check. Check server logs.');
+      }
+    } catch (error) {
+      console.error('Failed to trigger reminder check:', error);
+      alert('Failed to trigger reminder check. Is the server running?');
+    }
+  };
+
   const loadPRResolverStatus = async () => {
     try {
       const response = await fetch('/api/pr-resolver/status');
@@ -248,47 +289,6 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       }
     } catch (error) {
       console.error('Failed to trigger PR resolver:', error);
-    }
-  };
-
-  const saveReminderCheckConfig = async () => {
-    setReminderSaving(true);
-    setReminderSaved(false);
-    try {
-      const toggleRes = await fetch('/api/worker/reminder-check/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: reminderCheckConfig.enabled }),
-      });
-      if (!toggleRes.ok) throw new Error('Failed to toggle reminder check');
-
-      const intervalRes = await fetch('/api/worker/reminder-check/interval', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cronExpression: reminderCheckConfig.interval }),
-      });
-      if (!intervalRes.ok) throw new Error('Failed to update reminder check interval');
-
-      setReminderSaved(true);
-      setTimeout(() => setReminderSaved(false), 2000);
-    } catch (error) {
-      console.error('Failed to save reminder check config:', error);
-    } finally {
-      setReminderSaving(false);
-    }
-  };
-
-  const triggerReminderCheck = async () => {
-    try {
-      const response = await fetch('/api/worker/reminder-check/trigger', { method: 'POST' });
-      if (response.ok) {
-        alert('Reminder check triggered! Rules have been evaluated.');
-      } else {
-        throw new Error('Failed to trigger reminder check');
-      }
-    } catch (error) {
-      console.error('Failed to trigger reminder check:', error);
-      alert('Failed to trigger reminder check. Is the server running?');
     }
   };
 
@@ -644,9 +644,10 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
         </div>
 
         <div className="settings-section">
-          <h3>Smart Reminders</h3>
+          <h3>Reminder Rules</h3>
           <p className="settings-description">
-            Automatically check reminder rules and send notifications based on board state. Configure when the rules engine runs to check for stale tasks, PRs, and other conditions.
+            Automatically check reminder rules and send notifications based on task conditions.
+            <a href="/settings/reminders" style={{ marginLeft: '8px' }}>Manage Rules →</a>
           </p>
 
           <div className="form-group">
@@ -667,29 +668,26 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               id="reminderInterval"
               value={reminderCheckConfig.interval}
               onChange={e => setReminderCheckConfig(prev => ({ ...prev, interval: e.target.value }))}
-              style={{ maxWidth: '300px' }}
             >
-              <option value="0 9 * * 1-5">9 AM Monday-Friday</option>
-              <option value="0 9,15 * * 1-5">9 AM & 3 PM Monday-Friday</option>
+              <option value="0 9 * * 1-5">Daily at 9 AM (weekdays)</option>
+              <option value="0 9,15 * * 1-5">Twice daily at 9 AM & 3 PM (weekdays)</option>
               <option value="0 */4 * * 1-5">Every 4 hours (weekdays)</option>
-              <option value="0 9 * * *">Daily at 9 AM</option>
+              <option value="0 9 * * *">Daily at 9 AM (every day)</option>
               <option value="0 */6 * * *">Every 6 hours</option>
+              <option value="0 */2 * * 1-5">Every 2 hours (weekdays)</option>
+              <option value="0 8,12,17 * * 1-5">3 times daily (8 AM, 12 PM, 5 PM weekdays)</option>
             </select>
             <small className="form-help">
-              When to evaluate reminder rules. The server must be running at these times.
+              When the reminder rules should be evaluated
             </small>
+            {reminderCheckConfig.lastRun && (
+              <small className="form-help" style={{ marginTop: '4px' }}>
+                Last run: {new Date(reminderCheckConfig.lastRun).toLocaleString()}
+              </small>
+            )}
           </div>
 
-          {reminderCheckConfig.lastRun && (
-            <div className="form-group">
-              <label>Last Check</label>
-              <div style={{ fontSize: '14px', color: '#94a3b8' }}>
-                {new Date(reminderCheckConfig.lastRun).toLocaleString()}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
             <button
               className="save-btn"
               onClick={saveReminderCheckConfig}
@@ -704,18 +702,6 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
             >
               Check Now
             </button>
-            <a
-              href="/reminders"
-              className="save-btn"
-              style={{
-                backgroundColor: '#10b981',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center'
-              }}
-            >
-              Manage Rules
-            </a>
           </div>
         </div>
       </div>

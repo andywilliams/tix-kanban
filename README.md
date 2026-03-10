@@ -458,6 +458,15 @@ The persona ID is the filename without `.md` (e.g., `my-persona`).
 ### Knowledge Base
 - Store project documentation as markdown articles with metadata
 - Automatically surfaced to personas when relevant to conversations
+
+### Smart Reminder Rules
+- Automated monitoring of board state with configurable rules
+- 5 built-in rule templates (stale reviews, stale PRs, backlog overflow, blocked tasks, unresolved comments)
+- Create custom rules with flexible conditions and actions
+- Slack notifications via `slx` integration
+- Cooldown periods to prevent notification spam
+- Dry-run mode for testing rules
+- History tracking of all triggered reminders
 - Searchable by topic, area, repo, and tags
 
 ### LGTM Code Review Integration
@@ -477,6 +486,15 @@ The worker can be started/stopped from the UI. Configuration is in the worker st
 
 - **Interval** — how often the worker checks for tasks (adaptive based on workload)
 - **Start/Stop** — toggle the worker on and off
+
+### Reminder Rules Settings
+
+Configure automatic reminders in the Settings page:
+
+- **Enable/Disable** — toggle the reminder check scheduler
+- **Schedule** — set cron expression for when to check rules (default: 9 AM weekdays)
+- **Manage Rules** — access from Reminder Rules page to enable/disable individual rules
+- **Custom Rules** — create rules with conditions for task status, age, priority, PR state, etc.
 
 ### Environment
 
