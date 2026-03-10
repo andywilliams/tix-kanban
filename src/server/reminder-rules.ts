@@ -278,10 +278,10 @@ function evaluateCondition(condition: RuleCondition, data: any): boolean {
 
   switch (condition.operator) {
     case 'equals':
-      return fieldValue === conditionValue;
+      return fieldValue == conditionValue;
 
     case 'not_equals':
-      return fieldValue !== conditionValue;
+      return fieldValue != conditionValue;
 
     case 'greater_than':
       // Handle duration comparisons for age fields
@@ -580,9 +580,12 @@ export async function updateRule(ruleId: string, updates: Partial<ReminderRule>)
     throw new Error('Cannot modify built-in rules');
   }
 
+  // Preserve id and isBuiltIn flags to prevent client-side tampering
+  const { id: _, isBuiltIn: __, createdAt: ___, ...allowedUpdates } = updates;
+
   rules[index] = {
     ...rules[index],
-    ...updates,
+    ...allowedUpdates,
     updatedAt: new Date()
   };
 
