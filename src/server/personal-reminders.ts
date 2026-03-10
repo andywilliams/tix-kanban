@@ -2,8 +2,15 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
+// ─── Storage Paths ────────────────────────────────────────────────────────────
+
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
-const REMINDERS_FILE = path.join(STORAGE_DIR, 'personal-reminders.json');
+const REMINDERS_DIR = path.join(STORAGE_DIR, 'reminders');
+const INDEX_FILE = path.join(REMINDERS_DIR, 'index.json');
+/** Legacy single-file path — used for one-time migration only */
+const LEGACY_REMINDERS_FILE = path.join(STORAGE_DIR, 'personal-reminders.json');
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Recurrence {
   type: 'simple' | 'cron';
@@ -13,172 +20,406 @@ export interface Recurrence {
   nextOccurrence?: string; // ISO timestamp for next trigger
 }
 
+/**
+ * Unified reminder schema (all types share this shape).
+ *
+ * Status lifecycle:
+ *   pending → triggered → (snoozed → triggered)* → completed → [cleanup]
+ *
+ * `cleanupAfter` is set when the reminder first triggers.
+ * Default retention: 7 days after trigger.
+ *
+ * Stored as individual JSON files: ~/.tix-kanban/reminders/<id>.json
+ * ID format: rem_<base36-ts><rand7>
+ */
 export interface PersonalReminder {
+  /** Stable identifier, format: rem_<nanoid> */
   id: string;
+  /** Semantic classification */
+  type: 'task-based' | 'recurring' | 'adhoc' | 'smart';
+  /** Who created the reminder — "human:andy" or "persona:developer" */
+  creator: string;
+  /** Who should receive / action the reminder */
+  target: string;
+  /** Human-readable reminder text */
   message: string;
-  remindAt: Date;
-  taskId?: string; // Optional: if tied to a specific task
-  createdAt: Date;
-  triggered: boolean;
-  creator: string; // persona-id or 'human:name'
-  target: string; // persona-id or 'human:name'
-  type: 'scheduled' | 'adhoc';
-  recurrence?: Recurrence;
-  status: 'pending' | 'paused';
+  /** Optional kanban task reference */
+  taskId?: string;
+  /** When the reminder should fire (ISO 8601) */
+  triggerTime: string;
+  /** Current lifecycle state */
+  status: 'pending' | 'triggered' | 'snoozed' | 'paused' | 'completed';
+  /** How many times this reminder has been snoozed */
+  snoozeCount: number;
+  /** Recurrence config, null for one-shot reminders */
+  recurrence: Recurrence | null;
+  /** When this reminder was first created (ISO 8601) */
+  createdAt: string;
+  /** When status first moved to "triggered" (ISO 8601), or null */
+  triggeredAt: string | null;
+  /**
+   * When this reminder is eligible for GC (ISO 8601), or null.
+   * Set to triggeredAt + 7 days when the reminder first triggers.
+   */
+  cleanupAfter: string | null;
 }
 
-// Load reminders from disk
-export async function loadReminders(): Promise<PersonalReminder[]> {
-  try {
-    const content = await fs.readFile(REMINDERS_FILE, 'utf-8');
-    const reminders = JSON.parse(content);
+/** Lightweight record stored in index.json for fast listing without reading all files */
+export interface ReminderIndexEntry {
+  id: string;
+  type: PersonalReminder['type'];
+  status: PersonalReminder['status'];
+  triggerTime: string;
+}
 
-    // Convert date strings back to Date objects and handle backward compatibility
-    return reminders.map((r: any) => ({
-      ...r,
-      remindAt: new Date(r.remindAt),
-      createdAt: new Date(r.createdAt),
-      // Backward compatibility: add default status and recurrence for old reminders
-      status: r.status || 'pending',
-      recurrence: r.recurrence || undefined
-    }));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
-    }
-    console.error('Failed to load personal reminders:', error);
+// ─── Legacy Types (migration) ─────────────────────────────────────────────────
+
+interface LegacyReminder {
+  id: string;
+  message: string;
+  remindAt?: string;
+  triggerTime?: string;
+  taskId?: string;
+  createdAt: string;
+  triggered?: boolean;
+  creator: string;
+  target: string;
+  type?: string;
+  recurrence?: Recurrence;
+  status?: string;
+  cleanupAfter?: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function reminderFilePath(id: string): string {
+  return path.join(REMINDERS_DIR, `${id}.json`);
+}
+
+function generateId(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substr(2, 7);
+  return `rem_${ts}${rand}`;
+}
+
+const CLEANUP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+async function ensureRemindersDir(): Promise<void> {
+  await fs.mkdir(REMINDERS_DIR, { recursive: true });
+}
+
+// ─── Index Management ─────────────────────────────────────────────────────────
+
+async function loadIndex(): Promise<ReminderIndexEntry[]> {
+  try {
+    const content = await fs.readFile(INDEX_FILE, 'utf-8');
+    return JSON.parse(content) as ReminderIndexEntry[];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    console.error('Failed to load reminder index:', err);
     return [];
   }
 }
 
-// Save reminders to disk
-async function saveReminders(reminders: PersonalReminder[]): Promise<void> {
-  await fs.mkdir(STORAGE_DIR, { recursive: true });
-  await fs.writeFile(REMINDERS_FILE, JSON.stringify(reminders, null, 2));
+async function saveIndex(index: ReminderIndexEntry[]): Promise<void> {
+  await ensureRemindersDir();
+  await fs.writeFile(INDEX_FILE, JSON.stringify(index, null, 2));
 }
 
-// Create a new personal reminder
+function toIndexEntry(r: PersonalReminder): ReminderIndexEntry {
+  return { id: r.id, type: r.type, status: r.status, triggerTime: r.triggerTime };
+}
+
+async function upsertIndexEntry(reminder: PersonalReminder): Promise<void> {
+  const index = await loadIndex();
+  const pos = index.findIndex(e => e.id === reminder.id);
+  const entry = toIndexEntry(reminder);
+  if (pos === -1) index.push(entry);
+  else index[pos] = entry;
+  await saveIndex(index);
+}
+
+async function removeIndexEntry(id: string): Promise<void> {
+  const index = await loadIndex();
+  await saveIndex(index.filter(e => e.id !== id));
+}
+
+// ─── Per-file CRUD ────────────────────────────────────────────────────────────
+
+async function readReminderFile(id: string): Promise<PersonalReminder | null> {
+  try {
+    const content = await fs.readFile(reminderFilePath(id), 'utf-8');
+    return JSON.parse(content) as PersonalReminder;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+async function writeReminderFile(reminder: PersonalReminder): Promise<void> {
+  await ensureRemindersDir();
+  await fs.writeFile(reminderFilePath(reminder.id), JSON.stringify(reminder, null, 2));
+  await upsertIndexEntry(reminder);
+}
+
+async function deleteReminderFile(id: string): Promise<void> {
+  try {
+    await fs.unlink(reminderFilePath(id));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  await removeIndexEntry(id);
+}
+
+// ─── Migration ────────────────────────────────────────────────────────────────
+
+/**
+ * One-time migration from the legacy single-file format.
+ * Runs on first load when the reminders/ dir doesn't exist yet.
+ */
+async function migrateLegacyIfNeeded(): Promise<void> {
+  // Already migrated if the dir exists
+  try {
+    await fs.access(REMINDERS_DIR);
+    return;
+  } catch {
+    // dir doesn't exist — proceed with migration
+  }
+
+  let legacy: LegacyReminder[] = [];
+  try {
+    const content = await fs.readFile(LEGACY_REMINDERS_FILE, 'utf-8');
+    legacy = JSON.parse(content);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('Failed to read legacy reminders for migration:', err);
+    }
+    // No legacy file — create an empty dir and return
+    await ensureRemindersDir();
+    return;
+  }
+
+  await ensureRemindersDir();
+  console.log(`[reminders] Migrating ${legacy.length} legacy reminder(s) to per-file format…`);
+
+  for (const raw of legacy) {
+    const triggerTime = raw.triggerTime || raw.remindAt || raw.createdAt;
+
+    // Map old type values
+    let type: PersonalReminder['type'] = 'adhoc';
+    if (raw.type === 'scheduled' || raw.recurrence) type = 'recurring';
+
+    // Map old status values
+    let status: PersonalReminder['status'] = 'pending';
+    if (raw.status === 'paused') status = 'paused';
+    else if (raw.triggered === true) status = 'triggered';
+
+    const reminder: PersonalReminder = {
+      id: raw.id.startsWith('rem_') ? raw.id : `rem_${raw.id}`,
+      type,
+      creator: raw.creator || 'human:andy',
+      target: raw.target || 'human:andy',
+      message: raw.message,
+      taskId: raw.taskId,
+      triggerTime: triggerTime!,
+      status,
+      snoozeCount: 0,
+      recurrence: raw.recurrence || null,
+      createdAt: raw.createdAt,
+      triggeredAt: raw.triggered ? triggerTime! : null,
+      cleanupAfter: raw.cleanupAfter || null,
+    };
+
+    await writeReminderFile(reminder);
+  }
+
+  // Rename the legacy file so we don't migrate again
+  try {
+    await fs.rename(LEGACY_REMINDERS_FILE, `${LEGACY_REMINDERS_FILE}.migrated`);
+  } catch {
+    // Non-fatal
+  }
+
+  console.log('[reminders] Migration complete.');
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/** Load all reminders from disk (triggers migration if needed). */
+export async function loadReminders(): Promise<PersonalReminder[]> {
+  await migrateLegacyIfNeeded();
+  const index = await loadIndex();
+  const results: PersonalReminder[] = [];
+  for (const entry of index) {
+    const r = await readReminderFile(entry.id);
+    if (r) results.push(r);
+  }
+  return results;
+}
+
+/** Create a new one-shot reminder. */
 export async function createReminder(
   message: string,
-  remindAt: Date,
+  triggerTime: Date,
   taskId: string | undefined,
-  creator: string, // persona-id or 'human:name'
-  target: string, // persona-id or 'human:name'
-  type: 'scheduled' | 'adhoc' = 'adhoc',
-  recurrence?: Recurrence
+  creator: string,
+  target: string,
+  type: PersonalReminder['type'] = 'adhoc',
+  cleanupAfterDays = 7
 ): Promise<PersonalReminder> {
-  const reminders = await loadReminders();
+  await migrateLegacyIfNeeded();
 
-  const newReminder: PersonalReminder = {
-    id: `reminder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    message,
-    remindAt,
-    taskId,
-    createdAt: new Date(),
-    triggered: false,
+  const triggerISO = triggerTime.toISOString();
+  const cleanupAfter = new Date(triggerTime.getTime() + cleanupAfterDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const reminder: PersonalReminder = {
+    id: generateId(),
+    type,
     creator,
     target,
-    type,
-    recurrence,
-    status: 'pending'
+    message,
+    taskId,
+    triggerTime: triggerISO,
+    status: 'pending',
+    snoozeCount: 0,
+    recurrence: null,
+    createdAt: new Date().toISOString(),
+    triggeredAt: null,
+    cleanupAfter,
   };
 
-  reminders.push(newReminder);
-  await saveReminders(reminders);
-
-  return newReminder;
+  await writeReminderFile(reminder);
+  return reminder;
 }
 
-// Get all reminders (including triggered ones for history)
+/** Get all reminders (including history). */
 export async function getAllReminders(): Promise<PersonalReminder[]> {
-  return await loadReminders();
+  return loadReminders();
 }
 
-// Get pending (not triggered) reminders
+/** Get reminders with status "pending". */
 export async function getPendingReminders(): Promise<PersonalReminder[]> {
-  const reminders = await loadReminders();
-  return reminders.filter(r => !r.triggered);
+  await migrateLegacyIfNeeded();
+  const index = await loadIndex();
+  const pending = index.filter(e => e.status === 'pending');
+  const results: PersonalReminder[] = [];
+  for (const e of pending) {
+    const r = await readReminderFile(e.id);
+    if (r) results.push(r);
+  }
+  return results;
 }
 
-// Get reminders that are due (remindAt <= now and not triggered)
+/** Get reminders whose triggerTime has passed and are still pending or snoozed. */
 export async function getDueReminders(): Promise<PersonalReminder[]> {
-  const reminders = await loadReminders();
-  const now = new Date();
-  // Exclude paused reminders — they should not fire until resumed
-  return reminders.filter(r => r.status === 'pending' && r.triggerTime <= now);
+  await migrateLegacyIfNeeded();
+  const now = new Date().toISOString();
+  const index = await loadIndex();
+  const due = index.filter(e => (e.status === 'pending' || e.status === 'snoozed') && e.triggerTime <= now);
+  const results: PersonalReminder[] = [];
+  for (const e of due) {
+    const r = await readReminderFile(e.id);
+    if (r) results.push(r);
+  }
+  return results;
 }
 
-// Get reminders for a specific target (persona-id or 'human:name')
+/** Get reminders past their cleanupAfter date. */
+export async function getRemindersForCleanup(): Promise<PersonalReminder[]> {
+  const now = new Date().toISOString();
+  const all = await loadReminders();
+  return all.filter(r =>
+    r.cleanupAfter &&
+    r.cleanupAfter <= now &&
+    (r.status === 'triggered' || r.status === 'completed')
+  );
+}
+
+/** Get reminders for a specific target. */
 export async function getRemindersForTarget(target: string): Promise<PersonalReminder[]> {
-  const reminders = await loadReminders();
-  return reminders.filter(r => r.target === target);
+  const all = await loadReminders();
+  return all.filter(r => r.target === target);
 }
 
-// Get a single reminder by ID
+/** Get a single reminder by ID. */
 export async function getReminderById(id: string): Promise<PersonalReminder | null> {
-  const reminders = await loadReminders();
-  return reminders.find(r => r.id === id) || null;
+  await migrateLegacyIfNeeded();
+  return readReminderFile(id);
 }
 
-// Mark a reminder as triggered
+/** Mark a reminder as triggered (sets triggeredAt + cleanupAfter on first trigger). */
 export async function markReminderTriggered(reminderId: string): Promise<void> {
-  const reminders = await loadReminders();
-  const index = reminders.findIndex(r => r.id === reminderId);
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
 
-  if (index === -1) {
-    throw new Error(`Reminder ${reminderId} not found`);
+  const now = new Date().toISOString();
+  reminder.status = 'triggered';
+  if (!reminder.triggeredAt) {
+    reminder.triggeredAt = now;
+    if (!reminder.cleanupAfter) {
+      reminder.cleanupAfter = new Date(Date.now() + CLEANUP_RETENTION_MS).toISOString();
+    }
   }
-
-  reminders[index].triggered = true;
-  await saveReminders(reminders);
+  await writeReminderFile(reminder);
 }
 
-// Snooze a reminder - update remindAt time and reset triggered status
-export async function snoozeReminder(reminderId: string, newRemindAt: Date): Promise<PersonalReminder> {
-  const reminders = await loadReminders();
-  const index = reminders.findIndex(r => r.id === reminderId);
+/** Mark a reminder as completed. */
+export async function markReminderCompleted(reminderId: string): Promise<void> {
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
 
-  if (index === -1) {
-    throw new Error(`Reminder ${reminderId} not found`);
-  }
-
-  reminders[index].remindAt = newRemindAt;
-  reminders[index].triggered = false;
-  await saveReminders(reminders);
-
-  return reminders[index];
+  reminder.status = 'completed';
+  await writeReminderFile(reminder);
 }
 
-// Delete a reminder
+/** Snooze a reminder — updates triggerTime, sets status to "snoozed", increments snoozeCount. */
+export async function snoozeReminder(reminderId: string, newTriggerTime: Date): Promise<PersonalReminder> {
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
+
+  reminder.triggerTime = newTriggerTime.toISOString();
+  reminder.status = 'snoozed';
+  reminder.snoozeCount += 1;
+  await writeReminderFile(reminder);
+  return reminder;
+}
+
+/** Permanently delete a reminder. */
 export async function deleteReminder(reminderId: string): Promise<void> {
-  const reminders = await loadReminders();
-  const filtered = reminders.filter(r => r.id !== reminderId);
-
-  if (filtered.length === reminders.length) {
-    throw new Error(`Reminder ${reminderId} not found`);
-  }
-
-  await saveReminders(filtered);
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
+  await deleteReminderFile(reminderId);
 }
 
-// Clear all triggered reminders
+/** Remove all triggered/completed reminders (housekeeping). */
 export async function clearTriggeredReminders(): Promise<void> {
-  const reminders = await loadReminders();
-  const active = reminders.filter(r => !r.triggered);
-  await saveReminders(active);
+  await migrateLegacyIfNeeded();
+  const index = await loadIndex();
+  const toDelete = index.filter(e => e.status === 'triggered' || e.status === 'completed');
+  for (const e of toDelete) {
+    await deleteReminderFile(e.id);
+  }
 }
 
-// Helper function to check if a target is a human (starts with 'human:')
+/** Remove reminders past their cleanupAfter retention date. Returns count removed. */
+export async function cleanupOldReminders(): Promise<number> {
+  const due = await getRemindersForCleanup();
+  for (const r of due) {
+    await deleteReminderFile(r.id);
+  }
+  return due.length;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 export function isHumanTarget(target: string): boolean {
   return target.startsWith('human:');
 }
 
-// Helper function to check if a target is a persona
 export function isPersonaTarget(target: string): boolean {
   return !target.startsWith('human:');
 }
 
-// Format target for display
 export function formatTarget(target: string): string {
   if (isHumanTarget(target)) {
     return target.replace('human:', '') + ' (human)';
@@ -186,187 +427,146 @@ export function formatTarget(target: string): string {
   return target + ' (persona)';
 }
 
-// Parse simple interval expressions like "monday", "2w", "daily", "monthly"
+// ─── Recurrence Utilities ─────────────────────────────────────────────────────
+
 export function parseSimpleInterval(expr: string): { interval: 'daily' | 'weekly' | 'biweekly' | 'monthly'; weekday?: string } | null {
   const lower = expr.toLowerCase().trim();
-  
-  // Handle weekday expressions like "monday", "tuesday", etc.
   const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  if (weekdays.includes(lower)) {
-    return { interval: 'weekly', weekday: lower };
-  }
-  
-  // Handle daily
-  if (lower === 'daily') {
-    return { interval: 'daily' };
-  }
-  
-  // Handle biweekly (also "2w", "2weeks", "biweekly")
-  if (lower === 'biweekly' || lower === '2w' || lower === '2weeks') {
-    return { interval: 'biweekly' };
-  }
-  
-  // Handle monthly (also "monthly", "1m")
-  if (lower === 'monthly' || lower === '1m') {
-    return { interval: 'monthly' };
-  }
-  
-  // Handle weekly (also "weekly", "1w", "1week")
-  if (lower === 'weekly' || lower === '1w' || lower === '1week') {
-    return { interval: 'weekly' };
-  }
-  
+
+  if (weekdays.includes(lower)) return { interval: 'weekly', weekday: lower };
+  if (lower === 'daily') return { interval: 'daily' };
+  if (lower === 'biweekly' || lower === '2w' || lower === '2weeks') return { interval: 'biweekly' };
+  if (lower === 'monthly' || lower === '1m') return { interval: 'monthly' };
+  if (lower === 'weekly' || lower === '1w' || lower === '1week') return { interval: 'weekly' };
+
   return null;
 }
 
-// Calculate the next occurrence based on recurrence
 export function calculateNextOccurrence(recurrence: Recurrence, fromDate: Date = new Date()): Date {
   const next = new Date(fromDate);
-  
+
   if (recurrence.type === 'cron' && recurrence.cronExpr) {
-    // For cron expressions, we'll use a simple approach - schedule for next day
-    // More sophisticated cron parsing could be added with node-cron
+    // Basic fallback — next day at 9am. Replace with node-cron for precision.
     next.setDate(next.getDate() + 1);
     next.setHours(9, 0, 0, 0);
     return next;
   }
-  
+
   if (recurrence.type === 'simple') {
     switch (recurrence.interval) {
       case 'daily':
         next.setDate(next.getDate() + 1);
         next.setHours(9, 0, 0, 0);
         break;
-        
+
       case 'weekly':
         if (recurrence.weekday) {
           const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
           const targetDay = weekdays.indexOf(recurrence.weekday.toLowerCase());
           const currentDay = next.getDay();
           let daysUntilTarget = targetDay - currentDay;
-          if (daysUntilTarget <= 0) {
-            daysUntilTarget += 7; // Next week
-          }
+          if (daysUntilTarget <= 0) daysUntilTarget += 7;
           next.setDate(next.getDate() + daysUntilTarget);
         } else {
           next.setDate(next.getDate() + 7);
         }
         next.setHours(9, 0, 0, 0);
         break;
-        
+
       case 'biweekly':
         next.setDate(next.getDate() + 14);
         next.setHours(9, 0, 0, 0);
         break;
-        
+
       case 'monthly':
-        // Set date to 1 BEFORE incrementing month to avoid overflow
-        // (e.g. Jan 31 + 1 month → Mar 3 without this fix)
-        next.setDate(1);
         next.setMonth(next.getMonth() + 1);
+        next.setDate(1);
         next.setHours(9, 0, 0, 0);
         break;
     }
   }
-  
+
   return next;
 }
 
-// Schedule the next occurrence for a recurring reminder
+// ─── Recurring Reminders ──────────────────────────────────────────────────────
+
+/** Schedule the next occurrence for a recurring reminder (after it fires). */
 export async function scheduleNextOccurrence(reminderId: string): Promise<PersonalReminder | null> {
-  const reminders = await loadReminders();
-  const index = reminders.findIndex(r => r.id === reminderId);
-  
-  if (index === -1 || !reminders[index].recurrence) {
-    return null;
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder || !reminder.recurrence) return null;
+
+  const nextDate = calculateNextOccurrence(reminder.recurrence, new Date(reminder.triggerTime));
+  reminder.triggerTime = nextDate.toISOString();
+  reminder.status = 'pending';
+  if (reminder.recurrence) {
+    reminder.recurrence.nextOccurrence = nextDate.toISOString();
   }
-  
-  const reminder = reminders[index];
-  const nextDate = calculateNextOccurrence(reminder.recurrence, reminder.remindAt);
-  
-  reminders[index].remindAt = nextDate;
-  reminders[index].triggered = false;
-  if (reminders[index].recurrence) {
-    reminders[index].recurrence.nextOccurrence = nextDate.toISOString();
-  }
-  
-  await saveReminders(reminders);
-  return reminders[index];
+
+  await writeReminderFile(reminder);
+  return reminder;
 }
 
-// Create a recurring reminder
+/** Create a new recurring reminder. */
 export async function createRecurringReminder(
   message: string,
   recurrence: Recurrence,
   taskId: string | undefined,
   creator: string,
   target: string,
-  initialRemindAt?: Date
+  initialTriggerTime?: Date,
+  cleanupAfterDays = 7
 ): Promise<PersonalReminder> {
-  const reminders = await loadReminders();
-  
-  // Calculate first occurrence if not provided
-  const firstOccurrence = initialRemindAt || calculateNextOccurrence(recurrence, new Date());
-  
-  const newReminder: PersonalReminder = {
-    id: `reminder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    message,
-    remindAt: firstOccurrence,
-    taskId,
-    createdAt: new Date(),
-    triggered: false,
+  await migrateLegacyIfNeeded();
+
+  const firstOccurrence = initialTriggerTime || calculateNextOccurrence(recurrence, new Date());
+  const cleanupAfter = new Date(firstOccurrence.getTime() + cleanupAfterDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const reminder: PersonalReminder = {
+    id: generateId(),
+    type: 'recurring',
     creator,
     target,
-    type: 'scheduled',
+    message,
+    taskId,
+    triggerTime: firstOccurrence.toISOString(),
+    status: 'pending',
+    snoozeCount: 0,
     recurrence: {
       ...recurrence,
-      nextOccurrence: firstOccurrence.toISOString()
+      nextOccurrence: firstOccurrence.toISOString(),
     },
-    status: 'pending'
+    createdAt: new Date().toISOString(),
+    triggeredAt: null,
+    cleanupAfter,
   };
-  
-  reminders.push(newReminder);
-  await saveReminders(reminders);
-  
-  return newReminder;
+
+  await writeReminderFile(reminder);
+  return reminder;
 }
 
-// Pause a recurring reminder
+/** Pause a recurring reminder. */
 export async function pauseReminder(reminderId: string): Promise<PersonalReminder> {
-  const reminders = await loadReminders();
-  const index = reminders.findIndex(r => r.id === reminderId);
-  
-  if (index === -1) {
-    throw new Error(`Reminder ${reminderId} not found`);
-  }
-  
-  reminders[index].status = 'paused';
-  await saveReminders(reminders);
-  
-  return reminders[index];
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
+
+  reminder.status = 'paused';
+  await writeReminderFile(reminder);
+  return reminder;
 }
 
-// Resume a paused recurring reminder
+/** Resume a paused recurring reminder. */
 export async function resumeReminder(reminderId: string): Promise<PersonalReminder> {
-  const reminders = await loadReminders();
-  const index = reminders.findIndex(r => r.id === reminderId);
-  
-  if (index === -1) {
-    throw new Error(`Reminder ${reminderId} not found`);
-  }
-  
-  const reminder = reminders[index];
-  
-  // If it's a recurring reminder, calculate next occurrence
+  const reminder = await readReminderFile(reminderId);
+  if (!reminder) throw new Error(`Reminder ${reminderId} not found`);
+
   if (reminder.recurrence) {
     const nextDate = calculateNextOccurrence(reminder.recurrence, new Date());
-    reminder.remindAt = nextDate;
+    reminder.triggerTime = nextDate.toISOString();
     reminder.recurrence.nextOccurrence = nextDate.toISOString();
   }
-  
+
   reminder.status = 'pending';
-  reminder.triggered = false;
-  await saveReminders(reminders);
-  
+  await writeReminderFile(reminder);
   return reminder;
 }
