@@ -494,16 +494,20 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       console.log(`✅ Auto-review approved with notes task: ${task.title}`);
       return 'approved';
     } else if (reviewResult.decision === 'escalate') {
-      // Parse failure - escalate to human review immediately (PR logic: escalate instead of reject on parse failure)
+      // Differentiate between parse failure vs session error
+      const isSessionError = reviewResult.feedback.startsWith('Review session failed');
+      const escalationType = isSessionError ? 'session error' : 'parse failure';
+      
+      // Escalate to human review immediately (PR logic: escalate instead of reject on parse failure)
       await updateTask(taskId, {
         status: 'review',
         comments: updatedComments
       });
 
       // Post escalation message to chat
-      await postReviewUpdate(task, reviewerName, `⚠️ Review parse failure — escalating to human review.\n\n${reviewResult.feedback}`);
+      await postReviewUpdate(task, reviewerName, `⚠️ Review ${escalationType} — escalating to human review.\n\n${reviewResult.feedback}`);
 
-      console.log(`⚠️ Auto-review parse failure for task: ${task.title}, escalating to human review`);
+      console.log(`⚠️ Auto-review ${escalationType} for task: ${task.title}, escalating to human review`);
 
       // Clean up review state
       await deleteTaskReviewState(taskId);
