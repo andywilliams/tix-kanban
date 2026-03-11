@@ -76,7 +76,7 @@ export interface TaskReviewState {
 export interface ReviewAttempt {
   cycle: number;
   reviewerId: string;
-  decision: 'approve' | 'reject' | 'escalate';
+  decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate';
   feedback: string;
   timestamp: Date;
   confidenceScore?: number; // 0-1, how confident the reviewer is
@@ -212,7 +212,7 @@ async function spawnReviewSession(
   task: Task, 
   reviewerPersonaId: string, 
   reviewState: TaskReviewState
-): Promise<{ decision: 'approve' | 'reject' | 'escalate'; feedback: string; confidence: number }> {
+): Promise<{ decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number }> {
   try {
     console.log(`🔍 Spawning review session for task: ${task.title} (reviewer: ${reviewerPersonaId})`);
     
@@ -302,6 +302,11 @@ DECISION: APPROVE
 CONFIDENCE: 0.85
 FEEDBACK: [Your detailed feedback explaining why this work meets quality standards]
 
+**For APPROVAL WITH NOTES:**
+DECISION: APPROVE_WITH_NOTES
+CONFIDENCE: 0.75
+FEEDBACK: [Your feedback including minor notes/suggestions that don't block approval]
+
 **For REJECTION:**
 DECISION: REJECT  
 CONFIDENCE: 0.90
@@ -311,6 +316,8 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 - Be thorough but fair
 - If work is 80%+ complete with minor issues, consider approval with notes
 - Only reject if there are significant quality, security, or completeness issues
+- Use APPROVE_WITH_NOTES when work is acceptable but has minor stylistic issues or suggestions
+- APPROVE_WITH_NOTES moves the task to human review (does NOT send back to worker)
 - Provide constructive, actionable feedback
 - Confidence should be 0.0-1.0 (higher = more confident in your decision)
 - Focus on what matters most for this specific task type and context
@@ -318,14 +325,17 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles
 - Worker completed this task and it needs quality validation before human review
-- Your feedback will guide either approval → human review OR rejection → back to worker`;
+- Your feedback will guide one of three paths:
+  - APPROVE → human review (ready for final approval)
+  - APPROVE_WITH_NOTES → human review (with notes/feedback preserved for the human reviewer)
+  - REJECT → back to worker (needs fixes)`;
 }
 
 // Parse AI reviewer output to extract decision, feedback, and confidence
-function parseReviewOutput(output: string): { decision: 'approve' | 'reject' | 'escalate'; feedback: string; confidence: number } {
+function parseReviewOutput(output: string): { decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number } {
   try {
     // Look for the decision format in the output
-    const decisionMatch = output.match(/DECISION:\s*(APPROVE|REJECT)/i);
+    const decisionMatch = output.match(/DECISION:\s*(APPROVE_WITH_NOTES|APPROVE|REJECT)/i);
     const confidenceMatch = output.match(/CONFIDENCE:\s*([\d.]+)/);
     const feedbackMatch = output.match(/FEEDBACK:\s*([\s\S]*)/);
     
@@ -338,7 +348,10 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'reject' | '
       };
     }
     
-    const decision = decisionMatch[1].toLowerCase() as 'approve' | 'reject';
+    const rawDecision = decisionMatch[1].toLowerCase();
+    const decision = rawDecision === 'approve_with_notes' ? 'approve_with_notes' : 
+                     rawDecision === 'approve' ? 'approve' : 
+                     rawDecision === 'reject' ? 'reject' : 'escalate';
     const rawConfidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
     const confidence = isNaN(rawConfidence) ? 0.5 : Math.max(0, Math.min(1, rawConfidence));
     const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback provided';
@@ -465,8 +478,23 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       
       console.log(`✅ Auto-review approved task: ${task.title}`);
       return 'approved';
+    } else if (reviewResult.decision === 'approve_with_notes') {
+      // Approved with notes - move to human review but highlight the notes
+      await updateTask(taskId, { 
+        status: 'review',
+        comments: updatedComments 
+      });
+      
+      // Post approval with notes message to chat
+      await postReviewUpdate(task, reviewerName, `Approved with minor notes ✅📝 Moving to human review.\n\nNotes: ${reviewResult.feedback}\n\nConfidence: ${Math.round(reviewResult.confidence * 100)}%`);
+
+      // Clean up review state
+      await deleteTaskReviewState(taskId);
+      
+      console.log(`✅ Auto-review approved with notes task: ${task.title}`);
+      return 'approved';
     } else if (reviewResult.decision === 'escalate') {
-      // Parse failure - escalate to human review immediately
+      // Parse failure - escalate to human review immediately (PR logic: escalate instead of reject on parse failure)
       await updateTask(taskId, {
         status: 'review',
         comments: updatedComments
@@ -482,12 +510,34 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
 
       return 'escalated';
     } else {
-      // Rejected - send back to worker for more work
+      // Rejected - send back to worker for rework (NOT back to backlog)
+      // Create rework notice as first comment to make it prominent
+      const reworkNotice: Comment = {
+        id: `rework-${reviewAttempt.cycle}-${Math.random().toString(36).substr(2, 9)}`,
+        taskId: task.id,
+        body: `## ⚠️ REWORK REQUIRED — Review cycle ${reviewAttempt.cycle}\n\nYour previous work was reviewed and rejected. Address ONLY these specific issues:\n\n${reviewResult.feedback}\n\nDo NOT redo the entire task. Fix only what is listed above, then move to review.`,
+        author: 'Auto-Review System',
+        createdAt: new Date()
+      };
+
+      // Prepend rework notice so it's seen first
+      const commentsWithRework = [reworkNotice, ...updatedComments];
+
+      // Get worker persona details for agentActivity
+      const workerPersona = await getPersona(reviewState.workerId);
+
       await updateTask(taskId, { 
-        status: 'backlog',
+        status: 'in-progress',
         assignee: reviewState.workerId,
         persona: reviewState.workerId,
-        comments: updatedComments
+        comments: commentsWithRework,
+        agentActivity: {
+          personaId: reviewState.workerId,
+          personaName: workerPersona?.name || reviewState.workerId,
+          personaEmoji: workerPersona?.emoji || '🔧',
+          status: 'working',
+          startedAt: new Date(),
+        }
       });
       
       // Post rejection message to chat
