@@ -269,8 +269,10 @@ async function createReviewContext(
   let workSummarySection = '';
   if (workSummaryComment) {
     const summaryMatch = workSummaryComment.body.match(/## Work Summary[\s\S]*?(?=\n##[^#]|\n\n##|$)/);
-    const extractedSummary = summaryMatch ? summaryMatch[0] : workSummaryComment.body;
-    workSummarySection = `\n\n## DEVELOPER WORK SUMMARY\n${extractedSummary}`;
+    let extractedSummary = summaryMatch ? summaryMatch[0] : workSummaryComment.body;
+    // Strip the ## Work Summary prefix since we're wrapping it in ## DEVELOPER WORK SUMMARY
+    extractedSummary = extractedSummary.replace(/^## Work Summary\n?\n?/, '');
+    workSummarySection = `\n\n## DEVELOPER WORK SUMMARY\n\n${extractedSummary}`;
   }
     
   return `## AUTO-REVIEW QUALITY GATE${workSummarySection}
