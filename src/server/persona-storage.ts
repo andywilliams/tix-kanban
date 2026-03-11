@@ -681,7 +681,22 @@ Tags: ${taskTags.join(', ')}`;
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    
+    // Completion summary requirement - developers must summarize their work before completing
+    const completionSummarySection = `\n\n## COMPLETION SUMMARY REQUIREMENT
+
+Before you finish working on this task, you MUST output a structured summary with this exact format:
+
+## Work Summary
+- **What I did:** [bullet points of changes made]
+- **Files changed:** [list of files you modified]
+- **PR:** [link to PR you created, or "N/A — non-code task"]
+- **Acceptance criteria met:** [list each criterion from the task and whether it was addressed]
+- **What I did NOT do:** [anything in the spec that was skipped and why]
+
+This summary will be reviewed by QA. Be specific and complete.`;
+
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,

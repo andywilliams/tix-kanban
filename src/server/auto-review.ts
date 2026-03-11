@@ -261,8 +261,14 @@ async function createReviewContext(
   const previousReviews = reviewState.reviewHistory
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
+
+  // Find the work summary comment (most recent one with ## Work Summary)
+  const workSummaryComment = task.comments?.slice().reverse().find(c => c.body.includes('## Work Summary'));
+  const workSummarySection = workSummaryComment 
+    ? `\n\n## DEVELOPER WORK SUMMARY\n${workSummaryComment.body}`
+    : '';
     
-  return `## AUTO-REVIEW QUALITY GATE
+  return `## AUTO-REVIEW QUALITY GATE${workSummarySection}
 
 You are conducting cycle ${reviewCycle} of quality review for the completed task.
 
