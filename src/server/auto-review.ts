@@ -466,12 +466,24 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       console.log(`✅ Auto-review approved task: ${task.title}`);
       return 'approved';
     } else {
-      // Rejected - send back to worker for more work
+      // Rejected - send back to worker for rework (NOT back to backlog)
+      // Create rework notice as first comment to make it prominent
+      const reworkNotice: Comment = {
+        id: `rework-${reviewAttempt.cycle}-${Math.random().toString(36).substr(2, 9)}`,
+        taskId: task.id,
+        body: `## ⚠️ REWORK REQUIRED — Review cycle ${reviewAttempt.cycle}\n\nYour previous work was reviewed and rejected. Address ONLY these specific issues:\n\n${reviewResult.feedback}\n\nDo NOT redo the entire task. Fix only what is listed above, then move to review.`,
+        author: 'Auto-Review System',
+        createdAt: new Date()
+      };
+
+      // Prepend rework notice so it's seen first
+      const commentsWithRework = [reworkNotice, ...updatedComments];
+
       await updateTask(taskId, { 
-        status: 'backlog',
+        status: 'in-progress',
         assignee: reviewState.workerId,
         persona: reviewState.workerId,
-        comments: updatedComments
+        comments: commentsWithRework
       });
       
       // Post rejection message to chat
