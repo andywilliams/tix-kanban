@@ -76,7 +76,7 @@ export interface TaskReviewState {
 export interface ReviewAttempt {
   cycle: number;
   reviewerId: string;
-  decision: 'approve' | 'reject';
+  decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate';
   feedback: string;
   timestamp: Date;
   confidenceScore?: number; // 0-1, how confident the reviewer is
@@ -212,7 +212,7 @@ async function spawnReviewSession(
   task: Task, 
   reviewerPersonaId: string, 
   reviewState: TaskReviewState
-): Promise<{ decision: 'approve' | 'reject'; feedback: string; confidence: number }> {
+): Promise<{ decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number }> {
   try {
     console.log(`🔍 Spawning review session for task: ${task.title} (reviewer: ${reviewerPersonaId})`);
     
@@ -244,8 +244,8 @@ async function spawnReviewSession(
   } catch (error) {
     console.error(`Failed to spawn review session for task ${task.id}:`, error);
     return {
-      decision: 'reject',
-      feedback: `Review session failed: ${error}`,
+      decision: 'escalate',
+      feedback: `Review session failed: ${error}. Escalating for human review.`,
       confidence: 0
     };
   }
@@ -302,6 +302,11 @@ DECISION: APPROVE
 CONFIDENCE: 0.85
 FEEDBACK: [Your detailed feedback explaining why this work meets quality standards]
 
+**For APPROVAL WITH NOTES:**
+DECISION: APPROVE_WITH_NOTES
+CONFIDENCE: 0.75
+FEEDBACK: [Your feedback including minor notes/suggestions that don't block approval]
+
 **For REJECTION:**
 DECISION: REJECT  
 CONFIDENCE: 0.90
@@ -311,6 +316,8 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 - Be thorough but fair
 - If work is 80%+ complete with minor issues, consider approval with notes
 - Only reject if there are significant quality, security, or completeness issues
+- Use APPROVE_WITH_NOTES when work is acceptable but has minor stylistic issues or suggestions
+- APPROVE_WITH_NOTES moves the task to human review (does NOT send back to worker)
 - Provide constructive, actionable feedback
 - Confidence should be 0.0-1.0 (higher = more confident in your decision)
 - Focus on what matters most for this specific task type and context
@@ -318,27 +325,33 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles
 - Worker completed this task and it needs quality validation before human review
-- Your feedback will guide either approval → human review OR rejection → back to worker`;
+- Your feedback will guide one of three paths:
+  - APPROVE → human review (ready for final approval)
+  - APPROVE_WITH_NOTES → human review (with notes/feedback preserved for the human reviewer)
+  - REJECT → back to worker (needs fixes)`;
 }
 
 // Parse AI reviewer output to extract decision, feedback, and confidence
-function parseReviewOutput(output: string): { decision: 'approve' | 'reject'; feedback: string; confidence: number } {
+function parseReviewOutput(output: string): { decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number } {
   try {
     // Look for the decision format in the output
-    const decisionMatch = output.match(/DECISION:\s*(APPROVE|REJECT)/i);
+    const decisionMatch = output.match(/DECISION:\s*(APPROVE_WITH_NOTES|APPROVE|REJECT)/i);
     const confidenceMatch = output.match(/CONFIDENCE:\s*([\d.]+)/);
     const feedbackMatch = output.match(/FEEDBACK:\s*([\s\S]*)/);
     
     if (!decisionMatch) {
       console.warn('Could not parse review decision from output:', output);
       return {
-        decision: 'reject',
-        feedback: 'Review output was malformed - could not parse decision',
-        confidence: 0.1
+        decision: 'escalate',
+        feedback: 'Review output was malformed — could not parse decision. Escalating for human review.',
+        confidence: 0
       };
     }
     
-    const decision = decisionMatch[1].toLowerCase() as 'approve' | 'reject';
+    const rawDecision = decisionMatch[1].toLowerCase();
+    const decision = rawDecision === 'approve_with_notes' ? 'approve_with_notes' : 
+                     rawDecision === 'approve' ? 'approve' : 
+                     rawDecision === 'reject' ? 'reject' : 'escalate';
     const rawConfidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
     const confidence = isNaN(rawConfidence) ? 0.5 : Math.max(0, Math.min(1, rawConfidence));
     const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback provided';
@@ -347,8 +360,8 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'reject'; fe
   } catch (error) {
     console.error('Failed to parse review output:', error);
     return {
-      decision: 'reject',
-      feedback: `Failed to parse review output: ${error}`,
+      decision: 'escalate',
+      feedback: `Failed to parse review output: ${error}. Escalating for human review.`,
       confidence: 0
     };
   }
@@ -465,6 +478,37 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       
       console.log(`✅ Auto-review approved task: ${task.title}`);
       return 'approved';
+    } else if (reviewResult.decision === 'approve_with_notes') {
+      // Approved with notes - move to human review but highlight the notes
+      await updateTask(taskId, { 
+        status: 'review',
+        comments: updatedComments 
+      });
+      
+      // Post approval with notes message to chat
+      await postReviewUpdate(task, reviewerName, `Approved with minor notes ✅📝 Moving to human review.\n\nNotes: ${reviewResult.feedback}\n\nConfidence: ${Math.round(reviewResult.confidence * 100)}%`);
+
+      // Clean up review state
+      await deleteTaskReviewState(taskId);
+      
+      console.log(`✅ Auto-review approved with notes task: ${task.title}`);
+      return 'approved';
+    } else if (reviewResult.decision === 'escalate') {
+      // Escalate to human review (can happen due to parse failures or session-level errors)
+      await updateTask(taskId, {
+        status: 'review',
+        comments: updatedComments
+      });
+
+      // Post escalation message to chat
+      await postReviewUpdate(task, reviewerName, `⚠️ Review session issue — escalating to human review.\n\n${reviewResult.feedback}`);
+
+      console.log(`⚠️ Auto-review escalation for task: ${task.title}, escalating to human review`);
+
+      // Clean up review state
+      await deleteTaskReviewState(taskId);
+
+      return 'escalated';
     } else {
       // Rejected - send back to worker for more work
       await updateTask(taskId, { 
