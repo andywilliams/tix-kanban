@@ -479,11 +479,21 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       // Prepend rework notice so it's seen first
       const commentsWithRework = [reworkNotice, ...updatedComments];
 
+      // Get worker persona details for agentActivity
+      const workerPersona = await getPersona(reviewState.workerId);
+
       await updateTask(taskId, { 
         status: 'in-progress',
         assignee: reviewState.workerId,
         persona: reviewState.workerId,
-        comments: commentsWithRework
+        comments: commentsWithRework,
+        agentActivity: {
+          personaId: reviewState.workerId,
+          personaName: workerPersona?.name || reviewState.workerId,
+          personaEmoji: workerPersona?.emoji || '🔧',
+          status: 'working',
+          startedAt: new Date(),
+        }
       });
       
       // Post rejection message to chat
