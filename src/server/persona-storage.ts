@@ -670,8 +670,9 @@ Tags: ${taskTags.join(', ')}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
-    // Completion summary requirement - developers must summarize their work before completing
-    const completionSummarySection = `\n\n## COMPLETION SUMMARY REQUIREMENT
+    // Completion summary requirement - only for work-doing personas (not reviewers)
+    const workDoingPersonas = ['developer', 'bug-fixer', 'tech-writer'];
+    const completionSummarySection = workDoingPersonas.includes(personaId) ? `\n\n## COMPLETION SUMMARY REQUIREMENT
 
 Before you finish working on this task, you MUST output a structured summary with this exact format:
 
@@ -682,7 +683,7 @@ Before you finish working on this task, you MUST output a structured summary wit
 - **Acceptance criteria met:** [list each criterion from the task and whether it was addressed]
 - **What I did NOT do:** [anything in the spec that was skipped and why]
 
-This summary will be reviewed by QA. Be specific and complete.`;
+This summary will be reviewed by QA. Be specific and complete.` : '';
 
     // Calculate token budget for memory (account for soul prompt)
     const maxTokens = 50000;
