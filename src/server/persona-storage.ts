@@ -671,8 +671,12 @@ Tags: ${taskTags.join(', ')}`;
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
     // Completion summary requirement - only for work-doing personas (not reviewers)
-    const workDoingPersonas = ['developer', 'bug-fixer', 'tech-writer'];
-    const completionSummarySection = workDoingPersonas.includes(personaId) ? `\n\n## COMPLETION SUMMARY REQUIREMENT
+    // Use substring matching to support custom personas like 'senior-developer', 'frontend-developer', etc.
+    const workDoingPersonaPatterns = ['developer', 'bug-fixer', 'tech-writer'];
+    const isWorkDoingPersona = workDoingPersonaPatterns.some(pattern => 
+      personaId.toLowerCase().includes(pattern)
+    );
+    const completionSummarySection = isWorkDoingPersona ? `\n\n## COMPLETION SUMMARY REQUIREMENT
 
 Before you finish working on this task, you MUST output a structured summary with this exact format:
 
