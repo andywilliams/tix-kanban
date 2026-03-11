@@ -670,18 +670,6 @@ Tags: ${taskTags.join(', ')}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
-    // Calculate token budget for memory (account for soul prompt)
-    const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection);
-    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
-
-    const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
-    const memoryTruncated = memory.includes('(memory truncated)');
-
-    // Build final prompt — soul comes after base prompt, before memory and task
-    const soulSection = `\n\n${soulPrompt}`;
-    const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
-    
     // Completion summary requirement - developers must summarize their work before completing
     const completionSummarySection = `\n\n## COMPLETION SUMMARY REQUIREMENT
 
@@ -696,6 +684,18 @@ Before you finish working on this task, you MUST output a structured summary wit
 
 This summary will be reviewed by QA. Be specific and complete.`;
 
+    // Calculate token budget for memory (account for soul prompt)
+    const maxTokens = 50000;
+    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
+    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
+
+    const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
+    const memoryTruncated = memory.includes('(memory truncated)');
+
+    // Build final prompt — soul comes after base prompt, before memory and task
+    const soulSection = `\n\n${soulPrompt}`;
+    const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
+    
     const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
