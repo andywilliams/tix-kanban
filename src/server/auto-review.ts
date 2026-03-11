@@ -500,6 +500,10 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       // Differentiate between parse failure vs session error based on the reason field
       const escalationType = reviewResult.reason === 'session_error' ? 'session error' : 'parse failure';
       
+      // Update the task comment to include the specific escalation reason
+      reviewComment.body = `**AUTO-REVIEW CYCLE ${reviewAttempt.cycle}** (${reviewResult.decision.toUpperCase()} - ${escalationType})\n\n${reviewResult.feedback}\n\n*Confidence: ${Math.round(reviewResult.confidence * 100)}% | Reviewer: ${reviewState.reviewerId}*`;
+      const updatedComments = [...(task.comments || []), reviewComment];
+      
       // Escalate to human review immediately (handles both parse failures and session errors)
       await updateTask(taskId, {
         status: 'review',
