@@ -212,7 +212,7 @@ async function spawnReviewSession(
   task: Task, 
   reviewerPersonaId: string, 
   reviewState: TaskReviewState
-): Promise<{ decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number }> {
+): Promise<{ decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number; reason?: 'parse_failure' | 'session_error' }> {
   try {
     console.log(`🔍 Spawning review session for task: ${task.title} (reviewer: ${reviewerPersonaId})`);
     
@@ -246,7 +246,8 @@ async function spawnReviewSession(
     return {
       decision: 'escalate',
       feedback: `Review session failed: ${error}. Escalating for human review.`,
-      confidence: 0
+      confidence: 0,
+      reason: 'session_error'
     };
   }
 }
@@ -332,7 +333,7 @@ FEEDBACK: [Specific issues that need to be addressed before approval]
 }
 
 // Parse AI reviewer output to extract decision, feedback, and confidence
-function parseReviewOutput(output: string): { decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number } {
+function parseReviewOutput(output: string): { decision: 'approve' | 'approve_with_notes' | 'reject' | 'escalate'; feedback: string; confidence: number; reason?: 'parse_failure' | 'session_error' } {
   try {
     // Look for the decision format in the output
     const decisionMatch = output.match(/DECISION:\s*(APPROVE_WITH_NOTES|APPROVE|REJECT)/i);
@@ -344,7 +345,8 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'approve_wit
       return {
         decision: 'escalate',
         feedback: 'Review output was malformed — could not parse decision. Escalating for human review.',
-        confidence: 0
+        confidence: 0,
+        reason: 'parse_failure'
       };
     }
     
@@ -362,7 +364,8 @@ function parseReviewOutput(output: string): { decision: 'approve' | 'approve_wit
     return {
       decision: 'escalate',
       feedback: `Failed to parse review output: ${error}. Escalating for human review.`,
-      confidence: 0
+      confidence: 0,
+      reason: 'parse_failure'
     };
   }
 }
@@ -494,16 +497,23 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       console.log(`✅ Auto-review approved with notes task: ${task.title}`);
       return 'approved';
     } else if (reviewResult.decision === 'escalate') {
-      // Escalate to human review (can happen due to parse failures or session-level errors)
+      // Differentiate between parse failure vs session error based on the reason field
+      const escalationType = reviewResult.reason === 'session_error' ? 'session error' : 'parse failure';
+      
+      // Update the task comment to include the specific escalation reason
+      reviewComment.body = `**AUTO-REVIEW CYCLE ${reviewAttempt.cycle}** (${reviewResult.decision.toUpperCase()} - ${escalationType})\n\n${reviewResult.feedback}\n\n*Confidence: ${Math.round(reviewResult.confidence * 100)}% | Reviewer: ${reviewState.reviewerId}*`;
+      const updatedComments = [...(task.comments || []), reviewComment];
+      
+      // Escalate to human review immediately (handles both parse failures and session errors)
       await updateTask(taskId, {
         status: 'review',
         comments: updatedComments
       });
 
       // Post escalation message to chat
-      await postReviewUpdate(task, reviewerName, `⚠️ Review session issue — escalating to human review.\n\n${reviewResult.feedback}`);
+      await postReviewUpdate(task, reviewerName, `⚠️ Review ${escalationType} — escalating to human review.\n\n${reviewResult.feedback}`);
 
-      console.log(`⚠️ Auto-review escalation for task: ${task.title}, escalating to human review`);
+      console.log(`⚠️ Auto-review ${escalationType} for task: ${task.title}, escalating to human review`);
 
       // Clean up review state
       await deleteTaskReviewState(taskId);
