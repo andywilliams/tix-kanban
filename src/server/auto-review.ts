@@ -500,7 +500,7 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       // Differentiate between parse failure vs session error based on the reason field
       const escalationType = reviewResult.reason === 'session_error' ? 'session error' : 'parse failure';
       
-      // Escalate to human review immediately (PR logic: escalate instead of reject on parse failure)
+      // Escalate to human review immediately (handles both parse failures and session errors)
       await updateTask(taskId, {
         status: 'review',
         comments: updatedComments
