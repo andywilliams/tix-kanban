@@ -365,6 +365,23 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
       }
     }
 
+    // Add completion summary requirement
+    additionalContext += `\n\n## ⚠️ REQUIRED: Structured Work Summary
+
+Before marking this task done, you MUST add a comment with this exact structure:
+
+\`\`\`
+## Work Summary
+- **What I did:** [bullet points of changes made]
+- **Files changed:** [list of files modified/created]
+- **PR:** [link to PR, or "N/A — non-code task"]
+- **Acceptance criteria met:** [list each criterion from the task and whether it was addressed]
+- **What I did NOT do:** [anything in the spec that was skipped and why, or "N/A"]
+\`\`\`
+
+This summary is REQUIRED for the QA reviewer to efficiently evaluate your work. The reviewer will reject work without a proper summary.
+`;
+
     const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
       persona.id,
       task.title,
