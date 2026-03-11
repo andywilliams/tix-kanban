@@ -681,7 +681,26 @@ Tags: ${taskTags.join(', ')}`;
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}
+
+## INSTRUCTIONS
+Complete this task and provide your work.
+
+## REQUIRED: COMPLETION SUMMARY
+**IMPORTANT:** Before finishing, you MUST end your response with a structured completion summary in this exact format:
+
+---
+## Work Summary
+- **What I did:** [bullet points of changes made]
+- **Files changed:** [list all files you modified/created]
+- **PR:** [link to PR, or "N/A — non-code task"]
+- **Acceptance criteria met:**
+  - [criterion 1]: [YES/NO/PARTIAL - brief explanation]
+  - [criterion 2]: [YES/NO/PARTIAL - brief explanation]
+- **What I did NOT do:** [anything in the spec that was skipped and why, or "N/A"]
+---
+
+This summary will be used by the QA reviewer to evaluate your work. Do NOT skip this step.`;
 
     return {
       prompt: fullPrompt,

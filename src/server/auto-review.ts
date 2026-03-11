@@ -251,6 +251,24 @@ async function spawnReviewSession(
   }
 }
 
+// Extract work summary from the most recent AI comment
+function extractWorkSummary(comments: Comment[] | undefined): string | null {
+  if (!comments?.length) return null;
+  
+  // Find the most recent AI comment (author ends with "(AI)")
+  const aiComments = comments.filter(c => c.author?.endsWith('(AI)'));
+  if (!aiComments.length) return null;
+  
+  const latestAiComment = aiComments[aiComments.length - 1];
+  
+  // Extract the Work Summary section
+  const summaryMatch = latestAiComment.body.match(/## Work Summary[\s\S]*?(?=---\s*$|$)/);
+  if (summaryMatch) {
+    return summaryMatch[0].trim();
+  }
+  return null;
+}
+
 // Create specialized review context for the AI reviewer
 async function createReviewContext(
   task: Task, 
@@ -262,6 +280,9 @@ async function createReviewContext(
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
     
+  // Extract and highlight the developer's work summary
+  const workSummary = extractWorkSummary(task.comments);
+    
   return `## AUTO-REVIEW QUALITY GATE
 
 You are conducting cycle ${reviewCycle} of quality review for the completed task.
@@ -272,9 +293,14 @@ You are conducting cycle ${reviewCycle} of quality review for the completed task
 **Tags:** ${task.tags?.join(', ') || 'None'}
 **Repository:** ${task.repo || 'Not specified'}
 
-## TASK HISTORY
+${workSummary ? `## DEVELOPER WORK SUMMARY (PRIMARY INPUT)
+${workSummary}
+
+---
+
+` : ''}## TASK HISTORY
 **Comments (${task.comments?.length || 0}):**
-${task.comments?.map(c => `- ${c.author}: ${c.body}`).join('\n') || 'No comments'}
+${task.comments?.map(c => `- ${c.author}: ${c.body?.substring(0, 500)}${(c.body?.length || 0) > 500 ? '...' : ''}`).join('\n') || 'No comments'}
 
 **Links (${task.links?.length || 0}):**
 ${task.links?.map(l => `- ${l.type}: ${l.title} (${l.url})`).join('\n') || 'No links'}
