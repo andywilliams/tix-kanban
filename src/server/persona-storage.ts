@@ -670,9 +670,28 @@ Tags: ${taskTags.join(', ')}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
+    // Completion summary requirement - only for work-doing personas (not reviewers)
+    // Use substring matching to support custom personas like 'senior-developer', 'frontend-developer', etc.
+    const workDoingPersonaPatterns = ['developer', 'bug-fixer', 'tech-writer'];
+    const isWorkDoingPersona = workDoingPersonaPatterns.some(pattern => 
+      personaId.toLowerCase().includes(pattern)
+    );
+    const completionSummarySection = isWorkDoingPersona ? `\n\n## COMPLETION SUMMARY REQUIREMENT
+
+Before you finish working on this task, you MUST output a structured summary with this exact format:
+
+## Work Summary
+- **What I did:** [bullet points of changes made]
+- **Files changed:** [list of files you modified]
+- **PR:** [link to PR you created, or "N/A — non-code task"]
+- **Acceptance criteria met:** [list each criterion from the task and whether it was addressed]
+- **What I did NOT do:** [anything in the spec that was skipped and why]
+
+This summary will be reviewed by QA. Be specific and complete.` : '';
+
     // Calculate token budget for memory (account for soul prompt)
     const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection);
+    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
     const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
 
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
@@ -681,7 +700,8 @@ Tags: ${taskTags.join(', ')}`;
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}\n\nPlease work on this task and provide your output.`;
+    
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
