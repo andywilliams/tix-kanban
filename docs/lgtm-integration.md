@@ -2,7 +2,7 @@
 
 ## Overview
 
-The tix-kanban system now supports automated code reviews using the `lgtm` tool through AI personas. This feature enables personas to perform thorough pull request reviews with professional code analysis capabilities.
+The Forge system now supports automated code reviews using the `lgtm` tool through AI personas. This feature enables personas to perform thorough pull request reviews with professional code analysis capabilities.
 
 ## Supported Personas
 
