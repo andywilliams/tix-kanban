@@ -930,7 +930,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       <div className="settings-section">
         <h2>Providers</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '0.9rem' }}>
-          Choose where tix-kanban pulls tickets and messages from. Switching providers lets you use different tools without changing how the board works.
+          Choose where Forge pulls tickets and messages from. Switching providers lets you use different tools without changing how the board works.
         </p>
 
         <div className="form-group">

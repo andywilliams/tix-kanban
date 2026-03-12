@@ -1,4 +1,4 @@
-# Tix Kanban
+# Forge
 
 A localhost kanban board with AI-powered task processing. Create tasks, assign them to AI personas, and watch Claude Code work through your backlog automatically.
 
@@ -18,7 +18,7 @@ A localhost kanban board with AI-powered task processing. Create tasks, assign t
 
 ## Setup from Scratch
 
-This section walks through everything you need to get tix-kanban running on a fresh machine.
+This section walks through everything you need to get Forge running on a fresh machine.
 
 ### 1. Prerequisites
 
@@ -80,8 +80,8 @@ gh auth status
 ### 2. Clone and Install
 
 ```bash
-git clone https://github.com/andywilliams/tix-kanban.git
-cd tix-kanban
+git clone https://github.com/andywilliams/forge.git
+cd forge
 npm install
 ```
 
@@ -103,7 +103,7 @@ On first startup, tix-kanban automatically creates its data directory at `~/.tix
 
 ### 4. Configure GitHub Repos
 
-Open the UI at http://localhost:3000 and click the GitHub settings icon. Add the repositories you want tix-kanban to track (in `owner/repo` format). This enables:
+Open the UI at http://localhost:3000 and click the GitHub settings icon. Add the repositories you want Forge to track (in `owner/repo` format). This enables:
 
 - Linking tasks to PRs
 - PR status tracking (CI checks, reviews, merge state)
@@ -114,7 +114,7 @@ Config is stored in `~/.tix-kanban/github-config.json`.
 
 ### 5. Optional Integrations
 
-These are not required for core functionality but extend what tix-kanban can do.
+These are not required for core functionality but extend what Forge can do.
 
 #### Notion Sync
 
@@ -123,7 +123,7 @@ Sync tasks from a Notion database into your kanban board.
 1. Create a [Notion integration](https://www.notion.so/my-integrations) and copy the API key
 2. Share your Notion database with the integration
 3. Copy the database ID from the Notion URL (the 32-character hex string)
-4. In the tix-kanban UI, go to Notion settings and enter:
+4. In the Forge UI, go to Notion settings and enter:
    - **API Key** — your integration token
    - **Database ID** — the database to sync from
    - **Status Mappings** — map your Notion status values to kanban columns (backlog, in-progress, review, done)
@@ -149,7 +149,7 @@ You can also use the Notion MCP server with Claude Code for richer Notion integr
 
 #### Tix CLI
 
-Tix is a companion developer CLI that bridges Notion tickets and GitHub PRs. It syncs tickets from Notion via Claude Code (no Notion API key needed for basic sync), manages work logs, generates standups, and can push tickets directly to the tix-kanban board.
+Tix is a companion developer CLI that bridges Notion tickets and GitHub PRs. It syncs tickets from Notion via Claude Code (no Notion API key needed for basic sync), manages work logs, generates standups, and can push tickets directly to the Forge board.
 
 Tix-kanban reads from the `~/.tix/` directory for activity logs and daily notes, which feed into automated standup generation.
 
@@ -168,7 +168,7 @@ Tix-kanban reads from the `~/.tix/` directory for activity logs and daily notes,
    ```
    This walks you through configuring your Notion workspace, GitHub repos, and identity.
 
-3. To configure Notion sync specifically for the tix-kanban board:
+3. To configure Notion sync specifically for the Forge board:
    ```bash
    tix setup-notion
    ```
@@ -178,20 +178,20 @@ Tix-kanban reads from the `~/.tix/` directory for activity logs and daily notes,
 | Command | What It Does |
 |---------|-------------|
 | `tix sync` | Sync tickets from Notion via Claude CLI |
-| `tix kanban-sync` | Push Notion tickets directly to tix-kanban (requires tix-kanban running) |
+| `tix kanban-sync` | Push Notion tickets directly to Forge (requires Forge running) |
 | `tix status` | Show your assigned Notion tickets |
 | `tix work <ticket>` | Implement a ticket with AI — fetches context, creates branch, runs AI, offers PR |
 | `tix review <pr>` | AI-powered code review for a GitHub PR |
-| `tix log "did X"` | Quick work log entry (read by tix-kanban for standups) |
+| `tix log "did X"` | Quick work log entry (read by Forge for standups) |
 | `tix standup` | Generate daily standup from git commits and GitHub activity |
 | `tix prs` | Show all your open GitHub PRs with ticket IDs |
 
-**Data shared with tix-kanban:**
+**Data shared with Forge:**
 
 ```
 ~/.tix/
-  logs/       # Activity log entries — tix-kanban reads these for standup generation
-  notes/      # Daily notes — displayed in the tix-kanban UI
+  logs/       # Activity log entries — Forge reads these for standup generation
+  notes/      # Daily notes — displayed in the Forge UI
   tickets/    # Cached Notion ticket data
   _prs.json   # Cached PR-to-ticket mappings
 ```
@@ -200,7 +200,7 @@ Tix-kanban exposes this data via API endpoints (`/api/activity-log`, `/api/daily
 
 #### Slack Integration (via SLX)
 
-SLX syncs Slack messages and generates focus digests. It runs as a separate CLI tool that tix-kanban wraps.
+SLX syncs Slack messages and generates focus digests. It runs as a separate CLI tool that Forge wraps.
 
 1. Install SLX:
    ```bash
@@ -213,7 +213,7 @@ SLX syncs Slack messages and generates focus digests. It runs as a separate CLI 
    ```
    This creates `~/.slx/config.json` with your Slack workspace settings.
 
-3. In the tix-kanban UI, go to Slack settings to configure:
+3. In the Forge UI, go to Slack settings to configure:
    - Which channels to monitor
    - DM sync preferences
    - Auto-sync interval (default: hourly)
@@ -296,9 +296,9 @@ All data is stored locally. Nothing is sent to external services except via the 
   user-settings.json     # User preferences
   _summary.json          # Task summary cache
 
-~/.tix/                    # Tix CLI data (shared with tix-kanban)
-  logs/                  # Activity log entries (read by tix-kanban for standups)
-  notes/                 # Daily notes (displayed in the tix-kanban UI)
+~/.tix/                    # Tix CLI data (shared with Forge)
+  logs/                  # Activity log entries (read by Forge for standups)
+  notes/                 # Daily notes (displayed in the Forge UI)
   tickets/               # Cached Notion ticket data
   _prs.json              # Cached PR-to-ticket mappings
 
@@ -322,8 +322,8 @@ In development, Vite proxies `/api` requests to port 3001. In production, Expres
 If you already have Node 18+, Claude Code, and gh installed:
 
 ```bash
-git clone https://github.com/andywilliams/tix-kanban.git
-cd tix-kanban
+git clone https://github.com/andywilliams/forge.git
+cd forge
 npm install
 npm run dev
 ```
@@ -387,7 +387,7 @@ See [Setup from Scratch](#5-optional-integrations) for configuration details.
 
 ## Providers
 
-Providers are the abstraction layer between tix-kanban and external tools. They let you swap out where tickets and messages come from without changing anything else.
+Providers are the abstraction layer between Forge and external tools. They let you swap out where tickets and messages come from without changing anything else.
 
 ### Built-in Providers
 

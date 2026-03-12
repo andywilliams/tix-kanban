@@ -154,7 +154,7 @@ export async function createTaskPR(
 ${taskDescription}
 
 ---
-*This PR was automatically created from task ${taskId} via tix-kanban*`;
+*This PR was automatically created from task ${taskId} via Forge*`;
 
     const baseBranch = resolveDefaultBranch(config, repo);
     const { stdout } = await exec(`gh pr create --repo ${repo} --title "${prTitle}" --body "${prBody}" --head ${branchName} --base ${baseBranch} --draft`);

@@ -1,6 +1,6 @@
 # Slack Sync with Digest
 
-The tix-kanban application automatically runs `slx digest` after every successful slack sync operation. This ensures that whenever new Slack messages are synced, a digest is automatically generated.
+The Forge application automatically runs `slx digest` after every successful slack sync operation. This ensures that whenever new Slack messages are synced, a digest is automatically generated.
 
 ## How It Works
 

@@ -1,5 +1,5 @@
 {
-  "name": "tix-kanban",
+  "name": "forge",
   "version": "1.0.0",
   "description": "Local kanban board with AI worker integration",
   "type": "module",
