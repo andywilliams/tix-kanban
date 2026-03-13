@@ -450,7 +450,7 @@ export async function acquireSpeakingTurn(channelId: string, personaId: string):
       throw new Error(`Channel ${channelId} not found`);
     }
 
-    // Check if someone else is speaking - deny turn if speakingPersona is set regardless of speakingSince
+    // Check if someone else is speaking - deny turn if speakingPersona is set and is a DIFFERENT persona
     if (channel.speakingPersona && channel.speakingPersona !== personaId) {
       // Check if their turn has timed out
       const speakingSince = channel.speakingSince ? new Date(channel.speakingSince) : null;
@@ -465,6 +465,13 @@ export async function acquireSpeakingTurn(channelId: string, personaId: string):
       } else {
         console.log(`⏱️ ${channel.speakingPersona}'s turn has no valid speakingSince, treating as expired`);
       }
+    }
+
+    // If same persona already has the turn, return true (existing acquisition)
+    // This prevents concurrent re-acquisition from resetting speakingSince
+    if (channel.speakingPersona === personaId) {
+      console.log(`🎤 ${personaId} already has speaking turn in ${channelId}`);
+      return true;
     }
 
     // Acquire the turn
