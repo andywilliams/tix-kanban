@@ -327,14 +327,18 @@ CONFIDENCE: 0.90
 FEEDBACK: [Specific issues that need to be addressed before approval]
 
 ## GUIDELINES
-- Be thorough but fair
+${reviewCycle === 1 ? `- Be thorough but fair
 - If work is 80%+ complete with minor issues, consider approval with notes
 - Only reject if there are significant quality, security, or completeness issues
 - Use APPROVE_WITH_NOTES when work is acceptable but has minor stylistic issues or suggestions
 - APPROVE_WITH_NOTES moves the task to human review (does NOT send back to worker)
 - Provide constructive, actionable feedback
 - Confidence should be 0.0-1.0 (higher = more confident in your decision)
-- Focus on what matters most for this specific task type and context
+- Focus on what matters most for this specific task type and context` : `- Focus ONLY on whether previous rejection issues were addressed
+- Do NOT look for new problems or introduce new issues
+- If previous issues are resolved, approve the work
+- Only reject if the same problems persist
+- Confidence should be 0.0-1.0 (higher = more confident the previous issues were addressed)'}
 
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles

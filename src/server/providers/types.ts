@@ -45,7 +45,6 @@ export interface DocumentData {
 
 export interface DocumentProvider {
   name: string;
-  waitUntilReady?(): Promise<void>;  // Wait for provider to be ready
   index(paths: string[]): Promise<void>;  // Index documents from paths
   search(query: string, limit?: number): Promise<DocumentData[]>;  // Search for relevant docs
   list(): Promise<DocumentData[]>;  // List all indexed documents

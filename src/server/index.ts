@@ -98,7 +98,6 @@ import {
   getTicketProvider,
   getMessageProvider,
   getDocumentProvider,
-  initializeProviders,
 } from './providers/index.js';
 import type { ProviderConfig } from './providers/types.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
@@ -178,8 +177,14 @@ import {
   updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
-// Notion sync removed - now using CLI-based providers
-// See documentation/providers.md for the new architecture
+import {
+  loadNotionConfig,
+  saveNotionConfig,
+  syncTasksFromNotion,
+  mapNotionStatusToKanban,
+  getDefaultStatusMappings,
+  NotionConfig
+} from './notion-sync.js';
 import {
   runPRCommentResolver,
   startPRResolver,
@@ -3036,10 +3041,158 @@ app.get('/api/sync/full', async (_req, res) => {
 // Notion Sync API routes
 
 // GET /api/notion/config - Get Notion configuration
-// Notion API endpoints removed - use CLI-based providers instead
-// The tix provider now shells out to `tix list --json` which handles Notion sync
-// Use /api/providers/sync endpoint for provider-based synchronization
-// See documentation/providers.md for migration guide
+app.get('/api/notion/config', async (_req, res) => {
+  try {
+    const config = await loadNotionConfig();
+    if (!config) {
+      return res.json({ configured: false });
+    }
+    
+    // Don't expose the API key in the response
+    const { apiKey, ...safeConfig } = config;
+    res.json({ 
+      configured: true, 
+      config: { ...safeConfig, hasApiKey: !!apiKey }
+    });
+  } catch (error) {
+    console.error('GET /api/notion/config error:', error);
+    res.status(500).json({ error: 'Failed to fetch Notion config' });
+  }
+});
+
+// POST /api/notion/config - Save Notion configuration
+app.post('/api/notion/config', async (req, res) => {
+  try {
+    const config = req.body as NotionConfig;
+    
+    // Validate required fields
+    if (!config.apiKey || !config.databaseId || !config.userName) {
+      return res.status(400).json({ 
+        error: 'apiKey, databaseId, and userName are required' 
+      });
+    }
+
+    // Set default status mappings if not provided
+    if (!config.statusMappings) {
+      config.statusMappings = getDefaultStatusMappings();
+    }
+
+    await saveNotionConfig(config);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('POST /api/notion/config error:', error);
+    res.status(500).json({ error: 'Failed to save Notion config' });
+  }
+});
+
+// POST /api/notion/sync - Sync tasks from Notion
+app.post('/api/notion/sync', async (_req, res) => {
+  try {
+    const config = await loadNotionConfig();
+    if (!config) {
+      return res.status(400).json({ error: 'Notion not configured' });
+    }
+
+    if (!config.syncEnabled) {
+      return res.status(400).json({ error: 'Notion sync is disabled' });
+    }
+
+    const notionTasks = await syncTasksFromNotion(config);
+    
+    // Convert Notion tasks to kanban tasks
+    const tasksCreated = [];
+    const tasksSkipped = [];
+
+    for (const notionTask of notionTasks) {
+      try {
+        // Check if task already exists (by Notion ID)
+        const existingTask = await getTask(notionTask.id);
+        
+        if (existingTask) {
+          // Update existing task
+          const kanbanStatus = mapNotionStatusToKanban(notionTask.status, config.statusMappings);
+          await updateTask(notionTask.id, {
+            title: notionTask.title,
+            description: notionTask.description || '',
+            status: kanbanStatus,
+            priority: notionTask.priority || 100,
+            updatedAt: new Date(),
+          });
+          tasksSkipped.push(notionTask.title);
+        } else {
+          // Create new task
+          const kanbanStatus = mapNotionStatusToKanban(notionTask.status, config.statusMappings);
+          await createTask({
+            title: notionTask.title,
+            description: notionTask.description || '',
+            status: kanbanStatus,
+            priority: notionTask.priority || 100,
+            persona: 'general-developer',
+            tags: ['notion-sync'],
+            comments: [],
+            links: [{
+              id: `link-${Date.now()}`,
+              taskId: notionTask.id,
+              url: notionTask.url,
+              title: 'Notion Page',
+              type: 'reference'
+            }],
+          });
+          tasksCreated.push(notionTask.title);
+        }
+      } catch (taskError) {
+        console.error(`Failed to sync task "${notionTask.title}":`, taskError);
+        tasksSkipped.push(notionTask.title);
+      }
+    }
+
+    res.json({ 
+      success: true,
+      summary: {
+        totalFetched: notionTasks.length,
+        tasksCreated: tasksCreated.length,
+        tasksUpdated: tasksSkipped.length,
+        createdTasks: tasksCreated,
+        updatedTasks: tasksSkipped,
+      }
+    });
+  } catch (error) {
+    console.error('POST /api/notion/sync error:', error);
+    res.status(500).json({ error: 'Failed to sync from Notion' });
+  }
+});
+
+// GET /api/notion/test - Test Notion connection
+app.get('/api/notion/test', async (_req, res) => {
+  try {
+    const config = await loadNotionConfig();
+    if (!config) {
+      return res.status(400).json({ error: 'Notion not configured' });
+    }
+
+    // Try to fetch a small number of tasks to test the connection
+    const notionTasks = await syncTasksFromNotion({
+      ...config,
+      // Override to fetch only a few tasks for testing
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully connected to Notion. Found ${notionTasks.length} tasks.`,
+      sampleTasks: notionTasks.slice(0, 3).map(task => ({
+        title: task.title,
+        status: task.status,
+        mappedStatus: mapNotionStatusToKanban(task.status, config.statusMappings)
+      }))
+    });
+  } catch (error) {
+    console.error('GET /api/notion/test error:', error);
+    res.status(400).json({ 
+      error: 'Failed to connect to Notion', 
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 // Daily Notes API routes
 const DAILY_NOTES_DIR = path.join(process.env.HOME || '/root', '.tix', 'notes');
@@ -3609,10 +3762,6 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
-import { initializeBudgetStorage } from './collaboration-budget.js';
-import { initializeAuditStorage } from './collaboration-audit.js';
-import { initializeControlStorage } from './collaboration-control.js';
-
 // Initialize storage and start server
 async function startServer() {
   try {
@@ -3620,9 +3769,6 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
-    await initializeBudgetStorage();
-    await initializeAuditStorage();
-    await initializeControlStorage();
     // Run archive maintenance on startup to trim old chat messages
     runArchiveMaintenance().catch(err => console.error('Archive maintenance failed:', err));
     await initializeReportsStorage();
@@ -3633,7 +3779,6 @@ async function startServer() {
     startPRCacheAutoRefresh();
     await startSlxAutoSync();
     await startBackupScheduler();
-    await initializeProviders();
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
