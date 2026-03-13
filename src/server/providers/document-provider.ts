@@ -114,18 +114,29 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Recursively index files from a path
    */
-  private async indexPath(targetPath: string): Promise<DocumentData[]> {
+  private async indexPath(targetPath: string, visited: Set<string> = new Set()): Promise<DocumentData[]> {
     const docs: DocumentData[] = [];
     
     try {
-      const stat = await fs.stat(targetPath);
+      // Use lstat to detect symlinks without following them (prevents symlink cycles)
+      const lstat = await fs.lstat(targetPath);
+      if (lstat.isSymbolicLink()) {
+        return docs;
+      }
+
+      const stat = lstat;
       
       if (stat.isDirectory()) {
+        // Track real paths to detect hard-link cycles
+        const realPath = await fs.realpath(targetPath);
+        if (visited.has(realPath)) return docs;
+        visited.add(realPath);
+
         // Recursively index directory
         const entries = await fs.readdir(targetPath);
         for (const entry of entries) {
           const fullPath = path.join(targetPath, entry);
-          const subDocs = await this.indexPath(fullPath);
+          const subDocs = await this.indexPath(fullPath, visited);
           docs.push(...subDocs);
         }
       } else if (stat.isFile() && targetPath.endsWith('.md')) {
