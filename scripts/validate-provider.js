@@ -139,6 +139,14 @@ async function runProvider(command, envVars = {}) {
 async function validateProvider(type, command, envVars = {}, dryRun = false) {
   info(`Validating ${type} provider: ${command}\n`);
 
+  // Validate schema type BEFORE dry-run to catch configuration errors early
+  const schema = schemas[type];
+  if (!schema) {
+    error(`Unknown provider type: ${type}`);
+    error(`Valid types: ${Object.keys(schemas).join(', ')}`);
+    process.exit(1);
+  }
+
   if (dryRun) {
     success('Dry-run mode: skipping provider execution');
     info(`Would validate type: ${type}`);
@@ -147,13 +155,6 @@ async function validateProvider(type, command, envVars = {}, dryRun = false) {
       info(`With env vars: ${Object.keys(envVars).join(', ')}`);
     }
     process.exit(0);
-  }
-
-  const schema = schemas[type];
-  if (!schema) {
-    error(`Unknown provider type: ${type}`);
-    error(`Valid types: ${Object.keys(schemas).join(', ')}`);
-    process.exit(1);
   }
 
   // Step 1: Check if provider is executable
