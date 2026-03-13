@@ -21,6 +21,33 @@ export interface Task {
   model?: string; // Override AI model for this task
   timeoutMs?: number; // Custom timeout in ms for AI worker (default: 320000 dev, 600000 research)
   agentActivity?: AgentActivity; // Live agent working status
+  testSuites?: TestSuiteLink[]; // Linked apix test suites as acceptance criteria
+  testStatus?: TestSuiteStatus; // Aggregated test status
+}
+
+export interface TestSuiteLink {
+  id: string;
+  path: string; // Path to apix test YAML (relative to repo root or absolute)
+  repo?: string; // GitHub repo (owner/repo) if different from task repo
+  addedAt: Date;
+  addedBy: string;
+}
+
+export interface TestSuiteResult {
+  suiteId: string;
+  path: string;
+  passed: number;
+  failed: number;
+  errors: number;
+  duration_ms: number;
+  timestamp: string;
+  commitSha?: string;
+}
+
+export interface TestSuiteStatus {
+  overall: 'passing' | 'failing' | 'error' | 'not-run';
+  lastRun?: string;
+  results?: TestSuiteResult[];
 }
 
 export interface AgentActivity {

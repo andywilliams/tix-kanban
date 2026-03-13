@@ -3441,6 +3441,137 @@ app.get('/api/slx/status', async (_req, res) => {
   }
 });
 
+// ==================== Test Suite Links (apix acceptance criteria) ====================
+
+// Link a test suite to a task
+app.post('/api/tasks/:taskId/test-suites', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { path: suitePath, repo } = req.body;
+
+    if (!suitePath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const suiteLink = {
+      id: `ts_${Date.now().toString(36)}`,
+      path: suitePath,
+      repo: repo || task.repo,
+      addedAt: new Date(),
+      addedBy: 'cli',
+    };
+
+    const existingSuites = task.testSuites || [];
+
+    // Don't add duplicate paths
+    if (existingSuites.some((s: any) => s.path === suitePath)) {
+      return res.status(409).json({ error: 'Test suite already linked', existing: existingSuites.find((s: any) => s.path === suitePath) });
+    }
+
+    const updatedSuites = [...existingSuites, suiteLink];
+    await updateTask(taskId, {
+      testSuites: updatedSuites,
+      testStatus: task.testStatus || { overall: 'not-run' },
+    } as any);
+
+    res.json({ message: 'Test suite linked', suite: suiteLink });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List test suites for a task
+app.get('/api/tasks/:taskId/test-suites', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.json({
+      testSuites: task.testSuites || [],
+      testStatus: task.testStatus || { overall: 'not-run' },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Unlink a test suite from a task
+app.delete('/api/tasks/:taskId/test-suites/:suiteId', async (req, res) => {
+  try {
+    const { taskId, suiteId } = req.params;
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const existingSuites = task.testSuites || [];
+    const filtered = existingSuites.filter((s: any) => s.id !== suiteId);
+
+    if (filtered.length === existingSuites.length) {
+      return res.status(404).json({ error: 'Test suite link not found' });
+    }
+
+    const testStatus = filtered.length === 0
+      ? { overall: 'not-run' as const }
+      : task.testStatus || { overall: 'not-run' as const };
+
+    await updateTask(taskId, { testSuites: filtered, testStatus } as any);
+    res.json({ message: 'Test suite unlinked' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update test results for a task (called by CI/apix runner)
+app.post('/api/tasks/:taskId/test-results', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { results } = req.body; // Array of TestSuiteResult
+
+    if (!results || !Array.isArray(results)) {
+      return res.status(400).json({ error: 'results array is required' });
+    }
+
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Determine overall status
+    const hasFailures = results.some((r: any) => r.failed > 0);
+    const hasErrors = results.some((r: any) => r.errors > 0);
+    const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
+
+    const testStatus = {
+      overall: overall as 'passing' | 'failing' | 'error',
+      lastRun: new Date().toISOString(),
+      results,
+    };
+
+    // Auto-transition: if all pass and task is in review, move to done
+    const updates: any = { testStatus };
+    if (overall === 'passing' && task.status === 'review') {
+      updates.status = 'done';
+    }
+    // If failing and task is in done, move back to review
+    if ((overall === 'failing' || overall === 'error') && task.status === 'done') {
+      updates.status = 'review';
+    }
+
+    await updateTask(taskId, updates);
+    res.json({ message: 'Test results updated', testStatus, statusChanged: updates.status !== undefined });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
