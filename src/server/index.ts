@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import {
   getAllTasks,
   getTask,
@@ -3458,25 +3459,38 @@ app.post('/api/tasks/:taskId/test-suites', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    const suiteRepo = repo || task.repo;
     const suiteLink = {
-      id: `ts_${Date.now().toString(36)}`,
+      id: randomUUID(),
       path: suitePath,
-      repo: repo || task.repo,
+      repo: suiteRepo,
       addedAt: new Date(),
       addedBy: 'cli',
     };
 
     const existingSuites = task.testSuites || [];
 
-    // Don't add duplicate paths
-    if (existingSuites.some((s: any) => s.path === suitePath)) {
-      return res.status(409).json({ error: 'Test suite already linked', existing: existingSuites.find((s: any) => s.path === suitePath) });
+    // Don't add duplicate path+repo combinations
+    if (existingSuites.some((s: any) => s.path === suitePath && s.repo === suiteRepo)) {
+      return res.status(409).json({ error: 'Test suite already linked', existing: existingSuites.find((s: any) => s.path === suitePath && s.repo === suiteRepo) });
     }
 
-    const updatedSuites = [...existingSuites, suiteLink];
+    // Re-read task to ensure we have the latest state before modifying (avoid concurrent write conflicts)
+    const freshTask = await getTask(taskId);
+    if (!freshTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const freshSuites = freshTask.testSuites || [];
+    // Check again for duplicates in case another request added it
+    if (freshSuites.some((s: any) => s.path === suitePath && s.repo === suiteRepo)) {
+      return res.status(409).json({ error: 'Test suite already linked', existing: freshSuites.find((s: any) => s.path === suitePath && s.repo === suiteRepo) });
+    }
+
+    const updatedSuites = [...freshSuites, suiteLink];
     await updateTask(taskId, {
       testSuites: updatedSuites,
-      testStatus: task.testStatus || { overall: 'not-run' },
+      testStatus: freshTask.testStatus || { overall: 'not-run' },
     } as any);
 
     res.json({ message: 'Test suite linked', suite: suiteLink });
@@ -3539,6 +3553,12 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
       return res.status(400).json({ error: 'results array is required' });
     }
 
+    // Empty results array should not be treated as "passing"
+    if (results.length === 0) {
+      return res.status(400).json({ error: 'results array cannot be empty' });
+    }
+
+    // Atomic read-modify-write: re-read task immediately before updating to avoid stale reads
     const task = await getTask(taskId);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
