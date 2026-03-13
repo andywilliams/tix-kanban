@@ -50,19 +50,16 @@ export class LocalDocumentProvider implements DocumentProvider {
 
     // Deduplicate: replace existing documents with matching IDs (they may have been updated)
     const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
-    const uniqueNewDocs = newDocs.filter(d => !existingIds.has(d.id));
-    const updatedDocs = newDocs.filter(d => existingIds.has(d.id));
+    const newDocIds = new Set(newDocs.map(d => d.id));
     
-    // Replace existing documents that have been updated
-    if (updatedDocs.length > 0) {
-      this.documentIndex.documents = this.documentIndex.documents.filter(
-        d => !existingIds.has(d.id) || updatedDocs.some(u => u.id === d.id)
-      );
-      this.documentIndex.documents.push(...updatedDocs);
-    }
+    // Remove documents that will be replaced by new versions
+    const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
+    this.documentIndex.documents = this.documentIndex.documents.filter(
+      d => !docsToRemove.has(d.id)
+    );
     
-    // Add only unique new documents
-    this.documentIndex.documents.push(...uniqueNewDocs);
+    // Add all new documents (both new and updated versions)
+    this.documentIndex.documents.push(...newDocs);
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
