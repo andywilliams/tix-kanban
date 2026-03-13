@@ -11,7 +11,7 @@ const MAX_ACTIVITY_PER_TASK = 100;
 // Per-task mutex to serialize read-modify-write operations
 const taskLocks = new Map<string, Promise<any>>();
 
-async function withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+export async function withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
   const prev = taskLocks.get(taskId) || Promise.resolve();
   const next = prev.then(fn, fn); // Run fn after previous completes (even if it failed)
   taskLocks.set(taskId, next);
@@ -48,7 +48,7 @@ async function ensureStorageDirectories(): Promise<void> {
 }
 
 // Read task from individual file
-async function readTask(taskId: string): Promise<Task | null> {
+export async function readTask(taskId: string): Promise<Task | null> {
   try {
     const taskPath = path.join(TASKS_DIR, `${taskId}.json`);
     const content = await fs.readFile(taskPath, 'utf8');
@@ -73,7 +73,7 @@ async function readTask(taskId: string): Promise<Task | null> {
 }
 
 // Write task to individual file (atomic: write to temp then rename)
-async function writeTask(task: Task): Promise<void> {
+export async function writeTask(task: Task): Promise<void> {
   try {
     await ensureStorageDirectories();
     const taskPath = path.join(TASKS_DIR, `${task.id}.json`);
