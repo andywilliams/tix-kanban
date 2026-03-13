@@ -101,6 +101,9 @@ export async function getChannel(channelId: string): Promise<ChatChannel | null>
     if (channel.summaryUpdatedAt) {
       channel.summaryUpdatedAt = new Date(channel.summaryUpdatedAt);
     }
+    if (channel.speakingSince) {
+      channel.speakingSince = new Date(channel.speakingSince);
+    }
 
     return channel;
   } catch (error) {
