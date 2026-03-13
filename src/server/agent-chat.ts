@@ -391,6 +391,7 @@ async function generatePersonaResponse(
   originalMessage: ChatMessage,
   persona: Persona
 ): Promise<void> {
+  let turnAcquired = false;
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
     
@@ -400,6 +401,7 @@ async function generatePersonaResponse(
       console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
       return;
     }
+    turnAcquired = true;
 
     const userId = originalMessage.author;
     const tracker = new TokenTracker();
@@ -680,8 +682,10 @@ This conversation is about the task described above. Keep your responses relevan
       );
     } catch {}
   } finally {
-    // Always release turn, regardless of success or error
-    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
+    // Only release turn if it was actually acquired
+    if (turnAcquired) {
+      await releaseSpeakingTurn(originalMessage.channelId, persona.id);
+    }
   }
 }
 
