@@ -43,14 +43,29 @@ export class LocalDocumentProvider implements DocumentProvider {
     const newDocs: DocumentData[] = [];
     
     for (const p of paths) {
-      const docs = await this.indexPath(p);
+      // Validate and sanitize path to prevent path traversal
+      const validatedPath = this.validatePath(p);
+      if (!validatedPath) {
+        console.warn(`Path validation failed for: ${p}`);
+        continue;
+      }
+      
+      const docs = await this.indexPath(validatedPath);
       newDocs.push(...docs);
       this.indexedPaths.add(p);
     }
 
+    // Deduplicate newDocs by ID (handle duplicates within same batch)
+    const seenIds = new Set<string>();
+    const uniqueNewDocs = newDocs.filter(doc => {
+      if (seenIds.has(doc.id)) return false;
+      seenIds.add(doc.id);
+      return true;
+    });
+
     // Deduplicate: replace existing documents with matching IDs (they may have been updated)
     const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
-    const newDocIds = new Set(newDocs.map(d => d.id));
+    const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
     
     // Remove documents that will be replaced by new versions
     const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
@@ -59,13 +74,41 @@ export class LocalDocumentProvider implements DocumentProvider {
     );
     
     // Add all new documents (both new and updated versions)
-    this.documentIndex.documents.push(...newDocs);
+    this.documentIndex.documents.push(...uniqueNewDocs);
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
     
     // Persist index
     await this.saveIndex();
+  }
+
+  /**
+   * Validate and sanitize a path to prevent path traversal attacks.
+   * Returns the resolved absolute path if valid, or null if invalid.
+   */
+  private validatePath(inputPath: string): string | null {
+    try {
+      // Resolve to absolute path
+      const resolved = path.resolve(inputPath);
+
+      // Allow paths within the current working directory or common safe roots
+      const cwd = process.cwd();
+      const home = process.env.HOME || '';
+
+      // Path must be within cwd (project root) or the user home directory
+      // This prevents arbitrary reads like /etc/passwd
+      const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
+      const isWithinHome = home && (resolved.startsWith(home + path.sep) || resolved === home);
+
+      if (!isWithinCwd && !isWithinHome) {
+        return null;
+      }
+
+      return resolved;
+    } catch {
+      return null;
+    }
   }
 
   /**
