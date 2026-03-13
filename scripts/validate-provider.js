@@ -9,8 +9,7 @@
  *   ./scripts/validate-provider.js --type message --command "slx sync --json" --env SLACK_TOKEN=xyz
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn } from 'child_process';
 
 // ANSI color codes
 const colors = {
