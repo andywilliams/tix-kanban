@@ -684,7 +684,12 @@ This conversation is about the task described above. Keep your responses relevan
   } finally {
     // Only release turn if it was actually acquired
     if (turnAcquired) {
-      await releaseSpeakingTurn(originalMessage.channelId, persona.id);
+      try {
+        await releaseSpeakingTurn(originalMessage.channelId, persona.id);
+      } catch (releaseError) {
+        console.error('Failed to release speaking turn:', releaseError);
+        // Don't rethrow - we don't want to mask the original error
+      }
     }
   }
 }
