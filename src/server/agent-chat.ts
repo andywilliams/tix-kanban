@@ -90,7 +90,8 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   // Check for "remember" command
   const rememberCmd = parseRememberCommand(message.content);
 
-  // Process each mentioned persona
+  // Process each mentioned persona sequentially to ensure fair turn-taking
+  // When multiple personas are mentioned, they respond one at a time
   for (const persona of mentionedPersonas) {
     // Handle remember command
     if (rememberCmd) {
@@ -98,10 +99,12 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       continue;
     }
 
-    // Generate contextual response
-    generatePersonaResponse(message, persona).catch(error => {
+    // Generate contextual response - await to ensure fair queuing
+    try {
+      await generatePersonaResponse(message, persona);
+    } catch (error) {
       console.error(`Failed to generate response for persona ${persona.name}:`, error);
-    });
+    }
   }
 }
 
