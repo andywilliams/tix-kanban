@@ -39,6 +39,7 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Index markdown files from given paths
    */
   async index(paths: string[]): Promise<void> {
+    await this.ready;
     const newDocs: DocumentData[] = [];
     
     for (const p of paths) {
@@ -175,11 +176,11 @@ export class LocalDocumentProvider implements DocumentProvider {
       }
     }
     
-    // Calculate IDF (inverse document frequency)
+    // Calculate IDF (inverse document frequency) with smoothing
     const totalDocs = documents.length;
     const idf: Map<string, number> = new Map();
     for (const [term, df] of documentFrequency) {
-      idf.set(term, Math.log(totalDocs / df));
+      idf.set(term, Math.log((totalDocs + 1) / (df + 1)));
     }
     
     // Calculate TF-IDF scores
@@ -203,6 +204,7 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Search for relevant documents using query
    */
   async search(query: string, limit: number = 5): Promise<DocumentData[]> {
+    await this.ready;
     const queryTerms = this.extractKeywords(query);
     const scores: Map<string, number> = new Map();
     
@@ -230,6 +232,7 @@ export class LocalDocumentProvider implements DocumentProvider {
    * List all indexed documents
    */
   async list(): Promise<DocumentData[]> {
+    await this.ready;
     return this.documentIndex.documents;
   }
 
@@ -237,6 +240,7 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Re-index all previously indexed paths
    */
   async refresh(): Promise<void> {
+    await this.ready;
     const paths = Array.from(this.indexedPaths);
     this.documentIndex = {
       documents: [],
