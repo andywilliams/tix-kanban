@@ -2,6 +2,7 @@
 
 import { DocumentProvider, DocumentData } from './types.js';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import matter from 'gray-matter';
@@ -24,7 +25,7 @@ export class LocalDocumentProvider implements DocumentProvider {
   private ready: Promise<void>;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir || path.join(process.cwd(), '.tix-kanban', 'documents');
+    this.dataDir = dataDir || path.join(os.homedir(), '.tix-kanban', 'documents');
     this.ready = this.loadIndex();
   }
 
