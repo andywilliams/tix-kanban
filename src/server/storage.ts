@@ -117,7 +117,7 @@ async function readSummary(): Promise<TaskSummary[]> {
 }
 
 // Update summary file
-async function updateSummary(tasks: Task[]): Promise<void> {
+export async function updateSummary(tasks: Task[]): Promise<void> {
   try {
     await ensureStorageDirectories();
     const summary: TaskSummary[] = tasks.map(task => ({
