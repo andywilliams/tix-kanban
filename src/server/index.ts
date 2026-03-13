@@ -13,7 +13,9 @@ import {
   initializeStorage,
   getTaskActivity,
   getAllActivity,
-  withTaskLock
+  withTaskLock,
+  readTask,
+  writeTask
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import {
@@ -3483,10 +3485,13 @@ app.post('/api/tasks/:taskId/test-suites', async (req, res) => {
       }
 
       const updatedSuites = [...existingSuites, suiteLink];
-      await updateTask(taskId, {
+      const updatedTask = {
+        ...task,
         testSuites: updatedSuites,
         testStatus: task.testStatus || { overall: 'not-run' },
-      } as any);
+        updatedAt: new Date()
+      };
+      await writeTask(updatedTask);
 
       return { status: 200, message: 'Test suite linked', suite: suiteLink };
     });
@@ -3522,46 +3527,62 @@ app.get('/api/tasks/:taskId/test-suites', async (req, res) => {
 app.delete('/api/tasks/:taskId/test-suites/:suiteId', async (req, res) => {
   try {
     const { taskId, suiteId } = req.params;
-    const task = await getTask(taskId);
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    const existingSuites = task.testSuites || [];
-    const filtered = existingSuites.filter((s: any) => s.id !== suiteId);
-
-    if (filtered.length === existingSuites.length) {
-      return res.status(404).json({ error: 'Test suite link not found' });
-    }
-
-    // Recalculate test status based on remaining suites
-    let testStatus;
-    if (filtered.length === 0) {
-      testStatus = { overall: 'not-run' as const };
-    } else if (task.testStatus && task.testStatus.results) {
-      // Filter out results from the removed suite
-      const remainingSuiteIds = new Set(filtered.map((s: any) => s.id));
-      const remainingResults = task.testStatus.results.filter((r: any) => remainingSuiteIds.has(r.suiteId));
-      
-      if (remainingResults.length === 0) {
-        testStatus = { overall: 'not-run' as const };
-      } else {
-        // Recalculate overall status from remaining results
-        const hasErrors = remainingResults.some((r: any) => r.errors > 0);
-        const hasFailures = remainingResults.some((r: any) => r.failed > 0);
-        const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
-        testStatus = {
-          overall: overall as 'passing' | 'failing' | 'error',
-          lastRun: task.testStatus.lastRun,
-          results: remainingResults,
-        };
+    
+    // Wrap entire read-modify-write in lock to prevent TOCTOU races
+    const result = await withTaskLock(taskId, async () => {
+      const task = await getTask(taskId);
+      if (!task) {
+        return { status: 404, error: 'Task not found' };
       }
-    } else {
-      testStatus = { overall: 'not-run' as const };
-    }
 
-    await updateTask(taskId, { testSuites: filtered, testStatus } as any);
-    res.json({ message: 'Test suite unlinked' });
+      const existingSuites = task.testSuites || [];
+      const filtered = existingSuites.filter((s: any) => s.id !== suiteId);
+
+      if (filtered.length === existingSuites.length) {
+        return { status: 404, error: 'Test suite link not found' };
+      }
+
+      // Recalculate test status based on remaining suites
+      let testStatus;
+      if (filtered.length === 0) {
+        testStatus = { overall: 'not-run' as const };
+      } else if (task.testStatus && task.testStatus.results) {
+        // Filter out results from the removed suite
+        const remainingSuiteIds = new Set(filtered.map((s: any) => s.id));
+        const remainingResults = task.testStatus.results.filter((r: any) => remainingSuiteIds.has(r.suiteId));
+        
+        if (remainingResults.length === 0) {
+          testStatus = { overall: 'not-run' as const };
+        } else {
+          // Recalculate overall status from remaining results
+          const hasErrors = remainingResults.some((r: any) => r.errors > 0);
+          const hasFailures = remainingResults.some((r: any) => r.failed > 0);
+          const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
+          testStatus = {
+            overall: overall as 'passing' | 'failing' | 'error',
+            lastRun: task.testStatus.lastRun,
+            results: remainingResults,
+          };
+        }
+      } else {
+        testStatus = { overall: 'not-run' as const };
+      }
+
+      const updatedTask = {
+        ...task,
+        testSuites: filtered,
+        testStatus,
+        updatedAt: new Date()
+      };
+      await writeTask(updatedTask);
+      return { status: 200, message: 'Test suite unlinked' };
+    });
+
+    if (result.status === 200) {
+      res.json({ message: result.message });
+    } else {
+      res.status(result.status).json({ error: result.error });
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3602,17 +3623,26 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
       };
 
       // Auto-transition: if all pass and task is in review, move to done
-      const updates: any = { testStatus };
+      let statusChanged = false;
+      let newStatus = task.status;
       if (overall === 'passing' && task.status === 'review') {
-        updates.status = 'done';
+        newStatus = 'done';
+        statusChanged = true;
       }
       // If failing and task is in done, move back to review
       if ((overall === 'failing' || overall === 'error') && task.status === 'done') {
-        updates.status = 'review';
+        newStatus = 'review';
+        statusChanged = true;
       }
 
-      await updateTask(taskId, updates);
-      return { status: 200, message: 'Test results updated', testStatus, statusChanged: updates.status !== undefined };
+      const updatedTask = {
+        ...task,
+        testStatus,
+        status: newStatus,
+        updatedAt: new Date()
+      };
+      await writeTask(updatedTask);
+      return { status: 200, message: 'Test results updated', testStatus, statusChanged };
     });
 
     if (result.status === 200) {

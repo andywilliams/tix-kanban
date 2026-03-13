@@ -48,7 +48,7 @@ async function ensureStorageDirectories(): Promise<void> {
 }
 
 // Read task from individual file
-async function readTask(taskId: string): Promise<Task | null> {
+export async function readTask(taskId: string): Promise<Task | null> {
   try {
     const taskPath = path.join(TASKS_DIR, `${taskId}.json`);
     const content = await fs.readFile(taskPath, 'utf8');
@@ -73,7 +73,7 @@ async function readTask(taskId: string): Promise<Task | null> {
 }
 
 // Write task to individual file (atomic: write to temp then rename)
-async function writeTask(task: Task): Promise<void> {
+export async function writeTask(task: Task): Promise<void> {
   try {
     await ensureStorageDirectories();
     const taskPath = path.join(TASKS_DIR, `${task.id}.json`);
