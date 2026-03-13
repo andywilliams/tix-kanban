@@ -3532,9 +3532,31 @@ app.delete('/api/tasks/:taskId/test-suites/:suiteId', async (req, res) => {
       return res.status(404).json({ error: 'Test suite link not found' });
     }
 
-    const testStatus = filtered.length === 0
-      ? { overall: 'not-run' as const }
-      : task.testStatus || { overall: 'not-run' as const };
+    // Recalculate test status based on remaining suites
+    let testStatus;
+    if (filtered.length === 0) {
+      testStatus = { overall: 'not-run' as const };
+    } else if (task.testStatus && task.testStatus.results) {
+      // Filter out results from the removed suite
+      const remainingSuiteIds = new Set(filtered.map((s: any) => s.id));
+      const remainingResults = task.testStatus.results.filter((r: any) => remainingSuiteIds.has(r.suiteId));
+      
+      if (remainingResults.length === 0) {
+        testStatus = { overall: 'not-run' as const };
+      } else {
+        // Recalculate overall status from remaining results
+        const hasErrors = remainingResults.some((r: any) => r.errors > 0);
+        const hasFailures = remainingResults.some((r: any) => r.failed > 0);
+        const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
+        testStatus = {
+          overall: overall as 'passing' | 'failing' | 'error',
+          lastRun: task.testStatus.lastRun,
+          results: remainingResults,
+        };
+      }
+    } else {
+      testStatus = { overall: 'not-run' as const };
+    }
 
     await updateTask(taskId, { testSuites: filtered, testStatus } as any);
     res.json({ message: 'Test suite unlinked' });
@@ -3575,13 +3597,19 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
       results,
     };
 
+    // Re-read task just before update to minimize TOCTOU race window for auto-transition
+    const latestTask = await getTask(taskId);
+    if (!latestTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
     // Auto-transition: if all pass and task is in review, move to done
     const updates: any = { testStatus };
-    if (overall === 'passing' && task.status === 'review') {
+    if (overall === 'passing' && latestTask.status === 'review') {
       updates.status = 'done';
     }
     // If failing and task is in done, move back to review
-    if ((overall === 'failing' || overall === 'error') && task.status === 'done') {
+    if ((overall === 'failing' || overall === 'error') && latestTask.status === 'done') {
       updates.status = 'review';
     }
 
