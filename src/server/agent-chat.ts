@@ -757,9 +757,13 @@ function buildChatPrompt(context: PromptContext): string {
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
 
-  // Task context (for task channel conversations)
+  // Task context (for task channel conversations) - use budgeted tracker
   if (taskContext) {
-    sections.push(`\n${taskContext}`);
+    sections.push(tracker.record('task', buildBudgetedSection(
+      'Task',
+      `\n${taskContext}`,
+      budget.knowledge // Reuse knowledge budget for task context
+    )));
   }
 
   // Knowledge base context (if available and relevant)
