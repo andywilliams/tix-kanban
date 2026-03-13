@@ -335,7 +335,7 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Load index from disk
    */
-  async loadIndex(): Promise<void> {
+  private async loadIndex(): Promise<void> {
     try {
       const indexPath = path.join(this.dataDir, 'index.json');
       const data = await fs.readFile(indexPath, 'utf8');
