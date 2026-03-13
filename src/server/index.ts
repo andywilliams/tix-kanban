@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
 import {
   getAllTasks,
   getTask,
@@ -14,7 +13,6 @@ import {
   getTaskActivity,
   getAllActivity,
   withTaskLock,
-  readTask,
   writeTask
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
@@ -3635,13 +3633,11 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
         statusChanged = true;
       }
 
-      const updatedTask = {
-        ...task,
+      // Use updateTask to ensure status changes are logged to activity
+      await updateTask(taskId, {
         testStatus,
         status: newStatus,
-        updatedAt: new Date()
-      };
-      await writeTask(updatedTask);
+      }, 'acceptance-tests');
       return { status: 200, message: 'Test results updated', testStatus, statusChanged };
     });
 
