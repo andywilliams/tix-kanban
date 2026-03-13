@@ -666,9 +666,6 @@ This conversation is about the task described above. Keep your responses relevan
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
-    
-    // Release speaking turn
-    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
 
@@ -682,8 +679,8 @@ This conversation is about the task described above. Keep your responses relevan
         originalMessage.id
       );
     } catch {}
-    
-    // Always release turn, even on error
+  } finally {
+    // Always release turn, regardless of success or error
     await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   }
 }
