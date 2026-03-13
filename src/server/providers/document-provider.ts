@@ -21,9 +21,18 @@ export class LocalDocumentProvider implements DocumentProvider {
   };
   private indexedPaths: Set<string> = new Set();
   private dataDir: string;
+  private ready: Promise<void>;
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir || path.join(process.cwd(), '.tix-kanban', 'documents');
+    this.ready = this.loadIndex();
+  }
+
+  /**
+   * Wait for the provider to be ready (index loaded)
+   */
+  async waitUntilReady(): Promise<void> {
+    await this.ready;
   }
 
   /**
@@ -38,8 +47,12 @@ export class LocalDocumentProvider implements DocumentProvider {
       this.indexedPaths.add(p);
     }
 
-    // Add to existing documents
-    this.documentIndex.documents.push(...newDocs);
+    // Deduplicate: filter out any existing docs with matching IDs
+    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
+    const uniqueNewDocs = newDocs.filter(d => !existingIds.has(d.id));
+    
+    // Add only unique new documents
+    this.documentIndex.documents.push(...uniqueNewDocs);
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
@@ -282,6 +295,9 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Configure the provider
    */
   async configure(config: any): Promise<void> {
+    // Wait for initial load to complete before indexing
+    await this.ready;
+    
     if (config.paths && Array.isArray(config.paths)) {
       await this.index(config.paths);
     }
@@ -289,8 +305,3 @@ export class LocalDocumentProvider implements DocumentProvider {
 }
 
 export const documentProvider = new LocalDocumentProvider();
-
-// Load existing index on initialization
-documentProvider.loadIndex().catch(err => {
-  console.error('Error loading document index:', err.message);
-});
