@@ -450,24 +450,22 @@ export async function acquireSpeakingTurn(channelId: string, personaId: string):
       throw new Error(`Channel ${channelId} not found`);
     }
 
-    // Check if someone else is speaking
+    // Check if someone else is speaking - deny turn if speakingPersona is set regardless of speakingSince
     if (channel.speakingPersona && channel.speakingPersona !== personaId) {
       // Check if their turn has timed out
       const speakingSince = channel.speakingSince ? new Date(channel.speakingSince) : null;
-      // Handle invalid dates or missing speakingSince - treat as stale and clear
+      // Handle invalid dates or missing speakingSince - deny turn to prevent lock bypass
       if (!speakingSince || isNaN(speakingSince.getTime())) {
-        // speakingPersona is set but speakingSince is missing or invalid - clear and allow
-        console.log(`🧹 Clearing stale speakingPersona (no/invalid speakingSince) in ${channelId}`);
-        channel.speakingPersona = undefined;
-        channel.speakingSince = undefined;
-      } else {
-        const elapsed = Date.now() - speakingSince.getTime();
-        if (elapsed < TURN_TIMEOUT_MS) {
-          console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor`);
-          return false;
-        }
-        console.log(`⏱️ ${channel.speakingPersona}'s turn timed out, allowing ${personaId} to speak`);
+        // speakingPersona is set but speakingSince is missing or invalid - deny turn
+        console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor (no/invalid speakingSince)`);
+        return false;
       }
+      const elapsed = Date.now() - speakingSince.getTime();
+      if (elapsed < TURN_TIMEOUT_MS) {
+        console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor`);
+        return false;
+      }
+      console.log(`⏱️ ${channel.speakingPersona}'s turn timed out, allowing ${personaId} to speak`);
     }
 
     // Acquire the turn
