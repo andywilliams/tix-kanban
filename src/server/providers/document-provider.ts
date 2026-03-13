@@ -48,9 +48,18 @@ export class LocalDocumentProvider implements DocumentProvider {
       this.indexedPaths.add(p);
     }
 
-    // Deduplicate: filter out any existing docs with matching IDs
+    // Deduplicate: replace existing documents with matching IDs (they may have been updated)
     const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
     const uniqueNewDocs = newDocs.filter(d => !existingIds.has(d.id));
+    const updatedDocs = newDocs.filter(d => existingIds.has(d.id));
+    
+    // Replace existing documents that have been updated
+    if (updatedDocs.length > 0) {
+      this.documentIndex.documents = this.documentIndex.documents.filter(
+        d => !existingIds.has(d.id) || updatedDocs.some(u => u.id === d.id)
+      );
+      this.documentIndex.documents.push(...updatedDocs);
+    }
     
     // Add only unique new documents
     this.documentIndex.documents.push(...uniqueNewDocs);
