@@ -98,6 +98,7 @@ import {
   getTicketProvider,
   getMessageProvider,
   getDocumentProvider,
+  initializeProviders,
 } from './providers/index.js';
 import type { ProviderConfig } from './providers/types.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
@@ -3625,6 +3626,7 @@ async function startServer() {
     startPRCacheAutoRefresh();
     await startSlxAutoSync();
     await startBackupScheduler();
+    await initializeProviders();
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
