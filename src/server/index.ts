@@ -13,7 +13,8 @@ import {
   getTaskActivity,
   getAllActivity,
   withTaskLock,
-  writeTask
+  writeTask,
+  updateSummary
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import {
@@ -3656,6 +3657,13 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
         activity: newActivity.slice(-100),
         updatedAt: new Date(),
       });
+
+      // Update summary cache when status changes
+      if (statusChanged) {
+        const allTasks = await getAllTasks();
+        await updateSummary(allTasks);
+      }
+
       return { status: 200, message: 'Test results updated', testStatus, statusChanged };
     });
 
