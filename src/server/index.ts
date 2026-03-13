@@ -3455,50 +3455,33 @@ app.post('/api/tasks/:taskId/test-suites', async (req, res) => {
       return res.status(400).json({ error: 'path is required' });
     }
 
-    // Do read-modify-write inside lock to prevent concurrent requests from losing data
-    const result = await withTaskLock(taskId, async () => {
-      const task = await getTask(taskId);
-      if (!task) {
-        return { status: 404, error: 'Task not found' };
-      }
-
-      const suiteRepo = repo || task.repo || 'apix';
-      const suiteLink = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Add random component to prevent collisions
-        path: suitePath,
-        repo: suiteRepo,
-        addedAt: new Date(),
-        addedBy: 'cli',
-      };
-
-      const existingSuites = task.testSuites || [];
-
-      // Don't add duplicate path+repo combinations (include repo in duplicate check)
-      if (existingSuites.some((s: any) => s.path === suitePath && s.repo === suiteRepo)) {
-        return {
-          status: 409,
-          error: 'Test suite already linked',
-          existing: existingSuites.find((s: any) => s.path === suitePath && s.repo === suiteRepo)
-        };
-      }
-
-      const updatedSuites = [...existingSuites, suiteLink];
-      const updatedTask = {
-        ...task,
-        testSuites: updatedSuites,
-        testStatus: task.testStatus || { overall: 'not-run' },
-        updatedAt: new Date()
-      };
-      await writeTask(updatedTask);
-
-      return { status: 200, message: 'Test suite linked', suite: suiteLink };
-    });
-
-    if (result.status === 200) {
-      res.json({ message: result.message, suite: result.suite });
-    } else {
-      res.status(result.status).json({ error: result.error, existing: result.existing });
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
+
+    const suiteLink = {
+      id: `ts_${Date.now().toString(36)}`,
+      path: suitePath,
+      repo: repo || task.repo,
+      addedAt: new Date(),
+      addedBy: 'cli',
+    };
+
+    const existingSuites = task.testSuites || [];
+
+    // Don't add duplicate paths
+    if (existingSuites.some((s: any) => s.path === suitePath)) {
+      return res.status(409).json({ error: 'Test suite already linked', existing: existingSuites.find((s: any) => s.path === suitePath) });
+    }
+
+    const updatedSuites = [...existingSuites, suiteLink];
+    await updateTask(taskId, {
+      testSuites: updatedSuites,
+      testStatus: task.testStatus || { overall: 'not-run' },
+    } as any);
+
+    res.json({ message: 'Test suite linked', suite: suiteLink });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3525,62 +3508,24 @@ app.get('/api/tasks/:taskId/test-suites', async (req, res) => {
 app.delete('/api/tasks/:taskId/test-suites/:suiteId', async (req, res) => {
   try {
     const { taskId, suiteId } = req.params;
-    
-    // Wrap entire read-modify-write in lock to prevent TOCTOU races
-    const result = await withTaskLock(taskId, async () => {
-      const task = await getTask(taskId);
-      if (!task) {
-        return { status: 404, error: 'Task not found' };
-      }
-
-      const existingSuites = task.testSuites || [];
-      const filtered = existingSuites.filter((s: any) => s.id !== suiteId);
-
-      if (filtered.length === existingSuites.length) {
-        return { status: 404, error: 'Test suite link not found' };
-      }
-
-      // Recalculate test status based on remaining suites
-      let testStatus;
-      if (filtered.length === 0) {
-        testStatus = { overall: 'not-run' as const };
-      } else if (task.testStatus && task.testStatus.results) {
-        // Filter out results from the removed suite
-        const remainingSuiteIds = new Set(filtered.map((s: any) => s.id));
-        const remainingResults = task.testStatus.results.filter((r: any) => remainingSuiteIds.has(r.suiteId));
-        
-        if (remainingResults.length === 0) {
-          testStatus = { overall: 'not-run' as const };
-        } else {
-          // Recalculate overall status from remaining results
-          const hasErrors = remainingResults.some((r: any) => r.errors > 0);
-          const hasFailures = remainingResults.some((r: any) => r.failed > 0);
-          const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
-          testStatus = {
-            overall: overall as 'passing' | 'failing' | 'error',
-            lastRun: task.testStatus.lastRun,
-            results: remainingResults,
-          };
-        }
-      } else {
-        testStatus = { overall: 'not-run' as const };
-      }
-
-      const updatedTask = {
-        ...task,
-        testSuites: filtered,
-        testStatus,
-        updatedAt: new Date()
-      };
-      await writeTask(updatedTask);
-      return { status: 200, message: 'Test suite unlinked' };
-    });
-
-    if (result.status === 200) {
-      res.json({ message: result.message });
-    } else {
-      res.status(result.status).json({ error: result.error });
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
+
+    const existingSuites = task.testSuites || [];
+    const filtered = existingSuites.filter((s: any) => s.id !== suiteId);
+
+    if (filtered.length === existingSuites.length) {
+      return res.status(404).json({ error: 'Test suite link not found' });
+    }
+
+    const testStatus = filtered.length === 0
+      ? { overall: 'not-run' as const }
+      : task.testStatus || { overall: 'not-run' as const };
+
+    await updateTask(taskId, { testSuites: filtered, testStatus } as any);
+    res.json({ message: 'Test suite unlinked' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3596,74 +3541,34 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
       return res.status(400).json({ error: 'results array is required' });
     }
 
-    // Empty results array should not be treated as "passing" (reject empty arrays)
-    if (results.length === 0) {
-      return res.status(400).json({ error: 'results array cannot be empty' });
+    const task = await getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Do read-modify-write inside lock to prevent concurrent updates
-    const result = await withTaskLock(taskId, async () => {
-      // Read status inside lock to avoid stale read causing wrong auto-transition
-      const task = await getTask(taskId);
-      if (!task) {
-        return { status: 404, error: 'Task not found' };
-      }
+    // Determine overall status
+    const hasFailures = results.some((r: any) => r.failed > 0);
+    const hasErrors = results.some((r: any) => r.errors > 0);
+    const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
 
-      // Determine overall status
-      const hasFailures = results.some((r: any) => r.failed > 0);
-      const hasErrors = results.some((r: any) => r.errors > 0);
-      const overall = hasErrors ? 'error' : hasFailures ? 'failing' : 'passing';
+    const testStatus = {
+      overall: overall as 'passing' | 'failing' | 'error',
+      lastRun: new Date().toISOString(),
+      results,
+    };
 
-      const testStatus = {
-        overall: overall as 'passing' | 'failing' | 'error',
-        lastRun: new Date().toISOString(),
-        results,
-      };
-
-      // Auto-transition: if all pass and task is in review, move to done
-      let statusChanged = false;
-      let newStatus = task.status;
-      if (overall === 'passing' && task.status === 'review') {
-        newStatus = 'done';
-        statusChanged = true;
-      }
-      // If failing and task is in done, move back to review
-      if ((overall === 'failing' || overall === 'error') && task.status === 'done') {
-        newStatus = 'review';
-        statusChanged = true;
-      }
-
-      // Build activity log entries for status changes (avoid updateTask which re-locks)
-      const existingActivity = task.activity || [];
-      const newActivity = [...existingActivity];
-      if (statusChanged) {
-        newActivity.push({
-          id: Math.random().toString(36).substr(2, 9),
-          taskId,
-          type: 'status_change' as const,
-          description: `Status changed from '${task.status}' to '${newStatus}'`,
-          actor: 'acceptance-tests',
-          timestamp: new Date(),
-          metadata: { from: task.status, to: newStatus }
-        });
-      }
-
-      // Write directly to avoid nested withTaskLock deadlock (we already hold the lock)
-      await writeTask({
-        ...task,
-        testStatus,
-        status: newStatus,
-        activity: newActivity.slice(-100),
-        updatedAt: new Date(),
-      });
-      return { status: 200, message: 'Test results updated', testStatus, statusChanged };
-    });
-
-    if (result.status === 200) {
-      res.json({ message: result.message, testStatus: result.testStatus, statusChanged: result.statusChanged });
-    } else {
-      res.status(result.status).json({ error: result.error });
+    // Auto-transition: if all pass and task is in review, move to done
+    const updates: any = { testStatus };
+    if (overall === 'passing' && task.status === 'review') {
+      updates.status = 'done';
     }
+    // If failing and task is in done, move back to review
+    if ((overall === 'failing' || overall === 'error') && task.status === 'done') {
+      updates.status = 'review';
+    }
+
+    await updateTask(taskId, updates);
+    res.json({ message: 'Test results updated', testStatus, statusChanged: updates.status !== undefined });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
