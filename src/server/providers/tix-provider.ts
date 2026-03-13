@@ -53,11 +53,7 @@ export abstract class CLITicketProvider implements TicketProvider {
   /**
    * Normalize status to one of the canonical kanban statuses
    */
-  protected normalizeStatus(status: string | null | undefined): 'backlog' | 'in-progress' | 'review' | 'done' {
-    if (!status) {
-      console.warn(`Missing status, defaulting to backlog`);
-      return 'backlog';
-    }
+  protected normalizeStatus(status: string): 'backlog' | 'in-progress' | 'review' | 'done' {
     const lower = status.toLowerCase();
     
     if (lower.includes('backlog') || lower.includes('todo') || lower.includes('new')) {
