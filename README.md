@@ -389,6 +389,8 @@ See [Setup from Scratch](#5-optional-integrations) for configuration details.
 
 Providers are the abstraction layer between Forge and external tools. They let you swap out where tickets and messages come from without changing anything else.
 
+📖 **[Full Provider Specification](./docs/PROVIDER_SPEC.md)** — Complete interface contract, schemas, and implementation guide.
+
 ### Built-in Providers
 
 | Name | Type | Source |
@@ -446,6 +448,28 @@ const ticketProviders: Map<string, TicketProvider> = new Map([
 ```
 
 That's it — it will appear in the Settings dropdown immediately.
+
+### Validating Custom Providers
+
+Use the validation script to ensure your provider conforms to the spec:
+
+```bash
+# Validate a ticket provider
+node scripts/validate-provider.js --type ticket --command "my-provider sync --json"
+
+# Validate a message provider with environment variables
+node scripts/validate-provider.js --type message --command "slx sync --json" --env SLACK_TOKEN=xyz
+
+# Validate a test result provider
+node scripts/validate-provider.js --type test-result --command "npm run test:api -- --json"
+```
+
+The validator checks:
+- Exit codes (0 = success, 1/2/3 = error types)
+- JSON array output format
+- Required fields for the provider type
+- ISO 8601 date formats
+- stderr error format
 
 ### Provider Interface Reference
 

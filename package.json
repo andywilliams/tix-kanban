@@ -11,7 +11,8 @@
     "build:client": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
     "start": "node dist/server/index.js",
-    "type-check": "tsc --noEmit && tsc --project tsconfig.server.json --noEmit"
+    "type-check": "tsc --noEmit && tsc --project tsconfig.server.json --noEmit",
+    "validate-provider": "node scripts/validate-provider.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.0.8",
