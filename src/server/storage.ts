@@ -11,7 +11,7 @@ const MAX_ACTIVITY_PER_TASK = 100;
 // Per-task mutex to serialize read-modify-write operations
 const taskLocks = new Map<string, Promise<any>>();
 
-async function withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+export async function withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
   const prev = taskLocks.get(taskId) || Promise.resolve();
   const next = prev.then(fn, fn); // Run fn after previous completes (even if it failed)
   taskLocks.set(taskId, next);
