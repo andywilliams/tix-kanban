@@ -90,7 +90,11 @@ const schemas = {
 
 function isValidISO8601(dateString) {
   const date = new Date(dateString);
-  return date instanceof Date && !isNaN(date) && date.toISOString() === dateString;
+  if (!(date instanceof Date) || isNaN(date)) return false;
+  // Accept both with milliseconds (2026-03-13T10:00:00.123Z) and without (2026-03-13T10:00:00Z)
+  const isoWithMs = date.toISOString();
+  const isoWithoutMs = date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return isoWithMs === dateString || isoWithoutMs === dateString;
 }
 
 async function runProvider(command, envVars = {}) {
@@ -134,6 +138,16 @@ async function runProvider(command, envVars = {}) {
 
 async function validateProvider(type, command, envVars = {}, dryRun = false) {
   info(`Validating ${type} provider: ${command}\n`);
+
+  if (dryRun) {
+    success('Dry-run mode: skipping provider execution');
+    info(`Would validate type: ${type}`);
+    info(`Would execute: ${command}`);
+    if (Object.keys(envVars).length > 0) {
+      info(`With env vars: ${Object.keys(envVars).join(', ')}`);
+    }
+    process.exit(0);
+  }
 
   const schema = schemas[type];
   if (!schema) {
@@ -190,7 +204,7 @@ async function validateProvider(type, command, envVars = {}, dryRun = false) {
     if (data.length === 0) {
       warning('Empty array returned - cannot validate schema');
       info('\n✓ Provider validation complete (empty result set)');
-      return;
+      process.exit(0);
     }
 
     // Step 5: Validate schema for each item
@@ -278,8 +292,10 @@ function parseArgs() {
       config.command = args[++i];
     } else if (arg === '--env' && i + 1 < args.length) {
       const envPair = args[++i];
-      const [key, value] = envPair.split('=');
-      if (key && value) {
+      const idx = envPair.indexOf('=');
+      if (idx > 0) {
+        const key = envPair.slice(0, idx);
+        const value = envPair.slice(idx + 1);
         config.env[key] = value;
       }
     } else if (arg === '--dry-run') {
