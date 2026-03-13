@@ -74,9 +74,6 @@ export async function initializeProviders(): Promise<void> {
     if (provider) {
       activeDocumentProvider = provider;
       
-      // Wait for provider to be ready before configuring
-      await provider.waitUntilReady?.();
-      
       // Initialize with config if provided
       if (config.documentProviderConfig) {
         await provider.configure?.(config.documentProviderConfig);

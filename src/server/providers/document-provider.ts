@@ -2,7 +2,6 @@
 
 import { DocumentProvider, DocumentData } from './types.js';
 import fs from 'fs/promises';
-import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import matter from 'gray-matter';
@@ -22,60 +21,25 @@ export class LocalDocumentProvider implements DocumentProvider {
   };
   private indexedPaths: Set<string> = new Set();
   private dataDir: string;
-  private ready: Promise<void>;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir || path.join(os.homedir(), '.tix-kanban', 'documents');
-    this.ready = this.loadIndex();
-  }
-
-  /**
-   * Wait for the provider to be ready (index loaded)
-   */
-  async waitUntilReady(): Promise<void> {
-    await this.ready;
+    this.dataDir = dataDir || path.join(process.cwd(), '.tix-kanban', 'documents');
   }
 
   /**
    * Index markdown files from given paths
    */
   async index(paths: string[]): Promise<void> {
-    await this.ready;
     const newDocs: DocumentData[] = [];
     
     for (const p of paths) {
-      // Validate and sanitize path to prevent path traversal
-      const validatedPath = this.validatePath(p);
-      if (!validatedPath) {
-        console.warn(`Path validation failed for: ${p}`);
-        continue;
-      }
-      
-      const docs = await this.indexPath(validatedPath);
+      const docs = await this.indexPath(p);
       newDocs.push(...docs);
       this.indexedPaths.add(p);
     }
 
-    // Deduplicate newDocs by ID (handle duplicates within same batch)
-    const seenIds = new Set<string>();
-    const uniqueNewDocs = newDocs.filter(doc => {
-      if (seenIds.has(doc.id)) return false;
-      seenIds.add(doc.id);
-      return true;
-    });
-
-    // Deduplicate: replace existing documents with matching IDs (they may have been updated)
-    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
-    const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
-    
-    // Remove documents that will be replaced by new versions
-    const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
-    this.documentIndex.documents = this.documentIndex.documents.filter(
-      d => !docsToRemove.has(d.id)
-    );
-    
-    // Add all new documents (both new and updated versions)
-    this.documentIndex.documents.push(...uniqueNewDocs);
+    // Add to existing documents
+    this.documentIndex.documents.push(...newDocs);
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
@@ -85,60 +49,20 @@ export class LocalDocumentProvider implements DocumentProvider {
   }
 
   /**
-   * Validate and sanitize a path to prevent path traversal attacks.
-   * Returns the resolved absolute path if valid, or null if invalid.
-   */
-  private validatePath(inputPath: string): string | null {
-    try {
-      // Resolve to absolute path
-      const resolved = path.resolve(inputPath);
-
-      // Allow paths within the current working directory or common safe roots
-      const cwd = process.cwd();
-      const home = process.env.HOME || '';
-
-      // Path must be within cwd (project root) or the user home directory
-      // This prevents arbitrary reads like /etc/passwd
-      const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
-      const isWithinHome = home && (resolved.startsWith(home + path.sep) || resolved === home);
-
-      if (!isWithinCwd && !isWithinHome) {
-        return null;
-      }
-
-      return resolved;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * Recursively index files from a path
    */
-  private async indexPath(targetPath: string, visited: Set<string> = new Set()): Promise<DocumentData[]> {
+  private async indexPath(targetPath: string): Promise<DocumentData[]> {
     const docs: DocumentData[] = [];
     
     try {
-      // Use lstat to detect symlinks without following them
-      const lstat = await fs.lstat(targetPath);
-      if (lstat.isSymbolicLink()) {
-        // Skip symlinks to prevent cycles
-        return docs;
-      }
-
-      const stat = lstat;
+      const stat = await fs.stat(targetPath);
       
       if (stat.isDirectory()) {
-        // Track visited real paths to detect hard-link cycles
-        const realPath = await fs.realpath(targetPath);
-        if (visited.has(realPath)) return docs;
-        visited.add(realPath);
-
         // Recursively index directory
         const entries = await fs.readdir(targetPath);
         for (const entry of entries) {
           const fullPath = path.join(targetPath, entry);
-          const subDocs = await this.indexPath(fullPath, visited);
+          const subDocs = await this.indexPath(fullPath);
           docs.push(...subDocs);
         }
       } else if (stat.isFile() && targetPath.endsWith('.md')) {
@@ -238,11 +162,11 @@ export class LocalDocumentProvider implements DocumentProvider {
       }
     }
     
-    // Calculate IDF (inverse document frequency) with smoothing
+    // Calculate IDF (inverse document frequency)
     const totalDocs = documents.length;
     const idf: Map<string, number> = new Map();
     for (const [term, df] of documentFrequency) {
-      idf.set(term, Math.log((totalDocs + 1) / (df + 1)));
+      idf.set(term, Math.log(totalDocs / df));
     }
     
     // Calculate TF-IDF scores
@@ -266,7 +190,6 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Search for relevant documents using query
    */
   async search(query: string, limit: number = 5): Promise<DocumentData[]> {
-    await this.ready;
     const queryTerms = this.extractKeywords(query);
     const scores: Map<string, number> = new Map();
     
@@ -294,7 +217,6 @@ export class LocalDocumentProvider implements DocumentProvider {
    * List all indexed documents
    */
   async list(): Promise<DocumentData[]> {
-    await this.ready;
     return this.documentIndex.documents;
   }
 
@@ -302,7 +224,6 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Re-index all previously indexed paths
    */
   async refresh(): Promise<void> {
-    await this.ready;
     const paths = Array.from(this.indexedPaths);
     this.documentIndex = {
       documents: [],
@@ -335,7 +256,7 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Load index from disk
    */
-  private async loadIndex(): Promise<void> {
+  async loadIndex(): Promise<void> {
     try {
       const indexPath = path.join(this.dataDir, 'index.json');
       const data = await fs.readFile(indexPath, 'utf8');
@@ -361,9 +282,6 @@ export class LocalDocumentProvider implements DocumentProvider {
    * Configure the provider
    */
   async configure(config: any): Promise<void> {
-    // Wait for initial load to complete before indexing
-    await this.ready;
-    
     if (config.paths && Array.isArray(config.paths)) {
       await this.index(config.paths);
     }
@@ -371,3 +289,8 @@ export class LocalDocumentProvider implements DocumentProvider {
 }
 
 export const documentProvider = new LocalDocumentProvider();
+
+// Load existing index on initialization
+documentProvider.loadIndex().catch(err => {
+  console.error('Error loading document index:', err.message);
+});
