@@ -458,6 +458,11 @@ export async function acquireSpeakingTurn(channelId: string, personaId: string):
           return false;
         }
         console.log(`⏱️ ${channel.speakingPersona}'s turn timed out, allowing ${personaId} to speak`);
+      } else {
+        // speakingPersona is set but speakingSince is missing - deny turn
+        // This prevents turn lock bypass
+        console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor (no speakingSince)`);
+        return false;
       }
     }
 
@@ -488,23 +493,4 @@ export async function releaseSpeakingTurn(channelId: string, personaId: string):
       console.log(`✅ ${personaId} released speaking turn in ${channelId}`);
     }
   });
-}
-
-/**
- * Check who currently has the speaking turn (if anyone).
- */
-export async function getCurrentSpeaker(channelId: string): Promise<string | null> {
-  const channel = await getChannel(channelId);
-  if (!channel) return null;
-
-  // Check for timeout
-  if (channel.speakingPersona && channel.speakingSince) {
-    const elapsed = Date.now() - new Date(channel.speakingSince).getTime();
-    if (elapsed >= TURN_TIMEOUT_MS) {
-      console.log(`⏱️ ${channel.speakingPersona}'s turn in ${channelId} has timed out`);
-      return null;
-    }
-  }
-
-  return channel.speakingPersona || null;
 }
