@@ -97,6 +97,7 @@ import {
   setMessageProvider,
   getTicketProvider,
   getMessageProvider,
+  getDocumentProvider,
 } from './providers/index.js';
 import type { ProviderConfig } from './providers/types.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
@@ -784,6 +785,85 @@ app.delete('/api/knowledge/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/knowledge/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete knowledge doc' });
+  }
+});
+
+// Document Provider API routes
+
+// GET /api/documents - List all indexed documents
+app.get('/api/documents', async (_req, res) => {
+  try {
+    const provider = getDocumentProvider();
+    if (!provider) {
+      return res.status(503).json({ error: 'Document provider not available' });
+    }
+    
+    const documents = await provider.list();
+    res.json(documents);
+  } catch (error) {
+    console.error('GET /api/documents error:', error);
+    res.status(500).json({ error: 'Failed to list documents' });
+  }
+});
+
+// GET /api/documents/search - Search for documents
+app.get('/api/documents/search', async (req, res) => {
+  try {
+    const provider = getDocumentProvider();
+    if (!provider) {
+      return res.status(503).json({ error: 'Document provider not available' });
+    }
+    
+    const query = req.query.q as string;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter "q" is required' });
+    }
+    
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+    const documents = await provider.search(query, limit);
+    res.json(documents);
+  } catch (error) {
+    console.error('GET /api/documents/search error:', error);
+    res.status(500).json({ error: 'Failed to search documents' });
+  }
+});
+
+// POST /api/documents/index - Index documents from paths
+app.post('/api/documents/index', async (req, res) => {
+  try {
+    const provider = getDocumentProvider();
+    if (!provider) {
+      return res.status(503).json({ error: 'Document provider not available' });
+    }
+    
+    const { paths } = req.body;
+    if (!paths || !Array.isArray(paths)) {
+      return res.status(400).json({ error: 'paths must be an array' });
+    }
+    
+    await provider.index(paths);
+    const documents = await provider.list();
+    res.json({ success: true, count: documents.length });
+  } catch (error) {
+    console.error('POST /api/documents/index error:', error);
+    res.status(500).json({ error: 'Failed to index documents' });
+  }
+});
+
+// POST /api/documents/refresh - Refresh document index
+app.post('/api/documents/refresh', async (_req, res) => {
+  try {
+    const provider = getDocumentProvider();
+    if (!provider) {
+      return res.status(503).json({ error: 'Document provider not available' });
+    }
+    
+    await provider.refresh();
+    const documents = await provider.list();
+    res.json({ success: true, count: documents.length });
+  } catch (error) {
+    console.error('POST /api/documents/refresh error:', error);
+    res.status(500).json({ error: 'Failed to refresh documents' });
   }
 });
 

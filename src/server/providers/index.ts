@@ -1,8 +1,9 @@
 // Provider registry and factory
 
-import { TicketProvider, MessageProvider, ProviderConfig } from './types.js';
+import { TicketProvider, MessageProvider, DocumentProvider, ProviderConfig } from './types.js';
 import { tixProvider } from './tix-provider.js';
 import { slxProvider } from './slx-provider.js';
+import { documentProvider } from './document-provider.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -18,9 +19,14 @@ const messageProviders: Map<string, MessageProvider> = new Map([
   ['slx', slxProvider],
 ]);
 
+const documentProviders: Map<string, DocumentProvider> = new Map([
+  ['document', documentProvider],
+]);
+
 // Active providers (set by config or defaults)
 let activeTicketProvider: TicketProvider | null = tixProvider;
 let activeMessageProvider: MessageProvider | null = slxProvider;
+let activeDocumentProvider: DocumentProvider | null = documentProvider;
 
 /**
  * Load provider configuration
@@ -31,7 +37,11 @@ export async function loadProviderConfig(): Promise<ProviderConfig | null> {
     return JSON.parse(data);
   } catch {
     // Return defaults if no config exists
-    return { ticketProvider: 'tix', messageProvider: 'slx' };
+    return { 
+      ticketProvider: 'tix', 
+      messageProvider: 'slx',
+      documentProvider: 'document',
+    };
   }
 }
 
@@ -58,6 +68,20 @@ export async function initializeProviders(): Promise<void> {
       console.warn(`Unknown message provider "${config.messageProvider}" in config - using default`);
     }
   }
+  
+  if (config?.documentProvider) {
+    const provider = documentProviders.get(config.documentProvider);
+    if (provider) {
+      activeDocumentProvider = provider;
+      
+      // Initialize with config if provided
+      if (config.documentProviderConfig) {
+        await provider.configure?.(config.documentProviderConfig);
+      }
+    } else {
+      console.warn(`Unknown document provider "${config.documentProvider}" in config - using default`);
+    }
+  }
 }
 
 /**
@@ -75,6 +99,13 @@ export function registerMessageProvider(provider: MessageProvider): void {
 }
 
 /**
+ * Register a custom document provider
+ */
+export function registerDocumentProvider(provider: DocumentProvider): void {
+  documentProviders.set(provider.name, provider);
+}
+
+/**
  * Get the active ticket provider
  */
 export function getTicketProvider(): TicketProvider | null {
@@ -86,6 +117,13 @@ export function getTicketProvider(): TicketProvider | null {
  */
 export function getMessageProvider(): MessageProvider | null {
   return activeMessageProvider;
+}
+
+/**
+ * Get the active document provider
+ */
+export function getDocumentProvider(): DocumentProvider | null {
+  return activeDocumentProvider;
 }
 
 /**
@@ -113,12 +151,25 @@ export function setMessageProvider(name: string): boolean {
 }
 
 /**
+ * Set the active document provider by name
+ */
+export function setDocumentProvider(name: string): boolean {
+  const provider = documentProviders.get(name);
+  if (provider) {
+    activeDocumentProvider = provider;
+    return true;
+  }
+  return false;
+}
+
+/**
  * List available providers
  */
-export function listProviders(): { tickets: string[]; messages: string[] } {
+export function listProviders(): { tickets: string[]; messages: string[]; documents: string[] } {
   return {
     tickets: Array.from(ticketProviders.keys()),
     messages: Array.from(messageProviders.keys()),
+    documents: Array.from(documentProviders.keys()),
   };
 }
 
