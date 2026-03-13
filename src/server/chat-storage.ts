@@ -101,9 +101,6 @@ export async function getChannel(channelId: string): Promise<ChatChannel | null>
     if (channel.summaryUpdatedAt) {
       channel.summaryUpdatedAt = new Date(channel.summaryUpdatedAt);
     }
-    if (channel.speakingSince) {
-      channel.speakingSince = new Date(channel.speakingSince);
-    }
 
     return channel;
   } catch (error) {
@@ -450,28 +447,18 @@ export async function acquireSpeakingTurn(channelId: string, personaId: string):
       throw new Error(`Channel ${channelId} not found`);
     }
 
-    // Check if someone else is speaking - deny turn if speakingPersona is set and is a DIFFERENT persona
+    // Check if someone else is speaking
     if (channel.speakingPersona && channel.speakingPersona !== personaId) {
       // Check if their turn has timed out
       const speakingSince = channel.speakingSince ? new Date(channel.speakingSince) : null;
-      // Handle invalid dates or missing speakingSince - treat as expired lock
-      if (speakingSince && !isNaN(speakingSince.getTime())) {
+      if (speakingSince) {
         const elapsed = Date.now() - speakingSince.getTime();
         if (elapsed < TURN_TIMEOUT_MS) {
           console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor`);
           return false;
         }
         console.log(`⏱️ ${channel.speakingPersona}'s turn timed out, allowing ${personaId} to speak`);
-      } else {
-        console.log(`⏱️ ${channel.speakingPersona}'s turn has no valid speakingSince, treating as expired`);
       }
-    }
-
-    // If same persona already has the turn, return true (existing acquisition)
-    // This prevents concurrent re-acquisition from resetting speakingSince
-    if (channel.speakingPersona === personaId) {
-      console.log(`🎤 ${personaId} already has speaking turn in ${channelId}`);
-      return true;
     }
 
     // Acquire the turn
@@ -501,4 +488,23 @@ export async function releaseSpeakingTurn(channelId: string, personaId: string):
       console.log(`✅ ${personaId} released speaking turn in ${channelId}`);
     }
   });
+}
+
+/**
+ * Check who currently has the speaking turn (if anyone).
+ */
+export async function getCurrentSpeaker(channelId: string): Promise<string | null> {
+  const channel = await getChannel(channelId);
+  if (!channel) return null;
+
+  // Check for timeout
+  if (channel.speakingPersona && channel.speakingSince) {
+    const elapsed = Date.now() - new Date(channel.speakingSince).getTime();
+    if (elapsed >= TURN_TIMEOUT_MS) {
+      console.log(`⏱️ ${channel.speakingPersona}'s turn in ${channelId} has timed out`);
+      return null;
+    }
+  }
+
+  return channel.speakingPersona || null;
 }
