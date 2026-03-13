@@ -31,7 +31,7 @@ export async function execProvider<T>(
 
     return JSON.parse(stdout);
   } catch (err: any) {
-    if (err.code === 'ETIMEDOUT') {
+    if (err.killed === true || err.signal === 'SIGKILL') {
       throw new Error(`Command "${command} ${args.join(' ')}" timed out after ${opts?.timeout ?? 30_000}ms`);
     }
     if (err.code === 'ENOENT') {
