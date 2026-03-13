@@ -39,6 +39,7 @@ export interface TokenBudget {
   soul: number;
   personaPrompt: number;
   memory: number;
+  task: number;
   knowledge: number;
   board: number;
   prs: number;
@@ -53,6 +54,7 @@ export function getDefaultBudget(): TokenBudget {
     soul: 5000,
     personaPrompt: 3000,
     memory: 3000,
+    task: 2500,
     knowledge: 5000,
     board: 3000,
     prs: 2000,

@@ -763,7 +763,7 @@ function buildChatPrompt(context: PromptContext): string {
     sections.push(tracker.record('task', buildBudgetedSection(
       'Task',
       `\n${taskContext}`,
-      budget.knowledge // Reuse knowledge budget for task context
+      budget.task
     )));
   }
 
