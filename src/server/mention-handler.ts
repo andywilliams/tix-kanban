@@ -6,10 +6,15 @@ import { promisify } from 'util';
 import { 
   getAllPersonas
 } from './persona-storage.js';
+import { getTask } from './storage.js';
 import { 
   addMessage, 
   getMessages,
-  ChatMessage
+  ChatMessage,
+  acquireSpeakingTurn,
+  releaseSpeakingTurn,
+  getChannel,
+  getChannelSummary
 } from './chat-storage.js';
 import { Persona } from '../client/types/index.js';
 import {
@@ -71,6 +76,13 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
     
+    // Try to acquire speaking turn (implements turn-taking)
+    const acquired = await acquireSpeakingTurn(originalMessage.channelId, persona.id);
+    if (!acquired) {
+      console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
+      return;
+    }
+    
     // Check for "remember" commands first
     const rememberResult = await processRememberCommand(
       persona.id,
@@ -88,6 +100,8 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
         originalMessage.id
       );
       console.log(`📝 Persona ${persona.name} processed memory command`);
+      // Release turn after posting
+      await releaseSpeakingTurn(originalMessage.channelId, persona.id);
       return;
     }
     
@@ -147,6 +161,9 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
     } else {
       console.log(`⚠️  Persona ${persona.name} generated empty response`);
     }
+    
+    // Release speaking turn
+    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
     
@@ -162,6 +179,9 @@ async function generatePersonaResponse(originalMessage: ChatMessage, persona: Pe
     } catch (postError) {
       console.error(`Failed to post error message for persona ${persona.name}:`, postError);
     }
+    
+    // Always release turn, even on error
+    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   }
 }
 
@@ -172,9 +192,44 @@ async function createChatContextPrompt(
   originalMessage: ChatMessage,
   recentMessages: ChatMessage[]
 ): Promise<string> {
-  // Format recent chat history
+  // Get channel to check if this is a task conversation
+  const channel = await getChannel(originalMessage.channelId);
+  let taskContext = '';
+  
+  // If this is a task channel, include task information
+  if (channel && channel.type === 'task' && channel.taskId) {
+    const task = await getTask(channel.taskId);
+    if (task) {
+      taskContext = `## Task Context
+
+**Task ID:** ${task.id}
+**Title:** ${task.title}
+**Status:** ${task.status}
+**Description:**
+${task.description}
+
+${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}
+${task.assignee ? `**Assigned to:** ${task.assignee}` : ''}
+
+This conversation is about the task described above. Keep your responses relevant to this context.
+
+`;
+    }
+  }
+  
+  // Get conversation summary for older messages (if available)
+  let conversationSummary = '';
+  if (channel) {
+    const summary = await getChannelSummary(originalMessage.channelId);
+    if (summary) {
+      conversationSummary = `## Earlier Conversation Summary:\n${summary}\n\n`;
+    }
+  }
+  
+  // Format recent chat history (last 5 messages for task channels, 10 for others)
+  const messageLimit = channel?.type === 'task' ? 5 : 10;
   const chatHistory = recentMessages
-    .slice(-10) // Last 10 messages
+    .slice(-messageLimit)
     .map(msg => {
       const author = msg.authorType === 'persona' ? `${msg.author} (AI)` : msg.author;
       const timestamp = new Date(msg.createdAt).toLocaleTimeString();
@@ -224,9 +279,7 @@ ${persona.specialties.join(', ') || 'General assistance'}
 
 ${memoryContext}
 
-## Chat Context:
-You were mentioned in this team chat. Here's the recent conversation:
-
+${taskContext}${conversationSummary}## Recent Chat History:
 ${chatHistory}
 
 ## Current Message:
@@ -241,6 +294,8 @@ The user "${originalMessage.author}" just said: "${originalMessage.content}"
 - If they ask you to remember something, acknowledge it warmly
 - Reference your memories when relevant
 - Be genuinely helpful, not performatively helpful
+${taskContext ? '- Keep your response relevant to the task at hand' : ''}
+- You can address other personas by @name if you need their input
 
 Generate your response now:`;
 }

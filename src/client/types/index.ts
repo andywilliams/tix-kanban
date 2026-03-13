@@ -285,6 +285,8 @@ export interface ChatChannel {
   name: string;
   messages: ChatMessage[];
   lastActivity: Date;
+  speakingPersona?: string; // Persona currently holding the floor (turn-taking lock)
+  speakingSince?: Date; // When the current speaker acquired the lock
 }
 
 export interface Report {

@@ -52,6 +52,8 @@ export interface ChatChannel {
   summary?: string; // Running summary of older conversation
   summaryUpdatedAt?: Date;
   totalMessageCount?: number; // Includes archived messages
+  speakingPersona?: string; // Persona currently holding the floor (turn-taking lock)
+  speakingSince?: Date; // When the current speaker acquired the lock
 }
 
 export interface ChatChannelMeta {
@@ -428,4 +430,81 @@ export async function runArchiveMaintenance(): Promise<{ channelsProcessed: numb
   }
 
   return { channelsProcessed, totalArchived };
+}
+
+// Turn-taking mechanism for persona conversations
+
+const TURN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes - auto-release if persona doesn't respond
+
+/**
+ * Attempt to acquire the speaking turn for a persona in a channel.
+ * Returns true if acquired, false if another persona is currently speaking.
+ */
+export async function acquireSpeakingTurn(channelId: string, personaId: string): Promise<boolean> {
+  return withChannelLock(channelId, async () => {
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      throw new Error(`Channel ${channelId} not found`);
+    }
+
+    // Check if someone else is speaking
+    if (channel.speakingPersona && channel.speakingPersona !== personaId) {
+      // Check if their turn has timed out
+      const speakingSince = channel.speakingSince ? new Date(channel.speakingSince) : null;
+      if (speakingSince) {
+        const elapsed = Date.now() - speakingSince.getTime();
+        if (elapsed < TURN_TIMEOUT_MS) {
+          console.log(`🚫 ${personaId} cannot speak - ${channel.speakingPersona} has the floor`);
+          return false;
+        }
+        console.log(`⏱️ ${channel.speakingPersona}'s turn timed out, allowing ${personaId} to speak`);
+      }
+    }
+
+    // Acquire the turn
+    channel.speakingPersona = personaId;
+    channel.speakingSince = new Date();
+    await saveChannel(channel);
+    console.log(`🎤 ${personaId} acquired speaking turn in ${channelId}`);
+    return true;
+  });
+}
+
+/**
+ * Release the speaking turn for a persona in a channel.
+ */
+export async function releaseSpeakingTurn(channelId: string, personaId: string): Promise<void> {
+  return withChannelLock(channelId, async () => {
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      return; // Channel doesn't exist, nothing to release
+    }
+
+    // Only release if this persona currently has the turn
+    if (channel.speakingPersona === personaId) {
+      channel.speakingPersona = undefined;
+      channel.speakingSince = undefined;
+      await saveChannel(channel);
+      console.log(`✅ ${personaId} released speaking turn in ${channelId}`);
+    }
+  });
+}
+
+/**
+ * Check who currently has the speaking turn (if anyone).
+ */
+export async function getCurrentSpeaker(channelId: string): Promise<string | null> {
+  const channel = await getChannel(channelId);
+  if (!channel) return null;
+
+  // Check for timeout
+  if (channel.speakingPersona && channel.speakingSince) {
+    const elapsed = Date.now() - new Date(channel.speakingSince).getTime();
+    if (elapsed >= TURN_TIMEOUT_MS) {
+      console.log(`⏱️ ${channel.speakingPersona}'s turn in ${channelId} has timed out`);
+      return null;
+    }
+  }
+
+  return channel.speakingPersona || null;
 }

@@ -26,8 +26,15 @@ import {
   AgentSoul
 } from './agent-soul.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
-import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
-import { getAllTasks, createTask } from './storage.js';
+import { 
+  addMessage, 
+  getMessages, 
+  ChatMessage,
+  acquireSpeakingTurn,
+  releaseSpeakingTurn,
+  getChannel
+} from './chat-storage.js';
+import { getAllTasks, createTask, getTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
@@ -383,6 +390,13 @@ async function generatePersonaResponse(
 ): Promise<void> {
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
+    
+    // Try to acquire speaking turn (implements turn-taking)
+    const acquired = await acquireSpeakingTurn(originalMessage.channelId, persona.id);
+    if (!acquired) {
+      console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
+      return;
+    }
 
     const userId = originalMessage.author;
     const tracker = new TokenTracker();
@@ -405,6 +419,34 @@ async function generatePersonaResponse(
       recentMessages = await getMessages(originalMessage.channelId, fetchLimit);
     } catch (error) {
       console.warn(`Failed to fetch chat history: ${error}`);
+    }
+    
+    // Get task context if this is a task channel
+    let taskContext = '';
+    if (channelType === 'task') {
+      try {
+        const channel = await getChannel(originalMessage.channelId);
+        if (channel && channel.taskId) {
+          const task = await getTask(channel.taskId);
+          if (task) {
+            taskContext = `## Task Context
+
+**Task ID:** ${task.id}
+**Title:** ${task.title}
+**Status:** ${task.status}
+**Description:**
+${task.description}
+
+${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}
+${task.assignee ? `**Assigned to:** ${task.assignee}` : ''}
+
+This conversation is about the task described above. Keep your responses relevant to this context.
+`;
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to get task context: ${error}`);
+      }
     }
 
     // Build memory context (with error resilience)
@@ -512,6 +554,7 @@ async function generatePersonaResponse(
       memoryContext,
       relevantMemories,
       teamContext,
+      taskContext,
       boardContext,
       prContext,
       knowledgeContext,
@@ -532,6 +575,7 @@ async function generatePersonaResponse(
       memoryContext,
       relevantMemories,
       teamContext,
+      taskContext, // Keep task context on retry (important for task conversations)
       boardContext: '', // Strip board on retry
       prContext: '', // Strip PRs on retry
       knowledgeContext: '', // Strip knowledge on retry
@@ -619,6 +663,9 @@ async function generatePersonaResponse(
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
+    
+    // Release speaking turn
+    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
 
@@ -632,6 +679,9 @@ async function generatePersonaResponse(
         originalMessage.id
       );
     } catch {}
+    
+    // Always release turn, even on error
+    await releaseSpeakingTurn(originalMessage.channelId, persona.id);
   }
 }
 
@@ -653,6 +703,7 @@ interface PromptContext {
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
+  taskContext?: string; // Task context for task channel conversations
   boardContext: string;
   prContext: string;
   knowledgeContext?: string;
@@ -662,7 +713,7 @@ interface PromptContext {
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -702,6 +753,11 @@ function buildChatPrompt(context: PromptContext): string {
 
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
+
+  // Task context (for task channel conversations)
+  if (taskContext) {
+    sections.push(`\n${taskContext}`);
+  }
 
   // Knowledge base context (if available and relevant)
   if (knowledgeContext) {
