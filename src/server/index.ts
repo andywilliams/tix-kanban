@@ -3633,11 +3633,29 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
         statusChanged = true;
       }
 
-      // Use updateTask to ensure status changes are logged to activity
-      await updateTask(taskId, {
+      // Build activity log entries for status changes (avoid updateTask which re-locks)
+      const existingActivity = task.activity || [];
+      const newActivity = [...existingActivity];
+      if (statusChanged) {
+        newActivity.push({
+          id: Math.random().toString(36).substr(2, 9),
+          taskId,
+          type: 'status_change' as const,
+          description: `Status changed from '${task.status}' to '${newStatus}'`,
+          actor: 'acceptance-tests',
+          timestamp: new Date(),
+          metadata: { from: task.status, to: newStatus }
+        });
+      }
+
+      // Write directly to avoid nested withTaskLock deadlock (we already hold the lock)
+      await writeTask({
+        ...task,
         testStatus,
         status: newStatus,
-      }, 'acceptance-tests');
+        activity: newActivity.slice(-100),
+        updatedAt: new Date(),
+      });
       return { status: 200, message: 'Test results updated', testStatus, statusChanged };
     });
 
