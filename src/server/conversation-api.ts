@@ -10,7 +10,7 @@ import {
   getGlobalBudgetStatus,
   BUDGET_CAPS,
 } from './persona-conversation.js';
-import { triggerConversation } from './conversation-loop.js';
+import { triggerConversation, runConversationLoop } from './conversation-loop.js';
 
 /**
  * POST /api/conversation/:taskId/start
@@ -68,6 +68,10 @@ export async function resumeConversationHandler(req: Request, res: Response): Pr
     const resumed = await resumeConversation(taskId);
 
     if (resumed) {
+      // Restart the conversation loop
+      runConversationLoop(taskId).catch(error => {
+        console.error(`Error restarting conversation loop for ${taskId}:`, error);
+      });
       res.json({ success: true, message: `Conversation ${taskId} resumed` });
     } else {
       res.status(400).json({ error: 'Could not resume conversation (check budget or status)' });

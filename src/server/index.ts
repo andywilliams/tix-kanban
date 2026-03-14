@@ -3629,11 +3629,11 @@ app.post('/api/conversation/:taskId/pause', pauseConversationHandler);
 // POST /api/conversation/:taskId/resume - Resume paused conversation
 app.post('/api/conversation/:taskId/resume', resumeConversationHandler);
 
-// GET /api/conversation/:taskId - Get conversation state
-app.get('/api/conversation/:taskId', getConversationStateHandler);
-
 // GET /api/conversation/budget - Get global budget status
 app.get('/api/conversation/budget', getBudgetStatusHandler);
+
+// GET /api/conversation/:taskId - Get conversation state
+app.get('/api/conversation/:taskId', getConversationStateHandler);
 
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {

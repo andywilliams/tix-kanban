@@ -14,7 +14,7 @@ import { Task } from '../client/types/index.js';
 import { readTask } from './storage.js';
 import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
-import { buildConversationContext } from './conversation-context.js';
+import { buildConversationContext, estimateTokens } from './conversation-context.js';
 import {
   initConversation,
   startConversation,
@@ -69,7 +69,7 @@ export async function startTicketConversation(
 /**
  * Main conversation loop (runs async until termination)
  */
-async function runConversationLoop(taskId: string): Promise<void> {
+export async function runConversationLoop(taskId: string): Promise<void> {
   console.log(`🔄 Starting conversation loop for task ${taskId}`);
 
   while (true) {
@@ -111,6 +111,11 @@ async function runConversationLoop(taskId: string): Promise<void> {
 
     // Attempt to execute persona turn
     const success = await executePersonaTurn(taskId, nextPersonaId);
+
+    // Update waitingOn for next iteration (round-robin)
+    if (state) {
+      state.waitingOn = nextPersonaId;
+    }
 
     if (!success) {
       console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, continuing loop`);
@@ -339,13 +344,6 @@ function callClaude(prompt: string, timeoutMs: number): Promise<string> {
     claude.stdin.write(prompt);
     claude.stdin.end();
   });
-}
-
-/**
- * Estimate token count
- */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
 }
 
 /**

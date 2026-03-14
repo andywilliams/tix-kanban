@@ -21,11 +21,14 @@ export async function buildConversationContext(
   allMessages: ChatMessage[],
   taskDescription: string
 ): Promise<{ summary: string; recentMessages: ChatMessage[]; estimatedTokens: number }> {
+  // Trim task description to fit within token budget
+  const trimmedDescription = trimContextToFit(taskDescription, MAX_CONTEXT_TOKENS);
+
   if (allMessages.length === 0) {
     return {
       summary: '',
       recentMessages: [],
-      estimatedTokens: estimateTokens(taskDescription),
+      estimatedTokens: estimateTokens(trimmedDescription),
     };
   }
 
@@ -41,9 +44,11 @@ export async function buildConversationContext(
   }
 
   // Build full context
-  const fullContext = buildFullContext(taskDescription, summary, recentMessages);
+  const fullContext = buildFullContext(trimmedDescription, summary, recentMessages);
 
-  const estimatedTokens = estimateTokens(fullContext);
+  // Trim context if it exceeds token budget
+  const trimmedContext = trimContextToFit(fullContext, MAX_CONTEXT_TOKENS);
+  const estimatedTokens = estimateTokens(trimmedContext);
 
   return {
     summary,
@@ -156,7 +161,7 @@ function buildFullContext(
 /**
  * Estimate token count (rough approximation: 1 token ≈ 4 characters)
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
