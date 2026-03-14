@@ -1162,8 +1162,24 @@ async function runWorker(): Promise<void> {
       for (const provider of requiredProviders) {
         try {
           enforceProviderAccess(candidatePersona, provider);
-        } catch {
-          console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access`);
+        } catch (accessError) {
+          const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
+          console.warn(
+            `🚫 Provider access denied for backlog task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access: ${denialMessage}`
+          );
+
+          const denialComment: Comment = {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: candidate.id,
+            body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
+            author: 'Worker (system)',
+            createdAt: new Date(),
+          };
+          await updateTask(candidate.id, {
+            status: 'review',
+            agentActivity: undefined,
+            comments: [...(candidate.comments || []), denialComment],
+          });
           eligible = false;
           break;
         }
