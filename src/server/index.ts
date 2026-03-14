@@ -3644,6 +3644,9 @@ app.get('*', (_req, res) => {
 async function startServer() {
   try {
     await initializeStorage();
+    await initializeBudgetStorage();
+    await initializeAuditStorage();
+    await initializeControlStorage();
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();

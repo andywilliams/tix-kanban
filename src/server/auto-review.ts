@@ -338,7 +338,7 @@ ${reviewCycle === 1 ? `- Be thorough but fair
 - Do NOT look for new problems or introduce new issues
 - If previous issues are resolved, approve the work
 - Only reject if the same problems persist
-- Confidence should be 0.0-1.0 (higher = more confident the previous issues were addressed)'}
+- Confidence should be 0.0-1.0 (higher = more confident the previous issues were addressed)`}
 
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles
