@@ -53,6 +53,7 @@ export async function buildConversationContext(
   return {
     summary,
     recentMessages,
+    fullContext: trimmedContext,
     estimatedTokens,
   };
 }

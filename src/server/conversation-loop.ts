@@ -115,14 +115,15 @@ export async function runConversationLoop(taskId: string): Promise<void> {
     // Attempt to execute persona turn
     const success = await executePersonaTurn(taskId, nextPersonaId);
 
+    if (!success) {
+      console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, stopping loop`);
+      break;
+    }
+
     // Update waitingOn for next iteration (round-robin) and persist
     if (state) {
       state.waitingOn = nextPersonaId;
       await persistConversationState(taskId, state);
-    }
-
-    if (!success) {
-      console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, continuing loop`);
     }
 
     // Small delay to prevent tight loops
