@@ -182,21 +182,23 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
       resolve(value);
     };
 
-    const safeReject = (error: Error) => {
+    const safeReject = (error: Error, options?: { preserveTimeoutKill?: boolean }) => {
       if (settled) return;
       settled = true;
-      if (timeoutKill) clearTimeout(timeoutKill);
+      if (!options?.preserveTimeoutKill && timeoutKill) clearTimeout(timeoutKill);
       if (timeoutHandle) clearTimeout(timeoutHandle);
       reject(error);
     };
     
     // Set up timeout
     timeoutHandle = setTimeout(() => {
+      child.kill('SIGTERM');
       timeoutKill = setTimeout(() => {
         child.kill('SIGKILL');
       }, 5000);
-      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`));
-      child.kill('SIGTERM');
+      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`), {
+        preserveTimeoutKill: true
+      });
     }, timeoutMs);
     
     child.stdout.on('data', (data) => {
@@ -215,6 +217,7 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
     
     child.on('close', (code) => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (timeoutKill) clearTimeout(timeoutKill);
       if (settled) return;
       const trimmedStdout = stdout.trim();
       const trimmedStderr = stderr.trim();
