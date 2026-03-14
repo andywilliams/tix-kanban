@@ -109,6 +109,87 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
+function getLinkedPRReferences(links: Task['links']): Array<{ repo: string; number: number }> {
+  const prLinks = (links || []).filter((link) => link.type === 'pr' || link.url?.includes('/pull/'));
+  const references: Array<{ repo: string; number: number }> = [];
+
+  for (const link of prLinks) {
+    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!match) {
+      continue;
+    }
+
+    references.push({
+      repo: match[1],
+      number: parseInt(match[2], 10),
+    });
+  }
+
+  return references;
+}
+
+async function getPullRequestState(repo: string, number: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    let stdout = '';
+    let stderr = '';
+
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      console.error(`Timed out checking PR state for ${repo}#${number}`);
+      resolve(null);
+    }, 10000);
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+
+      if (stderr.trim()) {
+        console.error(`Failed to get PR state for ${repo}#${number}: ${stderr.trim()}`);
+      }
+      resolve(null);
+    });
+
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      console.error(`Failed to run gh pr view for ${repo}#${number}:`, error);
+      resolve(null);
+    });
+  });
+}
+
+async function isPRMerged(links: Task['links']): Promise<boolean> {
+  const linkedPRs = getLinkedPRReferences(links);
+  if (linkedPRs.length === 0) {
+    return false;
+  }
+
+  for (const pr of linkedPRs) {
+    const state = await getPullRequestState(pr.repo, pr.number);
+    if (state === 'MERGED') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Load auto-review configuration
 async function loadAutoReviewConfig(): Promise<AutoReviewConfig> {
   try {
@@ -377,7 +458,7 @@ ${reviewCycle === 1 ? `- Be thorough but fair
 - Do NOT look for new problems or introduce new issues
 - If previous issues are resolved, approve the work
 - Only reject if the same problems persist
-- Confidence should be 0.0-1.0 (higher = more confident the previous issues were addressed)'}
+- Confidence should be 0.0-1.0 (higher = more confident the previous issues were addressed)`}
 
 ## CONTEXT
 - This is cycle ${reviewCycle} of max ${3} review cycles
@@ -646,18 +727,38 @@ async function handleMaxCyclesReached(
       comments: updatedComments 
     });
   } else {
-    // Auto-approve
-    await updateTask(task.id, {
-      status: 'done',
-      comments: updatedComments
-    });
+    const hasLinkedPR = (task.links || []).some((link) => link.type === 'pr' || link.url?.includes('/pull/'));
+    const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
-    // Update persona stats for successful completion
-    if (reviewState.workerId) {
-      const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
-      const completionTimeMinutes = completionTimeMs / (1000 * 60);
-      await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
-      console.log(`📊 Updated stats for persona after auto-approval`);
+    if (merged) {
+      // Auto-approve to done only when linked PR is merged (or there is no linked PR)
+      await updateTask(task.id, {
+        status: 'done',
+        comments: updatedComments
+      });
+
+      // Update persona stats for successful completion
+      if (reviewState.workerId) {
+        const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
+        const completionTimeMinutes = completionTimeMs / (1000 * 60);
+        await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
+        console.log(`📊 Updated stats for persona after auto-approval`);
+      }
+    } else {
+      const mergeRequiredComment: Comment = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId: task.id,
+        body: '**AUTO-REVIEW NOTE**\n\nAuto-approval reached max cycles, but linked PR is not merged yet. Keeping this task in review until at least one linked PR is merged.',
+        author: 'Auto-Review System',
+        createdAt: new Date(),
+      };
+
+      await updateTask(task.id, {
+        status: 'review',
+        comments: [...updatedComments, mergeRequiredComment]
+      });
+
+      await postReviewUpdate(task, reviewerName, 'Auto-approval was reached, but a linked PR is still not merged. Moving to review until the PR is merged.');
     }
   }
   
