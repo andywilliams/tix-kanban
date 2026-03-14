@@ -102,7 +102,8 @@ export class LocalDocumentProvider implements DocumentProvider {
       // Path must be within cwd (project root) or the user home directory
       // This prevents arbitrary reads like /etc/passwd
       const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
-      const isWithinHome = resolved.startsWith(home + path.sep) || resolved === home;
+      const isWithinHome =
+        home.length > 0 && (resolved.startsWith(home + path.sep) || resolved === home);
 
       if (!isWithinCwd && !isWithinHome) {
         return null;
