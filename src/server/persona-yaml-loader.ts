@@ -45,6 +45,7 @@ const VALID_TRIGGERS = new Set([
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
 ]);
+const PERSONA_ID_PATTERN = /^[a-z0-9-]+$/;
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
   }
 
   if (d.budgetCap !== undefined) {
+    // Guard null explicitly before object-shape validation.
     if (d.budgetCap === null || typeof d.budgetCap !== 'object' || Array.isArray(d.budgetCap)) {
       errors.push('Field "budgetCap" must be an object');
     } else {
@@ -182,7 +184,9 @@ function idFromFilename(filename: string): string {
     .basename(filename)
     .replace(/\.(yaml|yml)$/, '')
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-');
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function buildDefaultStats(): PersonaStats {
@@ -205,6 +209,11 @@ function buildDefaultStats(): PersonaStats {
  */
 function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
   const id = yaml.id ?? idFromFilename(filename);
+  if (!PERSONA_ID_PATTERN.test(id)) {
+    throw new Error(
+      `Invalid persona id "${id}" in ${filename}. IDs must use lowercase letters, numbers, and hyphens.`,
+    );
+  }
   const now = new Date();
   return {
     id,
@@ -288,10 +297,9 @@ export function enforceProviderAccess(
   persona: PersonaYamlSchema | Persona,
   requestedProvider: string,
 ): void {
-  // The YAML schema carries `providers`; runtime Persona objects don't persist it,
-  // so we check with a duck-type guard.
   const providers = (persona as PersonaYamlSchema).providers;
-  if (providers === undefined || providers === null) {
+  // Undefined, null, and empty list are all open-access according to docs.
+  if (providers === undefined || providers === null || providers.length === 0) {
     // No restriction – all providers allowed
     return;
   }

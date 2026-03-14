@@ -68,6 +68,7 @@ import {
   updatePersonaRating,
   updatePersonaStats
 } from './persona-storage.js';
+import { enforceProviderAccess } from './persona-yaml-loader.js';
 import {
   getGitHubConfig,
   saveGitHubConfig,
@@ -291,6 +292,35 @@ app.put('/api/tasks/:id', async (req, res) => {
     const previousTask = await getTask(req.params.id);
     if (!previousTask) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Enforce provider access at assignment/update time, not just at worker runtime.
+    const targetPersonaRef = updates.persona ?? previousTask.persona;
+    if (targetPersonaRef) {
+      const personas = await getAllPersonas();
+      const targetPersona = personas.find(
+        (p) => p.id === targetPersonaRef || p.name.toLowerCase() === targetPersonaRef.toLowerCase(),
+      );
+      if (targetPersona) {
+        const effectiveRepo = updates.repo !== undefined ? updates.repo : previousTask.repo;
+        const requiredProviders: string[] = [];
+        if (effectiveRepo) {
+          requiredProviders.push('github');
+        }
+
+        for (const provider of requiredProviders) {
+          try {
+            enforceProviderAccess(targetPersona, provider);
+          } catch (accessError) {
+            return res.status(400).json({
+              error:
+                accessError instanceof Error
+                  ? accessError.message
+                  : `Persona "${targetPersona.name}" cannot access required provider "${provider}"`,
+            });
+          }
+        }
+      }
     }
 
     // Update the task
