@@ -64,9 +64,26 @@ async function postTaskUpdate(task: Task, persona: Persona, message: string): Pr
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, model?: string): Promise<{ stdout: string; stderr: string }> {
+const DEFAULT_MAX_TURNS: Record<'task' | 'research' | 'evaluation', number> = {
+  task: 12,
+  research: 20,
+  evaluation: 4,
+};
+
+function executeClaudeWithStdin(
+  prompt: string,
+  args: string[] = [],
+  timeoutMs: number = 320000,
+  cwd?: string,
+  model?: string,
+  operationType: 'task' | 'research' | 'evaluation' = 'task'
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    const hasMaxTurnsArg = args.includes('--max-turns');
     const claudeArgs = ['-p', ...args];
+    if (!hasMaxTurnsArg) {
+      claudeArgs.push('--max-turns', String(DEFAULT_MAX_TURNS[operationType]));
+    }
     if (model) {
       claudeArgs.push('--model', model);
     }
@@ -417,7 +434,8 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
       (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,
-      model
+      model,
+      'task'
     );
     
     if (stderr) {
@@ -568,7 +586,8 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
       (task as any).timeoutMs || 600000, // task override > 10 min default for research
       undefined, // No specific working directory needed for research
-      researchModel
+      researchModel,
+      'research'
     );
     
     if (stderr) {
@@ -996,7 +1015,8 @@ Reply with ONLY one word: REVIEW (if work appears complete and ready for review)
       ['--dangerously-skip-permissions'],
       30000, // 30s timeout for quick evaluation
       undefined,
-      model
+      model,
+      'evaluation'
     );
 
     const response = stdout.trim().toUpperCase();
