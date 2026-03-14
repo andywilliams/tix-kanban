@@ -51,8 +51,7 @@ import {
   recordHumanMessage,
 } from './collaboration-control.js';
 import {
-  checkBudget,
-  recordUsage,
+  checkAndRecordUsage,
   calculateCost,
 } from './collaboration-budget.js';
 import {
@@ -452,7 +451,7 @@ async function generatePersonaResponse(
       }
     }
 
-    const budgetCheck = await checkBudget(persona.id, model, estimatedInputTokens, estimatedOutputTokens, taskId);
+    const budgetCheck = await checkAndRecordUsage(persona.id, model, estimatedInputTokens, estimatedOutputTokens, taskId);
     if (!budgetCheck.allowed) {
       console.log(`💸 ${persona.name} budget exceeded: ${budgetCheck.reason}`);
       auditTurnDenied(originalMessage.channelId, persona.id, budgetCheck.reason || 'Budget exceeded').catch(() => {});
@@ -729,13 +728,10 @@ This conversation is about the task described above. Keep your responses relevan
 
       console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
 
-      // Record collaboration turn and usage after a successful response
+      // Record collaboration turn after a successful response
       const responseTokens = Math.ceil(cleanResponse.length / 4);
       recordTurn(originalMessage.channelId, persona.id, true).catch(err =>
         console.warn('Failed to record collaboration turn:', err)
-      );
-      recordUsage(persona.id, model, estimatedInputTokens, responseTokens).catch(err =>
-        console.warn('Failed to record budget usage:', err)
       );
       auditTurnTaken(
         originalMessage.channelId, persona.id, 0, originalMessage.id,
