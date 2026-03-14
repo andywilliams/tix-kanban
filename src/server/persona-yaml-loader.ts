@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
-import { Persona, PersonaStats, InvocationConfig } from '../client/types/index.js';
+import { Persona, PersonaStats, InvocationConfig, PersonaTriggers } from '../client/types/index.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,8 +23,8 @@ export interface PersonaYamlSchema {
   prompt: string;
   /** Expertise areas, min 1 item (required) */
   specialties: string[];
-  /** Trigger event types (optional) */
-  triggers?: string[];
+  /** Event-based trigger config (optional) */
+  triggers?: PersonaTriggers;
   /** Allowed provider names – security boundary (optional) */
   providers?: string[];
   /** Preferred AI model (optional) */
@@ -37,17 +37,21 @@ export interface PersonaYamlSchema {
   invocations?: InvocationConfig;
 }
 
-// Valid values according to the schema docs
-const VALID_TRIGGERS = new Set([
-  'pr_opened', 'pr_merged', 'pr_closed',
-  'ticket_moved', 'test_failed', 'test_passed',
-  'mentioned', 'scheduled',
+const VALID_TRIGGER_KEYS = new Set([
+  'onPROpened',
+  'onPRMerged',
+  'onCIPassed',
+  'onTaskCreated',
 ]);
 
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
 ]);
 const PERSONA_ID_PATTERN = /^[a-z0-9-]+$/;
+const BUILTIN_TRIGGER_DEFAULTS: Record<string, PersonaTriggers> = {
+  'qa-reviewer': { onPROpened: true },
+  'tech-writer': { onPRMerged: true },
+};
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -118,16 +122,19 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
   }
 
   if (d.triggers !== undefined) {
-    if (!Array.isArray(d.triggers)) {
-      errors.push('Field "triggers" must be an array');
+    if (d.triggers === null || typeof d.triggers !== 'object' || Array.isArray(d.triggers)) {
+      errors.push('Field "triggers" must be an object');
     } else {
-      d.triggers.forEach((t) => {
-        if (typeof t !== 'string') {
-          errors.push(`Trigger value must be a string, got: ${typeof t}`);
-        } else if (!VALID_TRIGGERS.has(t)) {
-          warnings.push(`Unknown trigger type: "${t}" (will be ignored)`);
+      const triggers = d.triggers as Record<string, unknown>;
+      for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
+        if (!VALID_TRIGGER_KEYS.has(triggerKey)) {
+          warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
+          continue;
         }
-      });
+        if (typeof triggerValue !== 'boolean') {
+          errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
+        }
+      }
     }
   }
 
@@ -250,6 +257,10 @@ export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Perso
     );
   }
   const now = new Date();
+  const builtins = BUILTIN_TRIGGER_DEFAULTS[id] || {};
+  const mergedTriggers = { ...builtins, ...(yaml.triggers || {}) };
+  const triggers = Object.keys(mergedTriggers).length > 0 ? mergedTriggers : undefined;
+
   const persona: Persona = {
     id,
     name: yaml.name,
@@ -258,23 +269,20 @@ export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Perso
     prompt: yaml.prompt,
     specialties: yaml.specialties,
     skills: yaml.skills,
-    triggers: yaml.triggers,
+    triggers: triggers,
     budgetCap: yaml.budgetCap,
     model: yaml.model,
-    triggers: yaml.triggers,
     providers: yaml.providers,
-    skills: yaml.skills,
-    budgetCap: yaml.budgetCap,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
   };
-  
+
   // Include invocations if present
   if (yaml.invocations) {
     persona.invocations = yaml.invocations;
   }
-  
+
   return persona;
 }
 
