@@ -19,6 +19,7 @@ interface PersonaIndex {
     specialties: string[];
     stats: PersonaStats;
     providers?: string[];
+    model?: string;
     createdAt: string;
     updatedAt: string;
   };
@@ -141,6 +142,7 @@ export async function getAllPersonas(): Promise<Persona[]> {
         specialties: data.specialties,
         stats: data.stats,
         providers: data.providers,
+        model: data.model,
         prompt,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
@@ -174,6 +176,7 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       specialties: data.specialties,
       stats: data.stats,
       providers: data.providers,
+      model: data.model,
       prompt,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
@@ -211,6 +214,7 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       specialties: persona.specialties,
       stats: persona.stats,
       providers: persona.providers,
+      model: persona.model,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
     };
@@ -249,6 +253,7 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       description: updatedPersona.description,
       specialties: updatedPersona.specialties,
       providers: updatedPersona.providers,
+      model: updatedPersona.model,
       stats: updatedPersona.stats,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),
@@ -786,43 +791,11 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
 // Initialize with default personas if empty or missing
 export async function initializePersonas(): Promise<void> {
   try {
-    // First, load builtin personas from YAML files
-    console.log(`🔍 Loading builtin YAML personas...`);
-    const yamlPersonas = await loadPersonasFromDir(BUILTIN_PERSONAS_DIR);
-    
-    // Create any missing YAML personas
-    let yamlAddedCount = 0;
     const existingPersonas = await getAllPersonas();
     const existingIds = new Set(existingPersonas.map(p => p.id));
-    
-    for (const persona of yamlPersonas) {
-      if (!existingIds.has(persona.id)) {
-        await createPersona(persona);
-        console.log(`➕ Added YAML persona: ${persona.emoji} ${persona.name} (${persona.id})`);
-        yamlAddedCount++;
-        existingIds.add(persona.id);
-      }
-    }
-    
-    if (yamlAddedCount > 0) {
-      console.log(`✅ Added ${yamlAddedCount} YAML persona${yamlAddedCount > 1 ? 's' : ''}`);
-    } else if (yamlPersonas.length > 0) {
-      console.log('✅ All YAML personas already present');
-    } else {
-      console.log('⚠️ No YAML personas found in builtin directory');
-    }
-
-    // Refresh existing personas list after YAML loading
-    const currentPersonas = await getAllPersonas();
 
     // Always check for missing default personas
-    console.log(`🔍 Checking default personas (found ${currentPersonas.length} existing)...`);
-
-    // Update existingIds to include any newly created YAML personas
-    existingIds.clear();
-    for (const p of currentPersonas) {
-      existingIds.add(p.id);
-    }
+    console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
 
     const defaultPersonas = [
       {
