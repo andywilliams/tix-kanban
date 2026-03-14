@@ -15,7 +15,8 @@ import { spawn } from 'child_process';
 import { readTask, withTaskLock } from './storage.js';
 import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
-import { buildConversationContext, estimateTokens } from './conversation-context.js';
+import { buildConversationContext } from './conversation-context.js';
+import { estimateTokens } from './token-budget.js';
 import {
   initConversation,
   startConversation,
@@ -131,16 +132,16 @@ export async function runConversationLoop(taskId: string): Promise<void> {
 
     // Update waitingOn for next iteration (round-robin) - set to the NEXT person expected to speak
     // Calculate the person after nextPersonaId in the round-robin
-    const currentIndex = state.participants.indexOf(nextPersonaId);
-    const nextWaitingOnIndex = (currentIndex + 1) % state.participants.length;
-    const nextWaitingOn = state.participants[nextWaitingOnIndex];
+    const currentIndex = currentState.participants.indexOf(nextPersonaId);
+    const nextWaitingOnIndex = (currentIndex + 1) % currentState.participants.length;
+    const nextWaitingOn = currentState.participants[nextWaitingOnIndex];
 
     // Persist state with lock to avoid race condition with background monitor
     await withTaskLock(taskId, async () => {
       const lockState = getConversationState(taskId);
       if (lockState && lockState.status === 'active') {
         lockState.waitingOn = nextWaitingOn;
-        await persistConversationState(taskId, lockState);
+        await persistConversationState(taskId, lockState, { skipLock: true });
       }
     });
 
@@ -234,7 +235,8 @@ async function executePersonaTurn(taskId: string, personaId: string): Promise<bo
       const { shouldContinue, reason } = await recordPersonaResponse(
         taskId,
         personaId,
-        response.tokensUsed,
+        response.inputTokens,
+        response.outputTokens,
         response.costUSD
       );
 
@@ -265,7 +267,7 @@ async function generatePersonaResponse(
   task: Task,
   conversationSummary: string,
   recentMessages: any[]
-): Promise<{ text: string; tokensUsed: number; costUSD: number }> {
+): Promise<{ text: string; inputTokens: number; outputTokens: number; tokensUsed: number; costUSD: number }> {
   // Build prompt
   const prompt = buildPersonaPrompt(persona, task, conversationSummary, recentMessages);
 
@@ -273,11 +275,15 @@ async function generatePersonaResponse(
   const response = await callClaude(prompt, 90000); // 90s timeout
 
   // Estimate tokens and cost
-  const tokensUsed = estimateTokens(prompt + response);
-  const costUSD = estimateCost(tokensUsed);
+  const inputTokens = estimateTokens(prompt);
+  const outputTokens = estimateTokens(response);
+  const tokensUsed = inputTokens + outputTokens;
+  const costUSD = estimateCost(inputTokens, outputTokens);
 
   return {
     text: response,
+    inputTokens,
+    outputTokens,
     tokensUsed,
     costUSD,
   };
@@ -365,10 +371,9 @@ function callClaude(prompt: string, timeoutMs: number): Promise<string> {
 /**
  * Estimate cost (rough approximation for Sonnet)
  */
-function estimateCost(tokens: number): number {
+function estimateCost(inputTokens: number, outputTokens: number): number {
   // Sonnet 3.5: $3/1M input, $15/1M output
-  // Rough average: $9/1M tokens
-  return (tokens / 1_000_000) * 9.0;
+  return (inputTokens / 1_000_000) * 3.0 + (outputTokens / 1_000_000) * 15.0;
 }
 
 /**

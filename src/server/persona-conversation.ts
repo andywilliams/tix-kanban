@@ -167,7 +167,7 @@ export async function startConversation(taskId: string): Promise<boolean> {
     if (budgetStatus.totalCost >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'budget-check',
@@ -180,7 +180,7 @@ export async function startConversation(taskId: string): Promise<boolean> {
     state.startedAt = new Date();
     state.lastActivityAt = new Date();
 
-    await persistConversationState(taskId, state);
+    await persistConversationState(taskId, state, { skipLock: true });
     await logConversationEvent({
       taskId,
       type: 'started',
@@ -209,7 +209,7 @@ export async function pauseConversation(taskId: string, reason: string = 'Human 
     state.status = 'paused';
     state.pausedAt = new Date();
 
-    await persistConversationState(taskId, state);
+    await persistConversationState(taskId, state, { skipLock: true });
     await logConversationEvent({
       taskId,
       type: 'paused',
@@ -238,7 +238,7 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
     if (budgetStatus.totalCost >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'budget-check',
@@ -250,7 +250,7 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
     state.status = 'active';
     state.lastActivityAt = new Date();
 
-    await persistConversationState(taskId, state);
+    await persistConversationState(taskId, state, { skipLock: true });
     await logConversationEvent({
       taskId,
       type: 'resumed',
@@ -267,7 +267,8 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
 export async function recordPersonaResponse(
   taskId: string,
   personaId: string,
-  tokensUsed: number,
+  inputTokens: number,
+  outputTokens: number,
   costUSD: number
 ): Promise<{ shouldContinue: boolean; reason?: string }> {
   return withTaskLock(taskId, async () => {
@@ -285,10 +286,11 @@ export async function recordPersonaResponse(
     const budgetResult = await checkAndRecordUsage(
       personaId,
       'claude-3-5-sonnet-20241022',
-      tokensUsed,
-      0,
+      inputTokens,
+      outputTokens,
       taskId
     );
+    const tokensUsed = inputTokens + outputTokens;
 
     await logConversationEvent({
       taskId,
@@ -296,7 +298,7 @@ export async function recordPersonaResponse(
       personaId,
       details: `Response recorded: ${tokensUsed} tokens, $${costUSD.toFixed(4)}`,
       budgetSpent: state.budgetSpent,
-      metadata: { tokensUsed, costUSD, iteration: state.currentIteration },
+      metadata: { inputTokens, outputTokens, tokensUsed, costUSD, iteration: state.currentIteration },
     });
 
     // Check termination conditions (priority order)
@@ -310,7 +312,7 @@ export async function recordPersonaResponse(
     if (!budgetResult.allowed) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'budget-check',
@@ -324,7 +326,7 @@ export async function recordPersonaResponse(
     if (state.budgetSpent >= state.budgetCap) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'budget-check',
@@ -339,7 +341,7 @@ export async function recordPersonaResponse(
       state.circuitBreakerTripped = true;
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'circuit-breaker',
@@ -353,7 +355,7 @@ export async function recordPersonaResponse(
       state.status = 'completed';
       state.completedAt = new Date();
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, state, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'completed',
@@ -363,7 +365,7 @@ export async function recordPersonaResponse(
     }
 
     // Update state
-    await persistConversationState(taskId, state);
+    await persistConversationState(taskId, state, { skipLock: true });
 
     return { shouldContinue: true };
   });
@@ -393,7 +395,7 @@ export async function checkIdleTimeout(taskId: string): Promise<boolean> {
       lockState.status = 'failed';
       lockState.completedAt = new Date();
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, lockState);
+      await persistConversationState(taskId, lockState, { skipLock: true });
       await logConversationEvent({
         taskId,
         type: 'idle-timeout',
@@ -437,7 +439,7 @@ export async function detectDeadlock(taskId: string): Promise<boolean> {
         lockState.status = 'deadlocked';
         lockState.completedAt = new Date();
         activeConversations.delete(taskId); // Clean up memory
-        await persistConversationState(taskId, lockState);
+        await persistConversationState(taskId, lockState, { skipLock: true });
         await logConversationEvent({
           taskId,
           type: 'deadlock-detected',
@@ -466,7 +468,7 @@ export async function completeConversation(taskId: string, reason: string = 'Tas
     state.completedAt = new Date();
     activeConversations.delete(taskId); // Clean up memory
 
-    await persistConversationState(taskId, state);
+    await persistConversationState(taskId, state, { skipLock: true });
     await logConversationEvent({
       taskId,
       type: 'completed',
@@ -500,7 +502,18 @@ async function logConversationEvent(event: Omit<ConversationEvent, 'id' | 'times
 /**
  * Persist conversation state to task
  */
-export async function persistConversationState(taskId: string, state: ConversationState): Promise<void> {
+export async function persistConversationState(
+  taskId: string,
+  state: ConversationState,
+  options: { skipLock?: boolean } = {}
+): Promise<void> {
+  if (!options.skipLock) {
+    await withTaskLock(taskId, async () => {
+      await persistConversationState(taskId, state, { skipLock: true });
+    });
+    return;
+  }
+
   const task = await readTask(taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);

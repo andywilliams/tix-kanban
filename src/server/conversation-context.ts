@@ -9,6 +9,7 @@
 
 import { ChatMessage } from './chat-storage.js';
 import { spawn } from 'child_process';
+import { estimateTokens } from './token-budget.js';
 
 const VERBATIM_MESSAGE_COUNT = 5;
 const MAX_CONTEXT_TOKENS = 8000; // Approximate token budget per turn
@@ -158,13 +159,6 @@ function buildFullContext(
   }
 
   return parts.join('\n');
-}
-
-/**
- * Estimate token count (rough approximation: 1 token ≈ 4 characters)
- */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
 }
 
 /**
