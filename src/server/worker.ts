@@ -606,7 +606,31 @@ async function processTask(task: Task): Promise<void> {
     // Add more provider detection here as needed (e.g., Slack, Notion, etc.)
     
     for (const provider of requiredProviders) {
-      enforceProviderAccess(persona, provider);
+      try {
+        enforceProviderAccess(persona, provider);
+      } catch (accessError) {
+        // Persona is not allowed to access this provider — move task back to
+        // backlog and return without rethrowing so the outer catch doesn't
+        // double-handle it.  The task will be skipped by the worker cycle on
+        // subsequent runs (see getNextEligibleTask) until a compatible persona
+        // is assigned.
+        const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
+        console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
+
+        const denialComment: Comment = {
+          id: Math.random().toString(36).substr(2, 9),
+          taskId: fullTask.id,
+          body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
+          author: 'Worker (system)',
+          createdAt: new Date(),
+        };
+        await updateTask(fullTask.id, {
+          status: 'backlog',
+          agentActivity: undefined,
+          comments: [...(fullTask.comments || []), denialComment],
+        });
+        return;
+      }
     }
 
     // Mark agent as actively working on this task
@@ -1125,8 +1149,39 @@ async function runWorker(): Promise<void> {
       workerState.interval = '*/10 * * * *'; // Every 10 minutes
     }
     
-    // Process the highest priority task
-    const taskToProcess = backlogTasks[0];
+    // Find the highest-priority task whose persona has the required provider access.
+    // This prevents a provider-restricted task at the top of the queue from
+    // blocking all other tasks via an infinite deny → backlog → retry loop.
+    let taskToProcess: Task | undefined;
+    for (const candidate of backlogTasks) {
+      const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
+      if (!candidatePersona) continue;
+
+      const requiredProviders: string[] = [];
+      if (candidate.repo) requiredProviders.push('github');
+
+      let eligible = true;
+      for (const provider of requiredProviders) {
+        try {
+          enforceProviderAccess(candidatePersona, provider);
+        } catch {
+          console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access`);
+          eligible = false;
+          break;
+        }
+      }
+
+      if (eligible) {
+        taskToProcess = candidate;
+        break;
+      }
+    }
+
+    if (!taskToProcess) {
+      console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
+      return;
+    }
+
     workerState.lastTaskId = taskToProcess.id;
     
     await processTask(taskToProcess);
