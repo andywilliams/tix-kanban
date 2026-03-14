@@ -727,7 +727,11 @@ async function handleMaxCyclesReached(
       comments: updatedComments 
     });
   } else {
-    const hasLinkedPR = (task.links || []).some((link) => link.type === 'pr' || link.url?.includes('/pull/'));
+    // Use the same strict check as getLinkedPRReferences — only count PRs with valid github.com URLs
+    const hasLinkedPR = (task.links || []).some((link) =>
+      (link.type === 'pr' || link.url?.includes('/pull/')) &&
+      /github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(link.url || '')
+    );
     const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
     if (merged) {
