@@ -293,7 +293,7 @@ You MUST follow these rules:
 - ONLY reject if issues from previous cycles were NOT addressed
 - Do NOT introduce new issues on later cycles
 - If previous issues were fixed, approve the work
-Focus ONLY on whether the above issues were addressed. Do not look for new problems.`;
+Focus ONLY on whether the issues listed below were addressed. Do not look for new problems.`;
 
     previousRejectionsSection = `## PREVIOUS REJECTION REASONS
 ${previousRejections || 'No previous rejections'}`;
