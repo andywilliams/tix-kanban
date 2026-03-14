@@ -263,6 +263,48 @@ async function createReviewContext(
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
 
+  // Build cycle-aware instructions
+  let cycleInstructions = '';
+  let previousRejectionsSection = '';
+  let reviewFocusSection = '';
+  if (reviewCycle === 1) {
+    cycleInstructions = `## CYCLE 1 REVIEW
+This is the first review cycle. Review against acceptance criteria, raise ALL issues you find.
+Be thorough — this is your opportunity to identify everything that needs fixing.`;
+    reviewFocusSection = `## REVIEW CRITERIA
+Evaluate these aspects:
+1. **Completeness** - Does the work address all requirements in the task?
+2. **Quality** - Is the work well-executed and following best practices?
+3. **Documentation** - Are changes properly documented/commented?
+4. **Testing** - Are appropriate tests included (if applicable)?
+5. **Security** - Are there any obvious security concerns?
+6. **Readiness** - Is this ready for human review or deployment?`;
+  } else {
+    // For cycle 2+, show only previous rejections so reviewer focuses on those
+    const previousRejections = reviewState.reviewHistory
+      .filter(attempt => attempt.decision === 'reject' || attempt.decision === 'rejected')
+      .map(attempt => `Cycle ${attempt.cycle} rejection: ${attempt.feedback}`)
+      .join('\n\n');
+    
+    cycleInstructions = `## CYCLE ${reviewCycle} REVIEW
+⚠️ IMPORTANT: This is review cycle ${reviewCycle}. 
+
+You MUST follow these rules:
+- ONLY reject if issues from previous cycles were NOT addressed
+- Do NOT introduce new issues on later cycles
+- If previous issues were fixed, approve the work
+Focus ONLY on whether the issues listed below were addressed. Do not look for new problems.`;
+
+    previousRejectionsSection = `## PREVIOUS REJECTION REASONS
+${previousRejections || 'No previous rejections'}`;
+
+    reviewFocusSection = `## REVIEW FOCUS
+Do not run a fresh full-criteria review on cycle ${reviewCycle}.
+- Validate only whether the previous rejection reasons were resolved
+- Do NOT introduce new issues
+- Reject only if previously identified problems remain unresolved`;
+  }
+
   // Find the work summary comment (most recent one with ## Work Summary)
   const workSummaryComment = task.comments?.slice().reverse().find(c => c.body.includes('## Work Summary'));
   
@@ -280,6 +322,10 @@ async function createReviewContext(
 
 You are conducting cycle ${reviewCycle} of quality review for the completed task.
 
+${cycleInstructions}
+
+${previousRejectionsSection}
+
 ## TASK DETAILS
 **Title:** ${task.title}
 **Description:** ${task.description}
@@ -294,19 +340,12 @@ ${task.comments?.map(c => `- ${c.author}: ${c.body}`).join('\n') || 'No comments
 ${task.links?.map(l => `- ${l.type}: ${l.title} (${l.url})`).join('\n') || 'No links'}
 
 ## PREVIOUS REVIEW CYCLES
-${previousReviews || 'No previous reviews'}
+${reviewCycle === 1 ? (previousReviews || 'No previous reviews') : '(See PREVIOUS REJECTION REASONS above for prior feedback)'}
 
 ## YOUR ROLE AS REVIEWER
 Your job is to evaluate if the work completed meets quality standards for ${reviewCycle === 1 ? 'first review' : `review cycle ${reviewCycle}`}.
 
-## REVIEW CRITERIA
-Evaluate these aspects:
-1. **Completeness** - Does the work address all requirements in the task?
-2. **Quality** - Is the work well-executed and following best practices?
-3. **Documentation** - Are changes properly documented/commented?
-4. **Testing** - Are appropriate tests included (if applicable)?
-5. **Security** - Are there any obvious security concerns?
-6. **Readiness** - Is this ready for human review or deployment?
+${reviewFocusSection}
 
 ## DECISION FORMATS
 You must output your decision in this exact format:

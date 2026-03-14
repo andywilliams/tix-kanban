@@ -31,6 +31,31 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
+import { enforceProviderAccess } from './persona-yaml-loader.js';
+
+export function getRequiredProviders(task: Task): string[] {
+  const requiredProviders: string[] = [];
+  if (task.repo) {
+    requiredProviders.push('github');
+  }
+  return requiredProviders;
+}
+
+async function handleProviderDenial(task: Task, provider: string, reason: string): Promise<void> {
+  const denialComment: Comment = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId: task.id,
+    body: `⚠️ **Provider access denied**: ${reason}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
+    author: 'Worker (system)',
+    createdAt: new Date(),
+  };
+
+  await updateTask(task.id, {
+    status: 'review',
+    agentActivity: undefined,
+    comments: [...(task.comments || []), denialComment],
+  });
+}
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -717,9 +742,6 @@ async function processTask(task: Task): Promise<void> {
   try {
     console.log(`📋 Processing task: ${task.title}`);
 
-    // Move task to in-progress
-    await updateTask(task.id, { status: 'in-progress' });
-
     // Fetch the full task with all history (comments, links)
     const fullTask = await getTask(task.id);
     if (!fullTask) {
@@ -733,6 +755,20 @@ async function processTask(task: Task): Promise<void> {
       console.log(`⚠️  No persona found for task ${fullTask.id}, skipping`);
       return;
     }
+
+    for (const provider of getRequiredProviders(fullTask)) {
+      try {
+        enforceProviderAccess(persona, provider);
+      } catch (accessError) {
+        const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
+        console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
+        await handleProviderDenial(fullTask, provider, denialMessage);
+        return;
+      }
+    }
+
+    // Move task to in-progress only after provider access checks pass
+    await updateTask(task.id, { status: 'in-progress' });
 
     // Mark agent as actively working on this task
     await updateTask(task.id, {
@@ -1252,13 +1288,52 @@ async function runWorker(): Promise<void> {
       workerState.interval = '*/10 * * * *'; // Every 10 minutes
     }
     
-    // Process the highest priority task
-    const taskToProcess = backlogTasks[0];
+    // Process the highest-priority task that is allowed by provider restrictions.
+    const eligibleBacklogTasks: Task[] = [];
+    for (const candidate of backlogTasks) {
+      const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
+      if (!candidatePersona) {
+        continue;
+      }
+
+      let deniedProvider: string | null = null;
+      let denialMessage: string | null = null;
+      for (const provider of getRequiredProviders(candidate)) {
+        try {
+          enforceProviderAccess(candidatePersona, provider);
+        } catch (accessError) {
+          deniedProvider = provider;
+          denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
+          break;
+        }
+      }
+
+      if (deniedProvider && denialMessage) {
+        // Only deny one task per cycle to avoid mass-moving all blocked tasks irreversibly
+        if (candidate.status !== 'review') {
+          await handleProviderDenial(candidate, deniedProvider, denialMessage);
+          console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access: ${denialMessage}`);
+        }
+        continue;
+      }
+
+      eligibleBacklogTasks.push(candidate);
+    }
+
+    const taskToProcess = eligibleBacklogTasks[0];
+    if (!taskToProcess) {
+      console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
+      return;
+    }
     workerState.lastTaskId = taskToProcess.id;
     
     await processTask(taskToProcess);
     
-    console.log(`✅ Worker cycle completed. Next task: ${backlogTasks.length > 1 ? backlogTasks[1].title : 'None'}`);
+    const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
+    const nextTask = processedIndex >= 0 && processedIndex + 1 < eligibleBacklogTasks.length
+      ? eligibleBacklogTasks[processedIndex + 1]
+      : null;
+    console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
   } finally {

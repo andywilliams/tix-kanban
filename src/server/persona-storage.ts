@@ -4,6 +4,7 @@ import os from 'os';
 import { Persona, PersonaStats } from '../client/types/index.js';
 import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from './agent-memory.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
+import { loadPersonasFromDir } from './persona-yaml-loader.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -16,7 +17,11 @@ interface PersonaIndex {
     description: string;
     specialties: string[];
     stats: PersonaStats;
+    model?: string;
+    triggers?: string[];
     providers?: string[];
+    skills?: string[];
+    budgetCap?: { perTask?: number; perDay?: number };
     createdAt: string;
     updatedAt: string;
   };
@@ -138,6 +143,11 @@ export async function getAllPersonas(): Promise<Persona[]> {
         description: data.description,
         specialties: data.specialties,
         stats: data.stats,
+        model: data.model,
+        triggers: data.triggers,
+        providers: data.providers,
+        skills: data.skills,
+        budgetCap: data.budgetCap,
         prompt,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
@@ -170,6 +180,11 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       description: data.description,
       specialties: data.specialties,
       stats: data.stats,
+      model: data.model,
+      triggers: data.triggers,
+      providers: data.providers,
+      skills: data.skills,
+      budgetCap: data.budgetCap,
       prompt,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
@@ -181,10 +196,12 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
 }
 
 // Create persona
-export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt' | 'updatedAt'>): Promise<Persona> {
+export async function createPersona(
+  personaData: Omit<Persona, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
+): Promise<Persona> {
   try {
-    // Generate ID from name
-    const id = personaData.name
+    // Use provided ID (e.g. YAML persona ID) or generate from name.
+    const id = personaData.id ?? personaData.name
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .replace(/-+/g, '-')
@@ -205,6 +222,11 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       emoji: persona.emoji,
       description: persona.description,
       specialties: persona.specialties,
+      model: persona.model,
+      triggers: persona.triggers,
+      providers: persona.providers,
+      skills: persona.skills,
+      budgetCap: persona.budgetCap,
       stats: persona.stats,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
@@ -243,7 +265,11 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       emoji: updatedPersona.emoji,
       description: updatedPersona.description,
       specialties: updatedPersona.specialties,
+      model: updatedPersona.model,
+      triggers: updatedPersona.triggers,
       providers: updatedPersona.providers,
+      skills: updatedPersona.skills,
+      budgetCap: updatedPersona.budgetCap,
       stats: updatedPersona.stats,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),
@@ -1330,7 +1356,7 @@ When a reminder is triggered, you'll be notified. Include task context when rele
       }
     ];
 
-    // Check which personas are missing and add them
+    // Check which default personas are missing and add them
     let addedCount = 0;
     for (const personaData of defaultPersonas) {
       const personaId = personaData.name
@@ -1341,6 +1367,7 @@ When a reminder is triggered, you'll be notified. Include task context when rele
 
       if (!existingIds.has(personaId)) {
         await createPersona(personaData);
+        existingIds.add(personaId);
         console.log(`➕ Added missing persona: ${personaData.emoji} ${personaData.name}`);
         addedCount++;
       }
@@ -1350,6 +1377,63 @@ When a reminder is triggered, you'll be notified. Include task context when rele
       console.log(`✅ Added ${addedCount} missing default persona${addedCount > 1 ? 's' : ''}`);
     } else {
       console.log('✅ All default personas already present');
+    }
+
+    // Register YAML personas from builtin and user directories.
+    const builtinYamlDir = path.join(process.cwd(), 'personas', 'builtin');
+    const userYamlDir = path.join(process.cwd(), '.forge', 'personas');
+    const yamlDirs = Array.from(
+      new Set([builtinYamlDir, userYamlDir].map((dir) => path.resolve(dir))),
+    );
+
+    for (const dir of yamlDirs) {
+      try {
+        const yamlPersonas = await loadPersonasFromDir(dir);
+        let yamlAdded = 0;
+
+        for (const yamlPersona of yamlPersonas) {
+          if (existingIds.has(yamlPersona.id)) {
+            continue;
+          }
+
+          const createdPersona = await createPersona({
+            id: yamlPersona.id,
+            name: yamlPersona.name,
+            emoji: yamlPersona.emoji,
+            description: yamlPersona.description,
+            prompt: yamlPersona.prompt,
+            specialties: yamlPersona.specialties,
+            stats: {
+              tasksCompleted: 0,
+              averageCompletionTime: 0,
+              successRate: 0,
+              ratings: {
+                total: 0,
+                good: 0,
+                needsImprovement: 0,
+                redo: 0,
+                averageRating: 0,
+              },
+            },
+            model: yamlPersona.model,
+            triggers: yamlPersona.triggers,
+            providers: yamlPersona.providers,
+            skills: yamlPersona.skills,
+            budgetCap: yamlPersona.budgetCap,
+          });
+
+          existingIds.add(yamlPersona.id);
+          existingIds.add(createdPersona.id);
+          console.log(`➕ Registered YAML persona: ${yamlPersona.emoji} ${yamlPersona.name} (from ${path.basename(dir)})`);
+          yamlAdded++;
+        }
+
+        if (yamlAdded > 0) {
+          console.log(`✅ Registered ${yamlAdded} YAML persona${yamlAdded > 1 ? 's' : ''} from ${path.basename(dir)}`);
+        }
+      } catch (yamlError) {
+        console.error(`Failed to load YAML personas from ${dir}:`, yamlError);
+      }
     }
   } catch (error) {
     console.error('Failed to initialize personas:', error);
