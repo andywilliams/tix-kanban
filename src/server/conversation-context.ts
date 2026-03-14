@@ -170,7 +170,7 @@ export function estimateTokens(text: string): number {
 /**
  * Trim context to fit within token budget
  */
-export function trimContextToFit(
+function trimContextToFit(
   context: string,
   maxTokens: number = MAX_CONTEXT_TOKENS
 ): string {

@@ -111,7 +111,7 @@ export async function getConversationStateHandler(req: Request, res: Response): 
  */
 export async function getBudgetStatusHandler(_req: Request, res: Response): Promise<void> {
   try {
-    const status = getGlobalBudgetStatus();
+    const status = await getGlobalBudgetStatus();
 
     res.json({
       ...status,

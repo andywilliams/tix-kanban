@@ -15,11 +15,7 @@
  */
 
 import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
-
-const BUDGET_FILE = path.join(os.homedir(), '.tix-kanban', 'budget-tracker.json');
+import { BUDGET_LIMITS, checkAndRecordUsage, getBudgetStatus } from './collaboration-budget.js';
 
 // Configuration constants
 const DEFAULT_MAX_ITERATIONS = 20;
@@ -28,11 +24,7 @@ const DEADLOCK_CHECK_INTERVAL_MS = 120 * 1000; // 120 seconds (must exceed LLM t
 const CIRCUIT_BREAKER_THRESHOLD = 3.0; // 3x expected spend rate
 
 // Budget caps (USD)
-export const BUDGET_CAPS = {
-  globalDaily: 10.0,
-  perTicket: 2.0,
-  perPersona: 0.5,
-};
+export const BUDGET_CAPS = BUDGET_LIMITS;
 
 // Conversation state for a ticket
 export interface ConversationState {
@@ -66,55 +58,8 @@ export interface ConversationEvent {
   metadata?: Record<string, any>;
 }
 
-// Budget tracker (global and per-persona daily tracking)
-interface BudgetTracker {
-  date: string; // YYYY-MM-DD
-  globalSpent: number;
-  perPersona: Record<string, number>; // persona ID -> amount spent
-}
-
 // In-memory conversation states (persisted to task.conversationState field)
 const activeConversations = new Map<string, ConversationState>();
-
-// Budget tracking (persisted to ~/.tix-kanban/budget-tracker.json, loaded at startup)
-let budgetTracker: BudgetTracker = {
-  date: new Date().toISOString().split('T')[0],
-  globalSpent: 0,
-  perPersona: {},
-};
-
-/**
- * Load budget tracker from disk (called once at module init)
- */
-async function loadBudgetTracker(): Promise<void> {
-  try {
-    const data = await fs.readFile(BUDGET_FILE, 'utf8');
-    const saved: BudgetTracker = JSON.parse(data);
-    const today = new Date().toISOString().split('T')[0];
-    // Only restore if the saved date matches today — otherwise start fresh for new day
-    if (saved.date === today) {
-      budgetTracker = saved;
-    }
-  } catch {
-    // No saved file or parse error — start with defaults (zero spend)
-  }
-}
-
-/**
- * Persist budget tracker to disk
- */
-async function saveBudgetTracker(): Promise<void> {
-  try {
-    const dir = path.dirname(BUDGET_FILE);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(BUDGET_FILE, JSON.stringify(budgetTracker, null, 2), 'utf8');
-  } catch (err: any) {
-    console.error('Failed to persist budget tracker:', err.message);
-  }
-}
-
-// Load persisted budget on module initialisation
-loadBudgetTracker().catch(err => console.error('Failed to load budget tracker:', err));
 
 /**
  * Initialize or retrieve conversation state for a task
@@ -141,7 +86,8 @@ export async function initConversation(
       
       // If prior conversation had a terminal status, reset to idle to allow new conversation
       if (TERMINAL_STATUSES.includes(state.status)) {
-        console.log(`Prior conversation for ${taskId} had terminal status "${state.status}", resetting to idle`);
+        const previousStatus = state.status;
+        console.log(`Prior conversation for ${taskId} had terminal status "${previousStatus}", resetting to idle`);
         state = {
           taskId,
           status: 'idle',
@@ -160,6 +106,12 @@ export async function initConversation(
         // Persist the reset state to task
         task.conversationState = state;
         await writeTask(task);
+        await logConversationEvent({
+          taskId,
+          type: 'resumed',
+          details: `Conversation reset from terminal state "${previousStatus}" and reinitialized`,
+          metadata: { previousStatus, participants, maxIterations, budgetCap },
+        });
       }
       
       activeConversations.set(taskId, state);
@@ -211,14 +163,15 @@ export async function startConversation(taskId: string): Promise<boolean> {
     }
 
     // Check global budget
-    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
+    const budgetStatus = await getBudgetStatus();
+    if (budgetStatus.totalCost >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
         type: 'budget-check',
-        details: `Global daily budget exceeded: $${budgetTracker.globalSpent.toFixed(2)} / $${BUDGET_CAPS.globalDaily}`,
+        details: `Global daily budget exceeded: $${budgetStatus.totalCost.toFixed(2)} / $${BUDGET_CAPS.globalDaily}`,
       });
       return false;
     }
@@ -281,7 +234,8 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
     }
 
     // Re-check budgets before resuming
-    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
+    const budgetStatus = await getBudgetStatus();
+    if (budgetStatus.totalCost >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
@@ -327,12 +281,14 @@ export async function recordPersonaResponse(
     state.lastActivityAt = new Date();
     state.currentIteration += 1;
 
-    // Update global and per-persona budgets
-    budgetTracker.globalSpent += costUSD;
-    budgetTracker.perPersona[personaId] = (budgetTracker.perPersona[personaId] || 0) + costUSD;
-
-    // Persist updated budget to disk (fire-and-forget — non-blocking)
-    saveBudgetTracker().catch(err => console.error('Budget persist error:', err));
+    // Record against centralized budget system (global/ticket/persona limits)
+    const budgetResult = await checkAndRecordUsage(
+      personaId,
+      'claude-3-5-sonnet-20241022',
+      tokensUsed,
+      0,
+      taskId
+    );
 
     await logConversationEvent({
       taskId,
@@ -350,8 +306,8 @@ export async function recordPersonaResponse(
       return { shouldContinue: false, reason: 'Paused by human' };
     }
 
-    // 2. Budget exhaustion - per-persona
-    if (budgetTracker.perPersona[personaId] >= BUDGET_CAPS.perPersona) {
+    // 2. Budget exhaustion - centralized budget system
+    if (!budgetResult.allowed) {
       state.status = 'budget-exceeded';
       activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
@@ -359,9 +315,9 @@ export async function recordPersonaResponse(
         taskId,
         type: 'budget-check',
         personaId,
-        details: `Persona budget exceeded: $${budgetTracker.perPersona[personaId].toFixed(2)} / $${BUDGET_CAPS.perPersona}`,
+        details: budgetResult.reason || 'Budget exceeded',
       });
-      return { shouldContinue: false, reason: `Budget exceeded for ${personaId}` };
+      return { shouldContinue: false, reason: budgetResult.reason || `Budget exceeded for ${personaId}` };
     }
 
     // 3. Budget exhaustion - per-ticket
@@ -377,20 +333,7 @@ export async function recordPersonaResponse(
       return { shouldContinue: false, reason: 'Ticket budget exceeded' };
     }
 
-    // 4. Budget exhaustion - global daily
-    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
-      state.status = 'budget-exceeded';
-      activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
-      await logConversationEvent({
-        taskId,
-        type: 'budget-check',
-        details: `Global daily budget exceeded: $${budgetTracker.globalSpent.toFixed(2)} / $${BUDGET_CAPS.globalDaily}`,
-      });
-      return { shouldContinue: false, reason: 'Global daily budget exceeded' };
-    }
-
-    // 5. Circuit breaker - detect runaway spending
+    // 4. Circuit breaker - detect runaway spending
     const actualSpendRate = state.budgetSpent / Math.max(1, state.currentIteration);
     if (actualSpendRate > state.expectedSpendRate * CIRCUIT_BREAKER_THRESHOLD && state.currentIteration >= 3) {
       state.circuitBreakerTripped = true;
@@ -405,7 +348,7 @@ export async function recordPersonaResponse(
       return { shouldContinue: false, reason: 'Circuit breaker tripped - spending rate too high' };
     }
 
-    // 6. Max iterations
+    // 5. Max iterations
     if (state.currentIteration >= state.maxIterations) {
       state.status = 'completed';
       state.completedAt = new Date();
@@ -625,27 +568,23 @@ export function clearInLLMCall(taskId: string): void {
 }
 
 /**
- * Get global budget status
+ * Get global budget status (from centralized budget storage)
  */
-export function getGlobalBudgetStatus(): BudgetTracker {
-  return { ...budgetTracker };
-}
-
-/**
- * Reset daily budget tracker (call at midnight UTC)
- */
-export function resetDailyBudget(): void {
-  const today = new Date().toISOString().split('T')[0];
-  if (budgetTracker.date !== today) {
-    budgetTracker = {
-      date: today,
-      globalSpent: 0,
-      perPersona: {},
-    };
-    console.log(`📊 Daily budget tracker reset for ${today}`);
-    // Persist the fresh daily tracker to disk
-    saveBudgetTracker().catch(err => console.error('Budget persist error after reset:', err));
-  }
+export async function getGlobalBudgetStatus(): Promise<{
+  date: string;
+  globalSpent: number;
+  perPersona: Record<string, number>;
+}> {
+  const status = await getBudgetStatus();
+  const perPersona: Record<string, number> = {};
+  Object.entries(status.byPersona).forEach(([personaId, value]) => {
+    perPersona[personaId] = value.cost;
+  });
+  return {
+    date: status.date,
+    globalSpent: status.totalCost,
+    perPersona,
+  };
 }
 
 /**
@@ -672,7 +611,4 @@ export async function runConversationMonitor(): Promise<void> {
       console.error(`Error monitoring conversation ${taskId}:`, error);
     }
   }
-
-  // Reset daily budget if needed
-  resetDailyBudget();
 }

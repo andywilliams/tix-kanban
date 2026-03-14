@@ -11,6 +11,7 @@
  */
 
 import { Task } from '../client/types/index.js';
+import { spawn } from 'child_process';
 import { readTask, withTaskLock } from './storage.js';
 import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
@@ -137,7 +138,7 @@ export async function runConversationLoop(taskId: string): Promise<void> {
     // Persist state with lock to avoid race condition with background monitor
     await withTaskLock(taskId, async () => {
       const lockState = getConversationState(taskId);
-      if (lockState) {
+      if (lockState && lockState.status === 'active') {
         lockState.waitingOn = nextWaitingOn;
         await persistConversationState(taskId, lockState);
       }
@@ -327,8 +328,6 @@ function buildPersonaPrompt(
  */
 function callClaude(prompt: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const { spawn } = require('child_process');
-
     const claude = spawn('claude', ['-p', '-', '--max-turns', '1'], {
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
