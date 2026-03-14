@@ -15,7 +15,7 @@
  */
 
 import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { BUDGET_LIMITS, getBudgetStatus, recordUsage } from './collaboration-budget.js';
+import { BUDGET_LIMITS, checkAndRecordUsage, getBudgetStatus } from './collaboration-budget.js';
 
 // Configuration constants
 const DEFAULT_MAX_ITERATIONS = 20;
@@ -287,38 +287,20 @@ export async function recordPersonaResponse(
       throw new Error(`Conversation state not found for task ${taskId}`);
     }
 
-    // Update budget
-    state.budgetSpent += costUSD;
+    // Update iteration/activity metadata first.
     state.lastActivityAt = new Date();
     state.currentIteration += 1;
 
-    // Record usage first, then enforce centralized budget limits.
-    await recordUsage(
+    // Atomically check limits and record usage in one lock acquisition.
+    const budgetResult = await checkAndRecordUsage(
       personaId,
       'claude-3-5-sonnet-20241022',
       inputTokens,
       outputTokens,
       taskId
     );
-    const budgetStatus = await getBudgetStatus();
-    const personaCost = budgetStatus.byPersona[personaId]?.cost || 0;
-    const taskCost = budgetStatus.byTask[taskId]?.cost || 0;
-    let budgetResult: { allowed: boolean; reason?: string } = { allowed: true };
-    if (budgetStatus.totalCost > BUDGET_CAPS.globalDaily) {
-      budgetResult = {
-        allowed: false,
-        reason: `Global daily budget exceeded ($${budgetStatus.totalCost.toFixed(2)} / $${BUDGET_CAPS.globalDaily})`,
-      };
-    } else if (personaCost > BUDGET_CAPS.perPersona) {
-      budgetResult = {
-        allowed: false,
-        reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_CAPS.perPersona})`,
-      };
-    } else if (taskCost > BUDGET_CAPS.perTicket) {
-      budgetResult = {
-        allowed: false,
-        reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_CAPS.perTicket})`,
-      };
+    if (budgetResult.allowed) {
+      state.budgetSpent += costUSD;
     }
     const tokensUsed = inputTokens + outputTokens;
 

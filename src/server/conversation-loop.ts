@@ -11,11 +11,10 @@
  */
 
 import { Task } from '../client/types/index.js';
-import { spawn } from 'child_process';
 import { readTask, withTaskLock } from './storage.js';
 import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
-import { buildConversationContext } from './conversation-context.js';
+import { buildConversationContext, spawnClaude } from './conversation-context.js';
 import { estimateTokens } from './token-budget.js';
 import {
   initConversation,
@@ -333,39 +332,7 @@ function buildPersonaPrompt(
  * Call Claude CLI
  */
 function callClaude(prompt: string, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const claude = spawn('claude', ['-p', '-', '--max-turns', '1'], {
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: timeoutMs,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    claude.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-    });
-
-    claude.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    claude.on('close', (code: number | null) => {
-      if (code === 0 && stdout.trim()) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(`Claude call failed: ${stderr || 'No output'}`));
-      }
-    });
-
-    claude.on('error', (err: Error) => {
-      reject(err);
-    });
-
-    claude.stdin.write(prompt);
-    claude.stdin.end();
-  });
+  return spawnClaude(['-p', '-', '--max-turns', '1'], prompt, timeoutMs);
 }
 
 /**

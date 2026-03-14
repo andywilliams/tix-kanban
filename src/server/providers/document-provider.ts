@@ -13,11 +13,32 @@ interface DocumentIndex {
   idf: Map<string, number>;  // term -> inverse document frequency
 }
 
+type PersistedKeywords = string[] | Record<string, number> | undefined | null;
+
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
   'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
   'could', 'should', 'would', 'may', 'might', 'must', 'shall',
 ]);
+
+function normalizeKeywordCounts(input: PersistedKeywords): string[] {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.filter((term): term is string => typeof term === 'string' && term.length > 0);
+  }
+  if (typeof input === 'object') {
+    const terms: string[] = [];
+    for (const [term, rawCount] of Object.entries(input)) {
+      if (!term) continue;
+      const count = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+      for (let i = 0; i < count; i++) {
+        terms.push(term);
+      }
+    }
+    return terms;
+  }
+  return [];
+}
 
 export class LocalDocumentProvider implements DocumentProvider {
   name = 'document';
@@ -349,8 +370,12 @@ export class LocalDocumentProvider implements DocumentProvider {
       const indexPath = path.join(this.dataDir, 'index.json');
       const data = await fs.readFile(indexPath, 'utf8');
       const indexData = JSON.parse(data);
-      
-      this.documentIndex.documents = indexData.documents || [];
+
+      const documents = Array.isArray(indexData.documents) ? indexData.documents : [];
+      this.documentIndex.documents = documents.map((doc: any) => ({
+        ...doc,
+        keywords: normalizeKeywordCounts(doc?.keywords),
+      }));
       this.indexedPaths = new Set(indexData.indexedPaths || []);
       
       // Rebuild TF-IDF from loaded documents

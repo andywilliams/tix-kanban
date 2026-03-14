@@ -89,12 +89,9 @@ Summary:`;
   }
 }
 
-/**
- * Call Haiku model via Claude CLI
- */
-function callHaiku(prompt: string, timeoutMs: number): Promise<string> {
+export function spawnClaude(args: string[], input: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const claude = spawn('claude', ['-p', '-', '--model', 'haiku', '--max-turns', '1'], {
+    const claude = spawn('claude', args, {
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
@@ -115,7 +112,7 @@ function callHaiku(prompt: string, timeoutMs: number): Promise<string> {
       if (code === 0 && stdout.trim()) {
         resolve(stdout.trim());
       } else {
-        reject(new Error(`Haiku call failed: ${stderr || 'No output'}`));
+        reject(new Error(`Claude call failed: ${stderr || 'No output'}`));
       }
     });
 
@@ -123,10 +120,16 @@ function callHaiku(prompt: string, timeoutMs: number): Promise<string> {
       reject(err);
     });
 
-    // Write prompt to stdin and close
-    claude.stdin.write(prompt);
+    claude.stdin.write(input);
     claude.stdin.end();
   });
+}
+
+/**
+ * Call Haiku model via Claude CLI
+ */
+function callHaiku(prompt: string, timeoutMs: number): Promise<string> {
+  return spawnClaude(['-p', '-', '--model', 'haiku', '--max-turns', '1'], prompt, timeoutMs);
 }
 
 /**
