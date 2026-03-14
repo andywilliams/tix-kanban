@@ -8,6 +8,7 @@ import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './ag
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
+const BUILTIN_PERSONAS_DIR = path.join(process.cwd(), 'personas', 'builtin');
 const PERSONAS_INDEX_FILE = path.join(STORAGE_DIR, 'personas-index.json');
 
 interface PersonaIndex {
@@ -785,11 +786,43 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
 // Initialize with default personas if empty or missing
 export async function initializePersonas(): Promise<void> {
   try {
+    // First, load builtin personas from YAML files
+    console.log(`🔍 Loading builtin YAML personas...`);
+    const yamlPersonas = await loadPersonasFromDir(BUILTIN_PERSONAS_DIR);
+    
+    // Create any missing YAML personas
+    let yamlAddedCount = 0;
     const existingPersonas = await getAllPersonas();
     const existingIds = new Set(existingPersonas.map(p => p.id));
+    
+    for (const persona of yamlPersonas) {
+      if (!existingIds.has(persona.id)) {
+        await createPersona(persona);
+        console.log(`➕ Added YAML persona: ${persona.emoji} ${persona.name} (${persona.id})`);
+        yamlAddedCount++;
+        existingIds.add(persona.id);
+      }
+    }
+    
+    if (yamlAddedCount > 0) {
+      console.log(`✅ Added ${yamlAddedCount} YAML persona${yamlAddedCount > 1 ? 's' : ''}`);
+    } else if (yamlPersonas.length > 0) {
+      console.log('✅ All YAML personas already present');
+    } else {
+      console.log('⚠️ No YAML personas found in builtin directory');
+    }
+
+    // Refresh existing personas list after YAML loading
+    const currentPersonas = await getAllPersonas();
 
     // Always check for missing default personas
-    console.log(`🔍 Checking default personas (found ${existingPersonas.length} existing)...`);
+    console.log(`🔍 Checking default personas (found ${currentPersonas.length} existing)...`);
+
+    // Update existingIds to include any newly created YAML personas
+    existingIds.clear();
+    for (const p of currentPersonas) {
+      existingIds.add(p.id);
+    }
 
     const defaultPersonas = [
       {
