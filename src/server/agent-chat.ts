@@ -53,6 +53,7 @@ import {
 import {
   checkBudget,
   recordUsage,
+  calculateCost,
 } from './collaboration-budget.js';
 import {
   auditTurnTaken,
@@ -436,7 +437,22 @@ async function generatePersonaResponse(
     const model = persona.model || 'claude-3-5-sonnet-20241022';
     const estimatedInputTokens = 4000;  // conservative estimate for prompt
     const estimatedOutputTokens = 500;
-    const budgetCheck = await checkBudget(persona.id, model, estimatedInputTokens, estimatedOutputTokens);
+
+    // Determine channel type for per-ticket budget tracking
+    const channelType = getChannelType(originalMessage.channelId);
+
+    // Get task ID for per-ticket budget tracking
+    let taskId: string | undefined;
+    if (channelType === 'task') {
+      try {
+        const channel = await getChannel(originalMessage.channelId);
+        taskId = channel?.taskId;
+      } catch (error) {
+        console.warn(`Failed to get task ID for budget: ${error}`);
+      }
+    }
+
+    const budgetCheck = await checkBudget(persona.id, model, estimatedInputTokens, estimatedOutputTokens, taskId);
     if (!budgetCheck.allowed) {
       console.log(`💸 ${persona.name} budget exceeded: ${budgetCheck.reason}`);
       auditTurnDenied(originalMessage.channelId, persona.id, budgetCheck.reason || 'Budget exceeded').catch(() => {});
@@ -465,7 +481,6 @@ async function generatePersonaResponse(
     }
 
     // Get recent chat history — fetch more for general channels so we can filter
-    const channelType = getChannelType(originalMessage.channelId);
     const fetchLimit = (channelType === 'general' || channelType === 'task') ? 30 : 15;
     let recentMessages: ChatMessage[] = [];
     try {
@@ -725,7 +740,7 @@ This conversation is about the task described above. Keep your responses relevan
       auditTurnTaken(
         originalMessage.channelId, persona.id, 0, originalMessage.id,
         estimatedInputTokens, responseTokens,
-        (estimatedInputTokens / 1_000_000) * 3 + (responseTokens / 1_000_000) * 15
+        calculateCost(model, estimatedInputTokens, responseTokens)
       ).catch(() => {});
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
