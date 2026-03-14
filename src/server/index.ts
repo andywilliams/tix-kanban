@@ -814,7 +814,7 @@ app.get('/api/documents/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter "q" is required' });
     }
     
-    const limit = parseInt(req.query.limit as string);
+    let limit = parseInt(req.query.limit as string);
     if (isNaN(limit) || limit <= 0) limit = 5;
     const documents = await provider.search(query, limit);
     res.json(documents);
