@@ -107,6 +107,10 @@ export interface Persona {
   specialties: string[]; // Areas of expertise (e.g., ["TypeScript", "React", "API Design"])
   stats: PersonaStats;
   model?: string; // Default AI model for this persona
+  triggers?: string[]; // Trigger event types
+  providers?: string[]; // Allowed provider names – security boundary
+  skills?: string[]; // Capabilities this persona can perform
+  budgetCap?: { perTask?: number; perDay?: number }; // Token budget caps
   createdAt: Date;
   updatedAt: Date;
 }

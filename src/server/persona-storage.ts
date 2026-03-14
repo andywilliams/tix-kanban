@@ -243,6 +243,7 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       emoji: updatedPersona.emoji,
       description: updatedPersona.description,
       specialties: updatedPersona.specialties,
+      providers: updatedPersona.providers,
       stats: updatedPersona.stats,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),

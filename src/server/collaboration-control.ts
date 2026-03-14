@@ -109,6 +109,19 @@ export async function recordTurn(channelId: string, personaId: string, hasProgre
   console.log(`📊 Turn ${state.turnCount}/${MAX_TURNS_PER_COLLABORATION} by ${personaId} in ${channelId}`);
 }
 
+/**
+ * Record a human message to reset the idle timer.
+ * This prevents the collaboration from being blocked due to idle timeout
+ * when humans send messages but no persona has responded yet.
+ */
+export async function recordHumanMessage(channelId: string): Promise<void> {
+  let state = await getCollaborationState(channelId);
+  if (!state) return; // No active collaboration to update
+  state.lastMessageAt = new Date();
+  await saveCollaborationState(state);
+  console.log(`💬 Human message recorded in ${channelId} - idle timer reset`);
+}
+
 export async function getCollaborationStatus(channelId: string): Promise<string> {
   const state = await getCollaborationState(channelId);
   if (!state) return 'No active collaboration';
