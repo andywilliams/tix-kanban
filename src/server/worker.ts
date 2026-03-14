@@ -506,18 +506,21 @@ function getRequiredProviders(task: Task): string[] {
 }
 
 async function handleProviderDenial(task: Task, provider: string, reason: string): Promise<void> {
+  const latestTask = await getTask(task.id);
+  const currentTask = latestTask ?? task;
+
   const denialComment: Comment = {
     id: Math.random().toString(36).substr(2, 9),
-    taskId: task.id,
+    taskId: currentTask.id,
     body: `⚠️ **Provider access denied**: ${reason}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
     author: 'Worker (system)',
     createdAt: new Date(),
   };
 
-  await updateTask(task.id, {
+  await updateTask(currentTask.id, {
     status: 'review',
     agentActivity: undefined,
-    comments: [...(task.comments || []), denialComment],
+    comments: [...(currentTask.comments || []), denialComment],
   });
 }
 

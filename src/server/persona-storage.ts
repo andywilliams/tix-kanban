@@ -811,7 +811,7 @@ export async function initializePersonas(): Promise<void> {
     const builtinYamlDir = path.join(process.cwd(), 'personas', 'builtin');
     const userYamlDir = path.join(process.cwd(), '.forge', 'personas');
     const yamlDirs = Array.from(
-      new Set([builtinYamlDir, userYamlDir].map((dir) => path.resolve(dir))),
+      new Set([userYamlDir, builtinYamlDir].map((dir) => path.resolve(dir))),
     );
     const currentIds = new Set((await getAllPersonas()).map((persona) => persona.id));
 
