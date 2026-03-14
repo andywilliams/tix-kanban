@@ -20,7 +20,7 @@ const MAX_CONTEXT_TOKENS = 8000; // Approximate token budget per turn
 export async function buildConversationContext(
   allMessages: ChatMessage[],
   taskDescription: string
-): Promise<{ summary: string; recentMessages: ChatMessage[]; estimatedTokens: number }> {
+): Promise<{ summary: string; recentMessages: ChatMessage[]; fullContext: string; estimatedTokens: number }> {
   // Trim task description to fit within token budget
   const trimmedDescription = trimContextToFit(taskDescription, MAX_CONTEXT_TOKENS);
 
@@ -28,6 +28,7 @@ export async function buildConversationContext(
     return {
       summary: '',
       recentMessages: [],
+      fullContext: trimmedDescription,
       estimatedTokens: estimateTokens(trimmedDescription),
     };
   }

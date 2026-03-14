@@ -11,7 +11,7 @@
  */
 
 import { Task } from '../client/types/index.js';
-import { readTask } from './storage.js';
+import { readTask, withTaskLock } from './storage.js';
 import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
 import { buildConversationContext, estimateTokens } from './conversation-context.js';
@@ -115,16 +115,33 @@ export async function runConversationLoop(taskId: string): Promise<void> {
     // Attempt to execute persona turn
     const success = await executePersonaTurn(taskId, nextPersonaId);
 
+    // After turn completes, check if conversation was terminated (e.g., budget exceeded, max iterations)
+    // Re-fetch state to get the updated status from recordPersonaResponse
+    const currentState = getConversationState(taskId);
+    if (!currentState || currentState.status !== 'active') {
+      console.log(`🛑 Conversation ${taskId} terminated during turn: status = ${currentState?.status}`);
+      break;
+    }
+
     if (!success) {
       console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, stopping loop`);
       break;
     }
 
-    // Update waitingOn for next iteration (round-robin) and persist
-    if (state) {
-      state.waitingOn = nextPersonaId;
-      await persistConversationState(taskId, state);
-    }
+    // Update waitingOn for next iteration (round-robin) - set to the NEXT person expected to speak
+    // Calculate the person after nextPersonaId in the round-robin
+    const currentIndex = state.participants.indexOf(nextPersonaId);
+    const nextWaitingOnIndex = (currentIndex + 1) % state.participants.length;
+    const nextWaitingOn = state.participants[nextWaitingOnIndex];
+
+    // Persist state with lock to avoid race condition with background monitor
+    await withTaskLock(taskId, async () => {
+      const lockState = getConversationState(taskId);
+      if (lockState) {
+        lockState.waitingOn = nextWaitingOn;
+        await persistConversationState(taskId, lockState);
+      }
+    });
 
     // Small delay to prevent tight loops
     await sleep(1000);
@@ -178,7 +195,7 @@ async function executePersonaTurn(taskId: string, personaId: string): Promise<bo
       const messages = await getMessages(channelId, 50);
 
       // Build context
-      const { summary, recentMessages, estimatedTokens } = await buildConversationContext(
+      const { summary, recentMessages, fullContext, estimatedTokens } = await buildConversationContext(
         messages,
         task.description
       );
@@ -192,7 +209,7 @@ async function executePersonaTurn(taskId: string, personaId: string): Promise<bo
         response = await generatePersonaResponse(
           persona,
           task,
-          summary,
+          fullContext || summary,
           recentMessages
         );
       } finally {
