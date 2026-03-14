@@ -8,7 +8,6 @@ import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './ag
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
-const BUILTIN_PERSONAS_DIR = path.join(process.cwd(), 'personas', 'builtin');
 const PERSONAS_INDEX_FILE = path.join(STORAGE_DIR, 'personas-index.json');
 
 interface PersonaIndex {
@@ -18,7 +17,10 @@ interface PersonaIndex {
     description: string;
     specialties: string[];
     stats: PersonaStats;
+    triggers?: string[];
     providers?: string[];
+    skills?: string[];
+    budgetCap?: { perTask?: number; perDay?: number };
     model?: string;
     createdAt: string;
     updatedAt: string;
@@ -141,7 +143,10 @@ export async function getAllPersonas(): Promise<Persona[]> {
         description: data.description,
         specialties: data.specialties,
         stats: data.stats,
+        triggers: data.triggers,
         providers: data.providers,
+        skills: data.skills,
+        budgetCap: data.budgetCap,
         model: data.model,
         prompt,
         createdAt: new Date(data.createdAt),
@@ -175,7 +180,10 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       description: data.description,
       specialties: data.specialties,
       stats: data.stats,
+      triggers: data.triggers,
       providers: data.providers,
+      skills: data.skills,
+      budgetCap: data.budgetCap,
       model: data.model,
       prompt,
       createdAt: new Date(data.createdAt),
@@ -213,7 +221,10 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       description: persona.description,
       specialties: persona.specialties,
       stats: persona.stats,
+      triggers: persona.triggers,
       providers: persona.providers,
+      skills: persona.skills,
+      budgetCap: persona.budgetCap,
       model: persona.model,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
@@ -252,7 +263,10 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       emoji: updatedPersona.emoji,
       description: updatedPersona.description,
       specialties: updatedPersona.specialties,
+      triggers: updatedPersona.triggers,
       providers: updatedPersona.providers,
+      skills: updatedPersona.skills,
+      budgetCap: updatedPersona.budgetCap,
       model: updatedPersona.model,
       stats: updatedPersona.stats,
       createdAt: updatedPersona.createdAt.toISOString(),
@@ -793,27 +807,31 @@ export async function initializePersonas(): Promise<void> {
   try {
     console.log('🔍 Initializing personas from YAML files...');
 
-    // Load YAML-defined personas from BUILTIN_PERSONAS_DIR (and .forge/personas/ for user-defined ones)
+    // Load YAML-defined personas from builtin and user folders exactly once each.
+    const builtinYamlDir = path.join(process.cwd(), 'personas', 'builtin');
     const userYamlDir = path.join(process.cwd(), '.forge', 'personas');
+    const yamlDirs = Array.from(
+      new Set([builtinYamlDir, userYamlDir].map((dir) => path.resolve(dir))),
+    );
+    const currentIds = new Set((await getAllPersonas()).map((persona) => persona.id));
 
-    for (const dir of [BUILTIN_PERSONAS_DIR, userYamlDir]) {
+    for (const dir of yamlDirs) {
       try {
         const yamlPersonas = await loadPersonasFromDir(dir);
         let yamlAdded = 0;
 
-        // Re-read existing IDs in case they changed during this run
-        const currentPersonas = await getAllPersonas();
-        const currentIds = new Set(currentPersonas.map(p => p.id));
-
         for (const yamlPersona of yamlPersonas) {
           if (!currentIds.has(yamlPersona.id)) {
-            await createPersona({
+            const createdPersona = await createPersona({
               id: yamlPersona.id,
               name: yamlPersona.name,
               emoji: yamlPersona.emoji,
               description: yamlPersona.description,
               prompt: yamlPersona.prompt,
               specialties: yamlPersona.specialties,
+              triggers: yamlPersona.triggers,
+              skills: yamlPersona.skills,
+              budgetCap: yamlPersona.budgetCap,
               model: yamlPersona.model,
               providers: yamlPersona.providers,
               stats: {
@@ -829,6 +847,8 @@ export async function initializePersonas(): Promise<void> {
                 },
               },
             });
+            currentIds.add(yamlPersona.id);
+            currentIds.add(createdPersona.id);
             console.log(`➕ Registered YAML persona: ${yamlPersona.emoji} ${yamlPersona.name} (from ${path.basename(dir)})`);
             yamlAdded++;
           }

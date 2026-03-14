@@ -609,11 +609,8 @@ async function processTask(task: Task): Promise<void> {
       try {
         enforceProviderAccess(persona, provider);
       } catch (accessError) {
-        // Persona is not allowed to access this provider — move task back to
-        // backlog and return without rethrowing so the outer catch doesn't
-        // double-handle it.  The task will be skipped by the worker cycle on
-        // subsequent runs (see getNextEligibleTask) until a compatible persona
-        // is assigned.
+        // Persona is not allowed to access this provider.
+        // Move to review so it does not get retried indefinitely.
         const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
         console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
 
@@ -625,7 +622,7 @@ async function processTask(task: Task): Promise<void> {
           createdAt: new Date(),
         };
         await updateTask(fullTask.id, {
-          status: 'backlog',
+          status: 'review',
           agentActivity: undefined,
           comments: [...(fullTask.comments || []), denialComment],
         });
@@ -1153,6 +1150,7 @@ async function runWorker(): Promise<void> {
     // This prevents a provider-restricted task at the top of the queue from
     // blocking all other tasks via an infinite deny → backlog → retry loop.
     let taskToProcess: Task | undefined;
+    const eligibleBacklogTasks: Task[] = [];
     for (const candidate of backlogTasks) {
       const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
       if (!candidatePersona) continue;
@@ -1172,8 +1170,10 @@ async function runWorker(): Promise<void> {
       }
 
       if (eligible) {
-        taskToProcess = candidate;
-        break;
+        eligibleBacklogTasks.push(candidate);
+        if (!taskToProcess) {
+          taskToProcess = candidate;
+        }
       }
     }
 
@@ -1187,9 +1187,9 @@ async function runWorker(): Promise<void> {
     await processTask(taskToProcess);
     
     // Show the next queued task after the one we just processed
-    const processedIndex = backlogTasks.findIndex(t => t.id === taskToProcess!.id);
-    const nextTask = processedIndex >= 0 && processedIndex + 1 < backlogTasks.length
-      ? backlogTasks[processedIndex + 1]
+    const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
+    const nextTask = processedIndex >= 0 && processedIndex + 1 < eligibleBacklogTasks.length
+      ? eligibleBacklogTasks[processedIndex + 1]
       : null;
     console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
   } catch (error) {
