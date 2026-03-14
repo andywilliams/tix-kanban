@@ -497,6 +497,30 @@ function isCodeReviewTask(task: Task, persona?: Persona): boolean {
   return false;
 }
 
+function getRequiredProviders(task: Task): string[] {
+  const requiredProviders: string[] = [];
+  if (task.repo) {
+    requiredProviders.push('github');
+  }
+  return requiredProviders;
+}
+
+async function handleProviderDenial(task: Task, provider: string, reason: string): Promise<void> {
+  const denialComment: Comment = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId: task.id,
+    body: `⚠️ **Provider access denied**: ${reason}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
+    author: 'Worker (system)',
+    createdAt: new Date(),
+  };
+
+  await updateTask(task.id, {
+    status: 'review',
+    agentActivity: undefined,
+    comments: [...(task.comments || []), denialComment],
+  });
+}
+
 // Handle research tasks by generating reports instead of code
 async function processResearchTask(task: Task, persona: Persona): Promise<{ success: boolean; reportId?: string }> {
   try {
@@ -596,11 +620,8 @@ async function processTask(task: Task): Promise<void> {
 
     // Enforce provider access restrictions before proceeding
     // Determine required providers based on task properties
-    const requiredProviders: string[] = [];
-    if (fullTask.repo) {
-      requiredProviders.push('github');
-    }
-    // Add more provider detection here as needed (e.g., Slack, Notion, etc.)
+    const requiredProviders = getRequiredProviders(fullTask);
+    // Add more provider detection here as needed.
     
     for (const provider of requiredProviders) {
       try {
@@ -611,18 +632,7 @@ async function processTask(task: Task): Promise<void> {
         const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
         console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
 
-        const denialComment: Comment = {
-          id: Math.random().toString(36).substr(2, 9),
-          taskId: fullTask.id,
-          body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
-          author: 'Worker (system)',
-          createdAt: new Date(),
-        };
-        await updateTask(fullTask.id, {
-          status: 'review',
-          agentActivity: undefined,
-          comments: [...(fullTask.comments || []), denialComment],
-        });
+        await handleProviderDenial(fullTask, provider, denialMessage);
         return;
       }
     }
@@ -1155,8 +1165,7 @@ async function runWorker(): Promise<void> {
       const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
       if (!candidatePersona) continue;
 
-      const requiredProviders: string[] = [];
-      if (candidate.repo) requiredProviders.push('github');
+      const requiredProviders = getRequiredProviders(candidate);
 
       let eligible = true;
       for (const provider of requiredProviders) {
@@ -1168,18 +1177,7 @@ async function runWorker(): Promise<void> {
             `🚫 Provider access denied for backlog task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access: ${denialMessage}`
           );
 
-          const denialComment: Comment = {
-            id: Math.random().toString(36).substr(2, 9),
-            taskId: candidate.id,
-            body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
-            author: 'Worker (system)',
-            createdAt: new Date(),
-          };
-          await updateTask(candidate.id, {
-            status: 'review',
-            agentActivity: undefined,
-            comments: [...(candidate.comments || []), denialComment],
-          });
+          await handleProviderDenial(candidate, provider, denialMessage);
           eligible = false;
           break;
         }
