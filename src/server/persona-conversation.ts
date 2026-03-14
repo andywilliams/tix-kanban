@@ -368,6 +368,7 @@ export async function recordPersonaResponse(
     if (state.currentIteration >= state.maxIterations) {
       state.status = 'completed';
       state.completedAt = new Date();
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
