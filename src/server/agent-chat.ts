@@ -45,6 +45,20 @@ import {
 } from './token-budget.js';
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
+import {
+  canTakeTurn,
+  recordTurn,
+  recordHumanMessage,
+} from './collaboration-control.js';
+import {
+  checkBudget,
+  recordUsage,
+} from './collaboration-budget.js';
+import {
+  auditTurnTaken,
+  auditTurnDenied,
+  auditError,
+} from './collaboration-audit.js';
 
 
 export interface ChatContext {
@@ -70,6 +84,11 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     console.log('🚫 Skipping mention processing for persona message');
     return;
   }
+
+  // Record human message to reset idle timer in collaboration control
+  recordHumanMessage(message.channelId).catch(err =>
+    console.warn('Failed to record human message in collaboration control:', err)
+  );
 
   // Get all available personas
   const personas = await getAllPersonas();
@@ -399,9 +418,38 @@ async function generatePersonaResponse(
     const acquired = await acquireSpeakingTurn(originalMessage.channelId, persona.id);
     if (!acquired) {
       console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
+      // Notify via audit trail so dropped turns are observable
+      auditTurnDenied(originalMessage.channelId, persona.id, 'Another persona is currently speaking').catch(() => {});
       return;
     }
     turnAcquired = true;
+
+    // Check collaboration control: pause/resume and turn limits
+    const turnCheck = await canTakeTurn(originalMessage.channelId, persona.id);
+    if (!turnCheck.allowed) {
+      console.log(`🚫 ${persona.name} blocked by collaboration control: ${turnCheck.reason}`);
+      auditTurnDenied(originalMessage.channelId, persona.id, turnCheck.reason || 'Turn denied by collaboration control').catch(() => {});
+      return;
+    }
+
+    // Check budget before generating a response
+    const model = persona.model || 'claude-3-5-sonnet-20241022';
+    const estimatedInputTokens = 4000;  // conservative estimate for prompt
+    const estimatedOutputTokens = 500;
+    const budgetCheck = await checkBudget(persona.id, model, estimatedInputTokens, estimatedOutputTokens);
+    if (!budgetCheck.allowed) {
+      console.log(`💸 ${persona.name} budget exceeded: ${budgetCheck.reason}`);
+      auditTurnDenied(originalMessage.channelId, persona.id, budgetCheck.reason || 'Budget exceeded').catch(() => {});
+      // Notify the channel that the persona is budget-limited
+      await addMessage(
+        originalMessage.channelId,
+        persona.name,
+        'persona',
+        `⚠️ I've hit my spending limit for today and can't respond right now. (${budgetCheck.reason})`,
+        originalMessage.id
+      );
+      return;
+    }
 
     const userId = originalMessage.author;
     const tracker = new TokenTracker();
@@ -665,11 +713,28 @@ This conversation is about the task described above. Keep your responses relevan
       maybeUpdateSummary(originalMessage.channelId).catch(() => {});
 
       console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
+
+      // Record collaboration turn and usage after a successful response
+      const responseTokens = Math.ceil(cleanResponse.length / 4);
+      recordTurn(originalMessage.channelId, persona.id, true).catch(err =>
+        console.warn('Failed to record collaboration turn:', err)
+      );
+      recordUsage(persona.id, model, estimatedInputTokens, responseTokens).catch(err =>
+        console.warn('Failed to record budget usage:', err)
+      );
+      auditTurnTaken(
+        originalMessage.channelId, persona.id, 0, originalMessage.id,
+        estimatedInputTokens, responseTokens,
+        (estimatedInputTokens / 1_000_000) * 3 + (responseTokens / 1_000_000) * 15
+      ).catch(() => {});
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
+
+    // Audit the error for observability
+    auditError(originalMessage.channelId, persona.id, error instanceof Error ? error : new Error(String(error))).catch(() => {});
 
     // Post error message
     try {

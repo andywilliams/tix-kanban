@@ -172,6 +172,7 @@ export async function checkAndRecordUsage(
 }
 
 export async function getBudgetStatus() {
+  return withBudgetLock(async () => {
   const budget = await getTodaysBudget();
   const byTask: Record<string, { cost: number; remaining: number }> = {};
   for (const [taskId, cost] of Object.entries(budget.byTask)) {
@@ -188,10 +189,13 @@ export async function getBudgetStatus() {
     byTask,
     byPersona,
   };
+  }); // end withBudgetLock
 }
 
 export async function archiveTodaysBudget(): Promise<void> {
-  const budget = await getTodaysBudget();
-  await fs.writeFile(path.join(BUDGET_DIR, `daily-budget-${budget.date}.json`), JSON.stringify(budget, null, 2));
-  console.log(`📦 Archived budget for ${budget.date}: $${budget.totalCost.toFixed(2)}`);
+  return withBudgetLock(async () => {
+    const budget = await getTodaysBudget();
+    await fs.writeFile(path.join(BUDGET_DIR, `daily-budget-${budget.date}.json`), JSON.stringify(budget, null, 2));
+    console.log(`📦 Archived budget for ${budget.date}: $${budget.totalCost.toFixed(2)}`);
+  });
 }
