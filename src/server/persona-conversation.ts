@@ -19,7 +19,7 @@ import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
 // Configuration constants
 const DEFAULT_MAX_ITERATIONS = 20;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-const DEADLOCK_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
+const DEADLOCK_CHECK_INTERVAL_MS = 120 * 1000; // 120 seconds (must exceed LLM timeout of 90s)
 const CIRCUIT_BREAKER_THRESHOLD = 3.0; // 3x expected spend rate
 
 // Budget caps (USD)
@@ -46,6 +46,7 @@ export interface ConversationState {
   budgetCap: number; // USD (per-ticket cap)
   circuitBreakerTripped: boolean;
   expectedSpendRate: number; // USD per iteration (estimated)
+  inLLMCall: boolean; // true when awaiting LLM response (skips deadlock check)
 }
 
 // Conversation event for audit trail
@@ -110,6 +111,7 @@ export async function initConversation(
         budgetCap,
         circuitBreakerTripped: false,
         expectedSpendRate: 0.05, // $0.05 per iteration (rough estimate)
+        inLLMCall: false,
       };
 
       task.conversationState = state;
@@ -146,6 +148,7 @@ export async function startConversation(taskId: string): Promise<boolean> {
     // Check global budget
     if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -215,6 +218,7 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
     // Re-check budgets before resuming
     if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -281,6 +285,7 @@ export async function recordPersonaResponse(
     // 2. Budget exhaustion - per-persona
     if (budgetTracker.perPersona[personaId] >= BUDGET_CAPS.perPersona) {
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -294,6 +299,7 @@ export async function recordPersonaResponse(
     // 3. Budget exhaustion - per-ticket
     if (state.budgetSpent >= state.budgetCap) {
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -306,6 +312,7 @@ export async function recordPersonaResponse(
     // 4. Budget exhaustion - global daily
     if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -320,6 +327,7 @@ export async function recordPersonaResponse(
     if (actualSpendRate > state.expectedSpendRate * CIRCUIT_BREAKER_THRESHOLD && state.currentIteration >= 3) {
       state.circuitBreakerTripped = true;
       state.status = 'budget-exceeded';
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -363,6 +371,7 @@ export async function checkIdleTimeout(taskId: string): Promise<boolean> {
     return withTaskLock(taskId, async () => {
       state.status = 'failed';
       state.completedAt = new Date();
+      activeConversations.delete(taskId); // Clean up memory
       await persistConversationState(taskId, state);
       await logConversationEvent({
         taskId,
@@ -385,13 +394,19 @@ export async function detectDeadlock(taskId: string): Promise<boolean> {
     return false;
   }
 
-  // Simple heuristic: if we've had no activity for >30s and we're waiting on someone
+  // Skip deadlock check if we're currently in an LLM call
+  if (state.inLLMCall) {
+    return false;
+  }
+
+  // Simple heuristic: if we've had no activity for >120s and we're waiting on someone
   if (state.waitingOn) {
     const elapsed = Date.now() - state.lastActivityAt.getTime();
     if (elapsed > DEADLOCK_CHECK_INTERVAL_MS) {
       return withTaskLock(taskId, async () => {
         state.status = 'deadlocked';
         state.completedAt = new Date();
+        activeConversations.delete(taskId); // Clean up memory
         await persistConversationState(taskId, state);
         await logConversationEvent({
           taskId,
@@ -419,6 +434,7 @@ export async function completeConversation(taskId: string, reason: string = 'Tas
 
     state.status = 'completed';
     state.completedAt = new Date();
+    activeConversations.delete(taskId); // Clean up memory
 
     await persistConversationState(taskId, state);
     await logConversationEvent({
@@ -454,7 +470,7 @@ async function logConversationEvent(event: Omit<ConversationEvent, 'id' | 'times
 /**
  * Persist conversation state to task
  */
-async function persistConversationState(taskId: string, state: ConversationState): Promise<void> {
+export async function persistConversationState(taskId: string, state: ConversationState): Promise<void> {
   const task = await readTask(taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
@@ -483,6 +499,27 @@ function deserializeConversationState(data: any): ConversationState {
  */
 export function getConversationState(taskId: string): ConversationState | undefined {
   return activeConversations.get(taskId);
+}
+
+/**
+ * Mark conversation as entering LLM call (prevents false deadlock detection)
+ */
+export function setInLLMCall(taskId: string): void {
+  const state = activeConversations.get(taskId);
+  if (state) {
+    state.inLLMCall = true;
+  }
+}
+
+/**
+ * Mark conversation as exiting LLM call
+ */
+export function clearInLLMCall(taskId: string): void {
+  const state = activeConversations.get(taskId);
+  if (state) {
+    state.inLLMCall = false;
+    state.lastActivityAt = new Date(); // Update activity timestamp
+  }
 }
 
 /**

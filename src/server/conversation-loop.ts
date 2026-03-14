@@ -23,6 +23,9 @@ import {
   detectDeadlock,
   completeConversation,
   getConversationState,
+  setInLLMCall,
+  clearInLLMCall,
+  persistConversationState,
   BUDGET_CAPS,
 } from './persona-conversation.js';
 
@@ -112,9 +115,10 @@ export async function runConversationLoop(taskId: string): Promise<void> {
     // Attempt to execute persona turn
     const success = await executePersonaTurn(taskId, nextPersonaId);
 
-    // Update waitingOn for next iteration (round-robin)
+    // Update waitingOn for next iteration (round-robin) and persist
     if (state) {
       state.waitingOn = nextPersonaId;
+      await persistConversationState(taskId, state);
     }
 
     if (!success) {
@@ -180,13 +184,19 @@ async function executePersonaTurn(taskId: string, personaId: string): Promise<bo
 
       console.log(`📊 Context for ${personaId}: ${estimatedTokens} tokens, ${recentMessages.length} recent messages`);
 
-      // Generate persona response
-      const response = await generatePersonaResponse(
-        persona,
-        task,
-        summary,
-        recentMessages
-      );
+      // Generate persona response (mark as in LLM call to prevent false deadlock detection)
+      setInLLMCall(taskId);
+      let response;
+      try {
+        response = await generatePersonaResponse(
+          persona,
+          task,
+          summary,
+          recentMessages
+        );
+      } finally {
+        clearInLLMCall(taskId);
+      }
 
       if (!response || response.text.trim().length === 0) {
         console.log(`⚠️ ${personaId} generated empty response`);
