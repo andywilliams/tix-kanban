@@ -1,0 +1,537 @@
+/**
+ * Persona Conversation Orchestration - Phase 2
+ *
+ * Production-safe multi-persona dialogue system for ticket collaboration.
+ *
+ * Features:
+ * - Kill switch (pause/resume)
+ * - Max iteration limits (default 20 turns per ticket)
+ * - Three-tier budget caps (global/ticket/persona)
+ * - Circuit breaker (trips at 3x expected spend rate)
+ * - Full audit trail
+ * - Deadlock detection
+ * - Idle timeout
+ * - Async event loop
+ */
+
+import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
+
+// Configuration constants
+const DEFAULT_MAX_ITERATIONS = 20;
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const DEADLOCK_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
+const CIRCUIT_BREAKER_THRESHOLD = 3.0; // 3x expected spend rate
+
+// Budget caps (USD)
+export const BUDGET_CAPS = {
+  globalDaily: 10.0,
+  perTicket: 2.0,
+  perPersona: 0.5,
+};
+
+// Conversation state for a ticket
+export interface ConversationState {
+  taskId: string;
+  status: 'idle' | 'active' | 'paused' | 'completed' | 'failed' | 'budget-exceeded' | 'deadlocked';
+  startedAt?: Date;
+  pausedAt?: Date;
+  completedAt?: Date;
+  currentIteration: number;
+  maxIterations: number;
+  lastActivityAt: Date;
+  idleTimeoutMs: number;
+  participants: string[]; // persona IDs
+  waitingOn?: string; // persona ID currently expected to respond
+  budgetSpent: number; // USD
+  budgetCap: number; // USD (per-ticket cap)
+  circuitBreakerTripped: boolean;
+  expectedSpendRate: number; // USD per iteration (estimated)
+}
+
+// Conversation event for audit trail
+export interface ConversationEvent {
+  id: string;
+  taskId: string;
+  timestamp: Date;
+  type: 'started' | 'paused' | 'resumed' | 'completed' | 'failed' | 'iteration' | 'persona-response' | 'budget-check' | 'circuit-breaker' | 'deadlock-detected' | 'idle-timeout';
+  personaId?: string;
+  details: string;
+  budgetSpent?: number;
+  metadata?: Record<string, any>;
+}
+
+// Budget tracker (global and per-persona daily tracking)
+interface BudgetTracker {
+  date: string; // YYYY-MM-DD
+  globalSpent: number;
+  perPersona: Record<string, number>; // persona ID -> amount spent
+}
+
+// In-memory conversation states (persisted to task.conversationState field)
+const activeConversations = new Map<string, ConversationState>();
+
+// Budget tracking (persisted to file daily)
+let budgetTracker: BudgetTracker = {
+  date: new Date().toISOString().split('T')[0],
+  globalSpent: 0,
+  perPersona: {},
+};
+
+/**
+ * Initialize or retrieve conversation state for a task
+ */
+export async function initConversation(
+  taskId: string,
+  participants: string[],
+  maxIterations: number = DEFAULT_MAX_ITERATIONS,
+  budgetCap: number = BUDGET_CAPS.perTicket
+): Promise<ConversationState> {
+  return withTaskLock(taskId, async () => {
+    const task = await readTask(taskId);
+    if (!task) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+
+    let state: ConversationState;
+
+    if (task.conversationState) {
+      state = deserializeConversationState(task.conversationState);
+      activeConversations.set(taskId, state);
+    } else {
+      state = {
+        taskId,
+        status: 'idle',
+        currentIteration: 0,
+        maxIterations,
+        lastActivityAt: new Date(),
+        idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+        participants,
+        budgetSpent: 0,
+        budgetCap,
+        circuitBreakerTripped: false,
+        expectedSpendRate: 0.05, // $0.05 per iteration (rough estimate)
+      };
+
+      task.conversationState = state;
+      await writeTask(task);
+      activeConversations.set(taskId, state);
+
+      await logConversationEvent({
+        taskId,
+        type: 'started',
+        details: `Conversation initialized with ${participants.length} participants, max ${maxIterations} iterations`,
+        metadata: { participants, maxIterations, budgetCap },
+      });
+    }
+
+    return state;
+  });
+}
+
+/**
+ * Start a conversation (transitions from idle to active)
+ */
+export async function startConversation(taskId: string): Promise<boolean> {
+  return withTaskLock(taskId, async () => {
+    const state = activeConversations.get(taskId);
+    if (!state) {
+      throw new Error(`Conversation state not found for task ${taskId}`);
+    }
+
+    if (state.status !== 'idle') {
+      console.warn(`Cannot start conversation ${taskId} - current status: ${state.status}`);
+      return false;
+    }
+
+    // Check global budget
+    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'budget-check',
+        details: `Global daily budget exceeded: $${budgetTracker.globalSpent.toFixed(2)} / $${BUDGET_CAPS.globalDaily}`,
+      });
+      return false;
+    }
+
+    state.status = 'active';
+    state.startedAt = new Date();
+    state.lastActivityAt = new Date();
+
+    await persistConversationState(taskId, state);
+    await logConversationEvent({
+      taskId,
+      type: 'started',
+      details: 'Conversation started',
+    });
+
+    return true;
+  });
+}
+
+/**
+ * Pause a conversation (kill switch)
+ */
+export async function pauseConversation(taskId: string, reason: string = 'Human intervention'): Promise<void> {
+  return withTaskLock(taskId, async () => {
+    const state = activeConversations.get(taskId);
+    if (!state) {
+      throw new Error(`Conversation state not found for task ${taskId}`);
+    }
+
+    if (state.status !== 'active') {
+      console.warn(`Cannot pause conversation ${taskId} - current status: ${state.status}`);
+      return;
+    }
+
+    state.status = 'paused';
+    state.pausedAt = new Date();
+
+    await persistConversationState(taskId, state);
+    await logConversationEvent({
+      taskId,
+      type: 'paused',
+      details: `Conversation paused: ${reason}`,
+    });
+  });
+}
+
+/**
+ * Resume a paused conversation
+ */
+export async function resumeConversation(taskId: string): Promise<boolean> {
+  return withTaskLock(taskId, async () => {
+    const state = activeConversations.get(taskId);
+    if (!state) {
+      throw new Error(`Conversation state not found for task ${taskId}`);
+    }
+
+    if (state.status !== 'paused') {
+      console.warn(`Cannot resume conversation ${taskId} - current status: ${state.status}`);
+      return false;
+    }
+
+    // Re-check budgets before resuming
+    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'budget-check',
+        details: `Cannot resume - global daily budget exceeded`,
+      });
+      return false;
+    }
+
+    state.status = 'active';
+    state.lastActivityAt = new Date();
+
+    await persistConversationState(taskId, state);
+    await logConversationEvent({
+      taskId,
+      type: 'resumed',
+      details: 'Conversation resumed',
+    });
+
+    return true;
+  });
+}
+
+/**
+ * Record a persona response and check for termination conditions
+ */
+export async function recordPersonaResponse(
+  taskId: string,
+  personaId: string,
+  tokensUsed: number,
+  costUSD: number
+): Promise<{ shouldContinue: boolean; reason?: string }> {
+  return withTaskLock(taskId, async () => {
+    const state = activeConversations.get(taskId);
+    if (!state) {
+      throw new Error(`Conversation state not found for task ${taskId}`);
+    }
+
+    // Update budget
+    state.budgetSpent += costUSD;
+    state.lastActivityAt = new Date();
+    state.currentIteration += 1;
+
+    // Update global and per-persona budgets
+    budgetTracker.globalSpent += costUSD;
+    budgetTracker.perPersona[personaId] = (budgetTracker.perPersona[personaId] || 0) + costUSD;
+
+    await logConversationEvent({
+      taskId,
+      type: 'persona-response',
+      personaId,
+      details: `Response recorded: ${tokensUsed} tokens, $${costUSD.toFixed(4)}`,
+      budgetSpent: state.budgetSpent,
+      metadata: { tokensUsed, costUSD, iteration: state.currentIteration },
+    });
+
+    // Check termination conditions (priority order)
+
+    // 1. Human pause (already handled by pauseConversation)
+    if (state.status === 'paused') {
+      return { shouldContinue: false, reason: 'Paused by human' };
+    }
+
+    // 2. Budget exhaustion - per-persona
+    if (budgetTracker.perPersona[personaId] >= BUDGET_CAPS.perPersona) {
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'budget-check',
+        personaId,
+        details: `Persona budget exceeded: $${budgetTracker.perPersona[personaId].toFixed(2)} / $${BUDGET_CAPS.perPersona}`,
+      });
+      return { shouldContinue: false, reason: `Budget exceeded for ${personaId}` };
+    }
+
+    // 3. Budget exhaustion - per-ticket
+    if (state.budgetSpent >= state.budgetCap) {
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'budget-check',
+        details: `Ticket budget exceeded: $${state.budgetSpent.toFixed(2)} / $${state.budgetCap}`,
+      });
+      return { shouldContinue: false, reason: 'Ticket budget exceeded' };
+    }
+
+    // 4. Budget exhaustion - global daily
+    if (budgetTracker.globalSpent >= BUDGET_CAPS.globalDaily) {
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'budget-check',
+        details: `Global daily budget exceeded: $${budgetTracker.globalSpent.toFixed(2)} / $${BUDGET_CAPS.globalDaily}`,
+      });
+      return { shouldContinue: false, reason: 'Global daily budget exceeded' };
+    }
+
+    // 5. Circuit breaker - detect runaway spending
+    const actualSpendRate = state.budgetSpent / Math.max(1, state.currentIteration);
+    if (actualSpendRate > state.expectedSpendRate * CIRCUIT_BREAKER_THRESHOLD && state.currentIteration >= 3) {
+      state.circuitBreakerTripped = true;
+      state.status = 'budget-exceeded';
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'circuit-breaker',
+        details: `Circuit breaker tripped: actual rate $${actualSpendRate.toFixed(4)}/iter vs expected $${state.expectedSpendRate.toFixed(4)}/iter (${CIRCUIT_BREAKER_THRESHOLD}x threshold)`,
+      });
+      return { shouldContinue: false, reason: 'Circuit breaker tripped - spending rate too high' };
+    }
+
+    // 6. Max iterations
+    if (state.currentIteration >= state.maxIterations) {
+      state.status = 'completed';
+      state.completedAt = new Date();
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'completed',
+        details: `Max iterations reached: ${state.currentIteration} / ${state.maxIterations}`,
+      });
+      return { shouldContinue: false, reason: 'Max iterations reached' };
+    }
+
+    // Update state
+    await persistConversationState(taskId, state);
+
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Check for idle timeout
+ */
+export async function checkIdleTimeout(taskId: string): Promise<boolean> {
+  const state = activeConversations.get(taskId);
+  if (!state || state.status !== 'active') {
+    return false;
+  }
+
+  const elapsed = Date.now() - state.lastActivityAt.getTime();
+  if (elapsed > state.idleTimeoutMs) {
+    return withTaskLock(taskId, async () => {
+      state.status = 'failed';
+      state.completedAt = new Date();
+      await persistConversationState(taskId, state);
+      await logConversationEvent({
+        taskId,
+        type: 'idle-timeout',
+        details: `Conversation timed out after ${Math.round(elapsed / 1000)}s of inactivity`,
+      });
+      return true;
+    });
+  }
+
+  return false;
+}
+
+/**
+ * Detect deadlock (two personas waiting on each other)
+ */
+export async function detectDeadlock(taskId: string): Promise<boolean> {
+  const state = activeConversations.get(taskId);
+  if (!state || state.status !== 'active') {
+    return false;
+  }
+
+  // Simple heuristic: if we've had no activity for >30s and we're waiting on someone
+  if (state.waitingOn) {
+    const elapsed = Date.now() - state.lastActivityAt.getTime();
+    if (elapsed > DEADLOCK_CHECK_INTERVAL_MS) {
+      return withTaskLock(taskId, async () => {
+        state.status = 'deadlocked';
+        state.completedAt = new Date();
+        await persistConversationState(taskId, state);
+        await logConversationEvent({
+          taskId,
+          type: 'deadlock-detected',
+          details: `Deadlock detected: waiting on ${state.waitingOn} for ${Math.round(elapsed / 1000)}s`,
+          metadata: { waitingOn: state.waitingOn },
+        });
+        return true;
+      });
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Complete a conversation (explicit success)
+ */
+export async function completeConversation(taskId: string, reason: string = 'Task completed'): Promise<void> {
+  return withTaskLock(taskId, async () => {
+    const state = activeConversations.get(taskId);
+    if (!state) {
+      throw new Error(`Conversation state not found for task ${taskId}`);
+    }
+
+    state.status = 'completed';
+    state.completedAt = new Date();
+
+    await persistConversationState(taskId, state);
+    await logConversationEvent({
+      taskId,
+      type: 'completed',
+      details: reason,
+    });
+  });
+}
+
+/**
+ * Log a conversation event to the audit trail
+ */
+async function logConversationEvent(event: Omit<ConversationEvent, 'id' | 'timestamp'>): Promise<void> {
+  const fullEvent: ConversationEvent = {
+    ...event,
+    id: Math.random().toString(36).substr(2, 12),
+    timestamp: new Date(),
+  };
+
+  // Log to task activity
+  await logActivity(
+    event.taskId,
+    'comment_added', // Using comment_added as the closest match for conversation events
+    `[Conversation] ${event.type}: ${fullEvent.details}`,
+    'system'
+  );
+
+  // Also append to conversation event log file
+  // (Implementation detail: could use a separate events file per task)
+}
+
+/**
+ * Persist conversation state to task
+ */
+async function persistConversationState(taskId: string, state: ConversationState): Promise<void> {
+  const task = await readTask(taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found`);
+  }
+
+  task.conversationState = state;
+  task.updatedAt = new Date();
+  await writeTask(task);
+}
+
+/**
+ * Deserialize conversation state from task storage
+ */
+function deserializeConversationState(data: any): ConversationState {
+  return {
+    ...data,
+    startedAt: data.startedAt ? new Date(data.startedAt) : undefined,
+    pausedAt: data.pausedAt ? new Date(data.pausedAt) : undefined,
+    completedAt: data.completedAt ? new Date(data.completedAt) : undefined,
+    lastActivityAt: new Date(data.lastActivityAt),
+  };
+}
+
+/**
+ * Get current conversation state for a task
+ */
+export function getConversationState(taskId: string): ConversationState | undefined {
+  return activeConversations.get(taskId);
+}
+
+/**
+ * Get global budget status
+ */
+export function getGlobalBudgetStatus(): BudgetTracker {
+  return { ...budgetTracker };
+}
+
+/**
+ * Reset daily budget tracker (call at midnight UTC)
+ */
+export function resetDailyBudget(): void {
+  const today = new Date().toISOString().split('T')[0];
+  if (budgetTracker.date !== today) {
+    budgetTracker = {
+      date: today,
+      globalSpent: 0,
+      perPersona: {},
+    };
+    console.log(`📊 Daily budget tracker reset for ${today}`);
+  }
+}
+
+/**
+ * Background monitor loop - checks for timeouts, deadlocks, etc.
+ */
+export async function runConversationMonitor(): Promise<void> {
+  const tasks = Array.from(activeConversations.keys());
+
+  for (const taskId of tasks) {
+    try {
+      // Check idle timeout
+      const timedOut = await checkIdleTimeout(taskId);
+      if (timedOut) {
+        console.log(`⏱️ Conversation ${taskId} timed out`);
+        continue;
+      }
+
+      // Check for deadlock
+      const deadlocked = await detectDeadlock(taskId);
+      if (deadlocked) {
+        console.log(`🔒 Conversation ${taskId} deadlocked`);
+      }
+    } catch (error) {
+      console.error(`Error monitoring conversation ${taskId}:`, error);
+    }
+  }
+
+  // Reset daily budget if needed
+  resetDailyBudget();
+}

@@ -23,6 +23,25 @@ export interface Task {
   agentActivity?: AgentActivity; // Live agent working status
   testSuites?: TestSuiteLink[]; // Linked apix test suites as acceptance criteria
   testStatus?: TestSuiteStatus; // Aggregated test status
+  conversationState?: ConversationState; // Phase 2: Multi-persona collaboration state
+}
+
+export interface ConversationState {
+  taskId: string;
+  status: 'idle' | 'active' | 'paused' | 'completed' | 'failed' | 'budget-exceeded' | 'deadlocked';
+  startedAt?: Date;
+  pausedAt?: Date;
+  completedAt?: Date;
+  currentIteration: number;
+  maxIterations: number;
+  lastActivityAt: Date;
+  idleTimeoutMs: number;
+  participants: string[]; // persona IDs
+  waitingOn?: string; // persona ID currently expected to respond
+  budgetSpent: number; // USD
+  budgetCap: number; // USD (per-ticket cap)
+  circuitBreakerTripped: boolean;
+  expectedSpendRate: number; // USD per iteration (estimated)
 }
 
 export interface TestSuiteLink {
