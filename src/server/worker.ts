@@ -1169,8 +1169,11 @@ async function runWorker(): Promise<void> {
       }
 
       if (deniedProvider && denialMessage) {
-        await handleProviderDenial(candidate, deniedProvider, denialMessage);
-        console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access: ${denialMessage}`);
+        // Only deny one task per cycle to avoid mass-moving all blocked tasks irreversibly
+        if (candidate.status !== 'review') {
+          await handleProviderDenial(candidate, deniedProvider, denialMessage);
+          console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access: ${denialMessage}`);
+        }
         continue;
       }
 
