@@ -32,7 +32,7 @@ import {
 /**
  * Start a multi-persona conversation for a ticket
  */
-export async function startTicketConversation(
+async function startTicketConversation(
   taskId: string,
   participantIds: string[],
   options: {
@@ -284,12 +284,14 @@ async function generatePersonaResponse(
 
 /**
  * Build prompt for a persona
+ * Note: conversationSummary (fullContext) already contains task description, summary of older messages,
+ * and recent messages. We don't need to add them again.
  */
 function buildPersonaPrompt(
   persona: any,
-  task: Task,
+  _task: Task, // Kept for signature compatibility - task info is in conversationSummary
   conversationSummary: string,
-  recentMessages: any[]
+  _recentMessages: any[] // Kept for signature compatibility - already in conversationSummary
 ): string {
   const parts: string[] = [];
 
@@ -303,23 +305,10 @@ function buildPersonaPrompt(
     parts.push('');
   }
 
-  parts.push('## Task');
-  parts.push(`**${task.title}**`);
-  parts.push(task.description);
-  parts.push('');
-
+  // Full context already includes task description, summary of older messages, and recent messages
   if (conversationSummary) {
-    parts.push('## Earlier Discussion');
+    parts.push('## Conversation Context');
     parts.push(conversationSummary);
-    parts.push('');
-  }
-
-  if (recentMessages.length > 0) {
-    parts.push('## Recent Messages');
-    recentMessages.forEach(msg => {
-      const author = msg.authorType === 'persona' ? `${msg.author} (AI)` : msg.author;
-      parts.push(`**${author}**: ${msg.content}`);
-    });
     parts.push('');
   }
 

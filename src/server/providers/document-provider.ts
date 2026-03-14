@@ -59,25 +59,29 @@ export class LocalDocumentProvider implements DocumentProvider {
       
       const docs = await this.indexPath(validatedPath);
       newDocs.push(...docs);
-      this.indexedPaths.add(validatedPath);
+      this.indexedPaths.add(p);
     }
 
-    // Use a Map to deduplicate AND preserve updated versions
-    // Key: document ID, Value: document (last occurrence wins for updates)
-    const docsMap = new Map<string, DocumentData>();
+    // Deduplicate newDocs by ID (handle duplicates within same batch)
+    const seenIds = new Set<string>();
+    const uniqueNewDocs = newDocs.filter(doc => {
+      if (seenIds.has(doc.id)) return false;
+      seenIds.add(doc.id);
+      return true;
+    });
+
+    // Deduplicate: replace existing documents with matching IDs (they may have been updated)
+    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
+    const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
     
-    // First, add existing documents (they may be updated by new docs with same ID)
-    for (const doc of this.documentIndex.documents) {
-      docsMap.set(doc.id, doc);
-    }
+    // Remove documents that will be replaced by new versions
+    const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
+    this.documentIndex.documents = this.documentIndex.documents.filter(
+      d => !docsToRemove.has(d.id)
+    );
     
-    // Then, add/overwrite with new documents (updated versions replace old ones)
-    for (const doc of newDocs) {
-      docsMap.set(doc.id, doc);
-    }
-    
-    // Convert back to array
-    this.documentIndex.documents = Array.from(docsMap.values());
+    // Add all new documents (both new and updated versions)
+    this.documentIndex.documents.push(...uniqueNewDocs);
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
@@ -102,8 +106,7 @@ export class LocalDocumentProvider implements DocumentProvider {
       // Path must be within cwd (project root) or the user home directory
       // This prevents arbitrary reads like /etc/passwd
       const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
-      const isWithinHome =
-        home.length > 0 && (resolved.startsWith(home + path.sep) || resolved === home);
+      const isWithinHome = resolved.startsWith(home + path.sep) || resolved === home;
 
       if (!isWithinCwd && !isWithinHome) {
         return null;
@@ -181,7 +184,7 @@ export class LocalDocumentProvider implements DocumentProvider {
         title,
         content: body,
         lastModified: stat.mtime.toISOString(),
-        keywords: this.buildKeywordCountMap(this.extractKeywords(title + ' ' + body)),
+        keywords: this.extractKeywords(title + ' ' + body),
       };
     } catch (err: any) {
       console.error(`Error reading file ${filePath}:`, err.message);
@@ -205,44 +208,6 @@ export class LocalDocumentProvider implements DocumentProvider {
   }
 
   /**
-   * Convert a token list into a keyword -> count map for compact persistence.
-   */
-  private buildKeywordCountMap(tokens: string[]): Record<string, number> {
-    const counts: Record<string, number> = {};
-    for (const token of tokens) {
-      counts[token] = (counts[token] || 0) + 1;
-    }
-    return counts;
-  }
-
-  /**
-   * Normalize stored keyword data. Supports legacy array format for migration.
-   */
-  private normalizeKeywordCounts(keywords: unknown): Record<string, number> {
-    if (!keywords) return {};
-
-    if (Array.isArray(keywords)) {
-      const counts: Record<string, number> = {};
-      for (const token of keywords) {
-        if (typeof token !== 'string') continue;
-        counts[token] = (counts[token] || 0) + 1;
-      }
-      return counts;
-    }
-
-    if (typeof keywords === 'object') {
-      const counts: Record<string, number> = {};
-      for (const [term, count] of Object.entries(keywords as Record<string, unknown>)) {
-        if (!term || typeof count !== 'number' || !Number.isFinite(count) || count <= 0) continue;
-        counts[term] = count;
-      }
-      return counts;
-    }
-
-    return {};
-  }
-
-  /**
    * Build TF-IDF index from documents
    */
   private async buildTfidfIndex(target?: { documents: DocumentData[]; tfidf: Map<string, Map<string, number>>; idf: Map<string, number> }): Promise<void> {
@@ -253,13 +218,16 @@ export class LocalDocumentProvider implements DocumentProvider {
     
     // Calculate term frequency (TF) for each document
     for (const doc of documents) {
-      const termCounts = this.normalizeKeywordCounts(doc.keywords);
+      const terms = doc.keywords || [];
+      const termCounts: Map<string, number> = new Map();
+      
+      for (const term of terms) {
+        termCounts.set(term, (termCounts.get(term) || 0) + 1);
+      }
       
       // Normalize TF (divide by total terms in doc)
-      const totalTerms = Object.values(termCounts).reduce((sum, count) => sum + count, 0);
-      if (totalTerms === 0) continue;
-
-      for (const [term, count] of Object.entries(termCounts)) {
+      const totalTerms = terms.length;
+      for (const [term, count] of termCounts) {
         if (!termFrequency.has(term)) {
           termFrequency.set(term, new Map());
         }
@@ -357,13 +325,13 @@ export class LocalDocumentProvider implements DocumentProvider {
       newPaths.add(p);
     }
 
-    // Deduplicate documents by ID using a Map (last occurrence wins for updates)
-    // This ensures modified files are updated, not skipped
-    const docsMap = new Map<string, DocumentData>();
-    for (const doc of newIndex.documents) {
-      docsMap.set(doc.id, doc); // Overwrites any existing doc with same ID
-    }
-    newIndex.documents = Array.from(docsMap.values());
+    // Deduplicate documents by ID (handle overlapping paths like docs/ and docs/adrs/)
+    const seenIds = new Set<string>();
+    newIndex.documents = newIndex.documents.filter(doc => {
+      if (seenIds.has(doc.id)) return false;
+      seenIds.add(doc.id);
+      return true;
+    });
 
     // Build TF-IDF on the temp index (doesn't touch the live index)
     await this.buildTfidfIndex(newIndex);
@@ -399,17 +367,13 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Load index from disk
    */
-  private async loadIndex(): Promise<void> {
+  async loadIndex(): Promise<void> {
     try {
       const indexPath = path.join(this.dataDir, 'index.json');
       const data = await fs.readFile(indexPath, 'utf8');
       const indexData = JSON.parse(data);
       
-      const loadedDocuments = Array.isArray(indexData.documents) ? indexData.documents : [];
-      this.documentIndex.documents = loadedDocuments.map((doc: DocumentData) => ({
-        ...doc,
-        keywords: this.normalizeKeywordCounts(doc.keywords),
-      }));
+      this.documentIndex.documents = indexData.documents || [];
       this.indexedPaths = new Set(indexData.indexedPaths || []);
       
       // Rebuild TF-IDF from loaded documents

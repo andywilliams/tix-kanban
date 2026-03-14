@@ -95,8 +95,35 @@ export async function initConversation(
 
     let state: ConversationState;
 
+    // Terminal statuses that should allow a new conversation to start
+    const TERMINAL_STATUSES = ['completed', 'failed', 'budget-exceeded', 'deadlocked'];
+
     if (task.conversationState) {
       state = deserializeConversationState(task.conversationState);
+      
+      // If prior conversation had a terminal status, reset to idle to allow new conversation
+      if (TERMINAL_STATUSES.includes(state.status)) {
+        console.log(`Prior conversation for ${taskId} had terminal status "${state.status}", resetting to idle`);
+        state = {
+          taskId,
+          status: 'idle',
+          currentIteration: 0,
+          maxIterations,
+          lastActivityAt: new Date(),
+          idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+          participants,
+          budgetSpent: 0,
+          budgetCap,
+          circuitBreakerTripped: false,
+          expectedSpendRate: 0.05,
+          inLLMCall: false,
+        };
+        
+        // Persist the reset state to task
+        task.conversationState = state;
+        await writeTask(task);
+      }
+      
       activeConversations.set(taskId, state);
     } else {
       state = {
