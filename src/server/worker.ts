@@ -497,7 +497,7 @@ function isCodeReviewTask(task: Task, persona?: Persona): boolean {
   return false;
 }
 
-function getRequiredProviders(task: Task): string[] {
+export function getRequiredProviders(task: Task): string[] {
   const requiredProviders: string[] = [];
   if (task.repo) {
     requiredProviders.push('github');
