@@ -325,6 +325,14 @@ export class LocalDocumentProvider implements DocumentProvider {
       newPaths.add(p);
     }
 
+    // Deduplicate documents by ID (handle overlapping paths like docs/ and docs/adrs/)
+    const seenIds = new Set<string>();
+    newIndex.documents = newIndex.documents.filter(doc => {
+      if (seenIds.has(doc.id)) return false;
+      seenIds.add(doc.id);
+      return true;
+    });
+
     // Build TF-IDF on the temp index (doesn't touch the live index)
     await this.buildTfidfIndex(newIndex);
 
