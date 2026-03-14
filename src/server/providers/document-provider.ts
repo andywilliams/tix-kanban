@@ -210,8 +210,9 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Build TF-IDF index from documents
    */
-  private async buildTfidfIndex(): Promise<void> {
-    const { documents } = this.documentIndex;
+  private async buildTfidfIndex(target?: { documents: DocumentData[]; tfidf: Map<string, Map<string, number>>; idf: Map<string, number> }): Promise<void> {
+    const idx = target ?? this.documentIndex;
+    const { documents } = idx;
     const termFrequency: Map<string, Map<string, number>> = new Map();
     const documentFrequency: Map<string, number> = new Map();
     
@@ -257,8 +258,8 @@ export class LocalDocumentProvider implements DocumentProvider {
       tfidf.set(term, scores);
     }
     
-    this.documentIndex.tfidf = tfidf;
-    this.documentIndex.idf = idf;
+    idx.tfidf = tfidf;
+    idx.idf = idf;
   }
 
   /**
@@ -303,13 +304,37 @@ export class LocalDocumentProvider implements DocumentProvider {
   async refresh(): Promise<void> {
     await this.ready;
     const paths = Array.from(this.indexedPaths);
-    this.documentIndex = {
-      documents: [],
-      tfidf: new Map(),
-      idf: new Map(),
+
+    // Build the new index entirely in a temp object so concurrent search()/list()
+    // calls keep reading from the current live index during the async rebuild.
+    const newIndex = {
+      documents: [] as DocumentData[],
+      tfidf: new Map<string, Map<string, number>>(),
+      idf: new Map<string, number>(),
     };
-    
-    await this.index(paths);
+    const newPaths = new Set<string>();
+
+    for (const p of paths) {
+      const validatedPath = this.validatePath(p);
+      if (!validatedPath) {
+        console.warn(`Path validation failed during refresh for: ${p}`);
+        continue;
+      }
+      const docs = await this.indexPath(validatedPath);
+      newIndex.documents.push(...docs);
+      newPaths.add(p);
+    }
+
+    // Build TF-IDF on the temp index (doesn't touch the live index)
+    await this.buildTfidfIndex(newIndex);
+
+    // Atomic swap: concurrent readers now see the fully-built new index.
+    // Stale paths (deleted/renamed since last index) are not carried over.
+    this.documentIndex = newIndex;
+    this.indexedPaths = newPaths;
+
+    // Persist the new index to disk
+    await this.saveIndex();
   }
 
   /**
