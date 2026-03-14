@@ -59,7 +59,7 @@ export class LocalDocumentProvider implements DocumentProvider {
       
       const docs = await this.indexPath(validatedPath);
       newDocs.push(...docs);
-      this.indexedPaths.add(p);
+      this.indexedPaths.add(validatedPath);
     }
 
     // Deduplicate newDocs by ID (handle duplicates within same batch)
