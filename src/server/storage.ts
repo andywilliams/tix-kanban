@@ -358,9 +358,7 @@ export async function addTaskLink(taskId: string, linkData: Omit<Link, 'id' | 't
 }
 
 // Log activity for a task
-// TODO: This function is not currently used but may be needed for future activity tracking
-/*
-async function logActivity(
+export async function logActivity(
   taskId: string,
   type: ActivityLog['type'],
   description: string,
@@ -395,7 +393,6 @@ async function logActivity(
 
   return activity;
 }
-*/
 
 // Get activity for a specific task
 export async function getTaskActivity(taskId: string): Promise<ActivityLog[]> {
