@@ -215,7 +215,7 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
       const chunk = data.toString();
       stderr += chunk;
       const knownError = detectKnownClaudeError(chunk);
-      if (knownError) {
+      if (knownError && !settled) {
         child.kill('SIGTERM');
         timeoutKill = setTimeout(() => {
           child.kill('SIGKILL');
