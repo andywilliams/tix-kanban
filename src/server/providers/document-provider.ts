@@ -62,26 +62,22 @@ export class LocalDocumentProvider implements DocumentProvider {
       this.indexedPaths.add(validatedPath);
     }
 
-    // Deduplicate newDocs by ID (handle duplicates within same batch)
-    const seenIds = new Set<string>();
-    const uniqueNewDocs = newDocs.filter(doc => {
-      if (seenIds.has(doc.id)) return false;
-      seenIds.add(doc.id);
-      return true;
-    });
-
-    // Deduplicate: replace existing documents with matching IDs (they may have been updated)
-    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
-    const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
+    // Use a Map to deduplicate AND preserve updated versions
+    // Key: document ID, Value: document (last occurrence wins for updates)
+    const docsMap = new Map<string, DocumentData>();
     
-    // Remove documents that will be replaced by new versions
-    const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
-    this.documentIndex.documents = this.documentIndex.documents.filter(
-      d => !docsToRemove.has(d.id)
-    );
+    // First, add existing documents (they may be updated by new docs with same ID)
+    for (const doc of this.documentIndex.documents) {
+      docsMap.set(doc.id, doc);
+    }
     
-    // Add all new documents (both new and updated versions)
-    this.documentIndex.documents.push(...uniqueNewDocs);
+    // Then, add/overwrite with new documents (updated versions replace old ones)
+    for (const doc of newDocs) {
+      docsMap.set(doc.id, doc);
+    }
+    
+    // Convert back to array
+    this.documentIndex.documents = Array.from(docsMap.values());
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
@@ -325,13 +321,13 @@ export class LocalDocumentProvider implements DocumentProvider {
       newPaths.add(p);
     }
 
-    // Deduplicate documents by ID (handle overlapping paths like docs/ and docs/adrs/)
-    const seenIds = new Set<string>();
-    newIndex.documents = newIndex.documents.filter(doc => {
-      if (seenIds.has(doc.id)) return false;
-      seenIds.add(doc.id);
-      return true;
-    });
+    // Deduplicate documents by ID using a Map (last occurrence wins for updates)
+    // This ensures modified files are updated, not skipped
+    const docsMap = new Map<string, DocumentData>();
+    for (const doc of newIndex.documents) {
+      docsMap.set(doc.id, doc); // Overwrites any existing doc with same ID
+    }
+    newIndex.documents = Array.from(docsMap.values());
 
     // Build TF-IDF on the temp index (doesn't touch the live index)
     await this.buildTfidfIndex(newIndex);
