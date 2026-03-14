@@ -100,16 +100,26 @@ describe('validatePersonaYaml', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('warns on unknown trigger types', () => {
-    const result = validatePersonaYaml({ ...validBase, triggers: ['pr_opened', 'unknown_trigger'] });
+  it('warns on unknown trigger keys', () => {
+    const result = validatePersonaYaml({
+      ...validBase,
+      triggers: {
+        onPROpened: true,
+        unknownTrigger: true,
+      } as unknown as PersonaYamlSchema['triggers'],
+    });
     expect(result.valid).toBe(true); // warnings don't fail validation
-    expect(result.warnings.some((w) => w.includes('unknown_trigger'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('unknownTrigger'))).toBe(true);
   });
 
   it('accepts valid triggers', () => {
     const result = validatePersonaYaml({
       ...validBase,
-      triggers: ['pr_opened', 'test_failed', 'mentioned'],
+      triggers: {
+        onPROpened: true,
+        onPRMerged: false,
+        onCIPassed: true,
+      },
     });
     expect(result.valid).toBe(true);
     expect(result.warnings).toHaveLength(0);
