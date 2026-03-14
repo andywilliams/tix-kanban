@@ -580,9 +580,6 @@ async function processTask(task: Task): Promise<void> {
   try {
     console.log(`📋 Processing task: ${task.title}`);
 
-    // Move task to in-progress
-    await updateTask(task.id, { status: 'in-progress' });
-
     // Fetch the full task with all history (comments, links)
     const fullTask = await getTask(task.id);
     if (!fullTask) {
@@ -629,6 +626,9 @@ async function processTask(task: Task): Promise<void> {
         return;
       }
     }
+
+    // Move task to in-progress only after provider access checks pass
+    await updateTask(task.id, { status: 'in-progress' });
 
     // Mark agent as actively working on this task
     await updateTask(task.id, {

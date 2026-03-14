@@ -267,4 +267,10 @@ describe('enforceProviderAccess', () => {
     expect(() => enforceProviderAccess(openYaml, 'slack')).not.toThrow();
     expect(() => enforceProviderAccess(openYaml, 'notion')).not.toThrow();
   });
+
+  it('denies all providers when providers list is explicitly empty', () => {
+    const blockedYaml: PersonaYamlSchema = { ...baseYaml, providers: [] };
+    expect(() => enforceProviderAccess(blockedYaml, 'github')).toThrow(/empty providers allow-list/);
+    expect(() => enforceProviderAccess(blockedYaml, 'slack')).toThrow(/empty providers allow-list/);
+  });
 });
