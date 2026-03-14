@@ -339,6 +339,14 @@ export class LocalDocumentProvider implements DocumentProvider {
     };
 
     await this.index(paths, { targetIndex: nextIndex, persist: false });
+    const providedPaths = new Set(paths);
+    const prunedPaths = new Set<string>();
+    for (const indexedPath of this.indexedPaths) {
+      if (providedPaths.has(indexedPath) && this.validatePath(indexedPath)) {
+        prunedPaths.add(indexedPath);
+      }
+    }
+    this.indexedPaths = prunedPaths;
     this.documentIndex = nextIndex;
     await this.saveIndex();
   }

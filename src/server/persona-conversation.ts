@@ -113,7 +113,13 @@ export async function initConversation(
           metadata: { previousStatus, participants, maxIterations, budgetCap },
         });
       } else {
-        // Apply latest runtime parameters when restoring an active/non-terminal conversation.
+        if (state.status === 'active' || state.status === 'paused') {
+          throw new Error(
+            `Cannot initialize conversation for task ${taskId} while status is "${state.status}"`
+          );
+        }
+
+        // Allow runtime parameter updates for non-terminal, non-live states (for example, idle).
         state = {
           ...state,
           participants,

@@ -6,11 +6,12 @@ import { Request, Response } from 'express';
 import {
   pauseConversation,
   resumeConversation,
+  getConversationState,
   getConversationStateWithFallback,
   getGlobalBudgetStatus,
   BUDGET_CAPS,
 } from './persona-conversation.js';
-import { triggerConversation, runConversationLoop } from './conversation-loop.js';
+import { triggerConversation, runConversationLoop, isConversationLoopRunning } from './conversation-loop.js';
 
 /**
  * POST /api/conversation/:taskId/start
@@ -68,7 +69,15 @@ export async function resumeConversationHandler(req: Request, res: Response): Pr
     const resumed = await resumeConversation(taskId);
 
     if (resumed) {
-      // Restart the conversation loop
+      const state = getConversationState(taskId);
+
+      // If a prior loop is still alive after a fast pause/resume, do not spawn another one.
+      if (state?.status === 'active' && isConversationLoopRunning(taskId)) {
+        res.json({ success: true, message: `Conversation ${taskId} resumed (existing loop still running)` });
+        return;
+      }
+
+      // Restart the conversation loop if no loop is currently running.
       runConversationLoop(taskId).catch(error => {
         console.error(`Error restarting conversation loop for ${taskId}:`, error);
       });

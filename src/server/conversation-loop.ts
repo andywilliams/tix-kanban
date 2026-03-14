@@ -30,6 +30,12 @@ import {
   BUDGET_CAPS,
 } from './persona-conversation.js';
 
+const runningConversationLoops = new Set<string>();
+
+export function isConversationLoopRunning(taskId: string): boolean {
+  return runningConversationLoops.has(taskId);
+}
+
 /**
  * Start a multi-persona conversation for a ticket
  */
@@ -74,81 +80,90 @@ async function startTicketConversation(
  * Main conversation loop (runs async until termination)
  */
 export async function runConversationLoop(taskId: string): Promise<void> {
-  console.log(`🔄 Starting conversation loop for task ${taskId}`);
-
-  while (true) {
-    const state = getConversationState(taskId);
-
-    if (!state) {
-      console.log(`⚠️ Conversation state not found for ${taskId}, terminating loop`);
-      break;
-    }
-
-    // Check termination conditions
-    if (state.status !== 'active') {
-      console.log(`🛑 Conversation ${taskId} terminated: status = ${state.status}`);
-      break;
-    }
-
-    // Check for idle timeout
-    const timedOut = await checkIdleTimeout(taskId);
-    if (timedOut) {
-      console.log(`⏱️ Conversation ${taskId} timed out`);
-      break;
-    }
-
-    // Check for deadlock
-    const deadlocked = await detectDeadlock(taskId);
-    if (deadlocked) {
-      console.log(`🔒 Conversation ${taskId} deadlocked`);
-      break;
-    }
-
-    // Select next persona to speak
-    const nextPersonaId = selectNextSpeaker(state);
-
-    if (!nextPersonaId) {
-      console.log(`✅ Conversation ${taskId} complete (no more speakers)`);
-      await completeConversation(taskId, 'All participants finished');
-      break;
-    }
-
-    // Attempt to execute persona turn
-    const success = await executePersonaTurn(taskId, nextPersonaId);
-
-    // After turn completes, check if conversation was terminated (e.g., budget exceeded, max iterations)
-    // Re-fetch state to get the updated status from recordPersonaResponse
-    const currentState = getConversationState(taskId);
-    if (!currentState || currentState.status !== 'active') {
-      console.log(`🛑 Conversation ${taskId} terminated during turn: status = ${currentState?.status}`);
-      break;
-    }
-
-    if (!success) {
-      console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, stopping loop`);
-      break;
-    }
-
-    // Update waitingOn for next iteration (round-robin) - set to the NEXT person expected to speak
-    // Calculate the person after nextPersonaId in the round-robin
-    const currentIndex = currentState.participants.indexOf(nextPersonaId);
-    const nextWaitingOnIndex = (currentIndex + 1) % currentState.participants.length;
-    const nextWaitingOn = currentState.participants[nextWaitingOnIndex];
-
-    // Persist state with lock to avoid race condition with background monitor
-    await withTaskLock(taskId, async () => {
-      const lockState = getConversationState(taskId);
-      if (lockState && lockState.status === 'active') {
-        lockState.waitingOn = nextWaitingOn;
-        await persistConversationState(taskId, lockState, { skipLock: true });
-      }
-    });
-
-    // Small delay to prevent tight loops
-    await sleep(1000);
+  if (runningConversationLoops.has(taskId)) {
+    console.warn(`Skipping duplicate conversation loop start for task ${taskId}`);
+    return;
   }
 
-  console.log(`✅ Conversation loop finished for task ${taskId}`);
+  runningConversationLoops.add(taskId);
+  console.log(`🔄 Starting conversation loop for task ${taskId}`);
+
+  try {
+    while (true) {
+      const state = getConversationState(taskId);
+
+      if (!state) {
+        console.log(`⚠️ Conversation state not found for ${taskId}, terminating loop`);
+        break;
+      }
+
+      // Check termination conditions
+      if (state.status !== 'active') {
+        console.log(`🛑 Conversation ${taskId} terminated: status = ${state.status}`);
+        break;
+      }
+
+      // Check for idle timeout
+      const timedOut = await checkIdleTimeout(taskId);
+      if (timedOut) {
+        console.log(`⏱️ Conversation ${taskId} timed out`);
+        break;
+      }
+
+      // Check for deadlock
+      const deadlocked = await detectDeadlock(taskId);
+      if (deadlocked) {
+        console.log(`🔒 Conversation ${taskId} deadlocked`);
+        break;
+      }
+
+      // Select next persona to speak
+      const nextPersonaId = selectNextSpeaker(state);
+
+      if (!nextPersonaId) {
+        console.log(`✅ Conversation ${taskId} complete (no more speakers)`);
+        await completeConversation(taskId, 'All participants finished');
+        break;
+      }
+
+      // Attempt to execute persona turn
+      const success = await executePersonaTurn(taskId, nextPersonaId);
+
+      // After turn completes, check if conversation was terminated (e.g., budget exceeded, max iterations)
+      // Re-fetch state to get the updated status from recordPersonaResponse
+      const currentState = getConversationState(taskId);
+      if (!currentState || currentState.status !== 'active') {
+        console.log(`🛑 Conversation ${taskId} terminated during turn: status = ${currentState?.status}`);
+        break;
+      }
+
+      if (!success) {
+        console.log(`⚠️ Persona ${nextPersonaId} failed to execute turn, stopping loop`);
+        break;
+      }
+
+      // Update waitingOn for next iteration (round-robin) - set to the NEXT person expected to speak
+      // Calculate the person after nextPersonaId in the round-robin
+      const currentIndex = currentState.participants.indexOf(nextPersonaId);
+      const nextWaitingOnIndex = (currentIndex + 1) % currentState.participants.length;
+      const nextWaitingOn = currentState.participants[nextWaitingOnIndex];
+
+      // Persist state with lock to avoid race condition with background monitor
+      await withTaskLock(taskId, async () => {
+        const lockState = getConversationState(taskId);
+        if (lockState && lockState.status === 'active') {
+          lockState.waitingOn = nextWaitingOn;
+          await persistConversationState(taskId, lockState, { skipLock: true });
+        }
+      });
+
+      // Small delay to prevent tight loops
+      await sleep(1000);
+    }
+  } finally {
+    runningConversationLoops.delete(taskId);
+    console.log(`✅ Conversation loop finished for task ${taskId}`);
+  }
 }
 
 /**
