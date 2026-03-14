@@ -41,7 +41,8 @@ import { getRelevantKnowledge } from './persona-knowledge.js';
 import {
   TokenTracker,
   buildBudgetedSection,
-  getDefaultBudget
+  getDefaultBudget,
+  estimateTokens
 } from './token-budget.js';
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
@@ -433,9 +434,8 @@ async function generatePersonaResponse(
     }
 
     // Check budget before generating a response
+    // We'll do a preliminary check with conservative estimates, then record actual usage after generation
     const model = persona.model || 'claude-3-5-sonnet-20241022';
-    const estimatedInputTokens = 4000;  // conservative estimate for prompt
-    const estimatedOutputTokens = 500;
 
     // Determine channel type for per-ticket budget tracking
     const channelType = getChannelType(originalMessage.channelId);
@@ -451,16 +451,18 @@ async function generatePersonaResponse(
       }
     }
 
-    const budgetCheck = await checkAndRecordUsage(persona.id, model, estimatedInputTokens, estimatedOutputTokens, taskId);
-    if (!budgetCheck.allowed) {
-      console.log(`💸 ${persona.name} budget exceeded: ${budgetCheck.reason}`);
-      auditTurnDenied(originalMessage.channelId, persona.id, budgetCheck.reason || 'Budget exceeded').catch(() => {});
+    // Preliminary budget check — dry-run only (no recording). Actual usage is recorded after generation.
+    // Use conservative token estimates (80k input + 8k output) to check if there's headroom.
+    const preliminaryBudgetCheck = await checkAndRecordUsage(persona.id, model, 80000, 8000, taskId, { dryRun: true });
+    if (!preliminaryBudgetCheck.allowed) {
+      console.log(`💸 ${persona.name} budget exceeded: ${preliminaryBudgetCheck.reason}`);
+      auditTurnDenied(originalMessage.channelId, persona.id, preliminaryBudgetCheck.reason || 'Budget exceeded').catch(() => {});
       // Notify the channel that the persona is budget-limited
       await addMessage(
         originalMessage.channelId,
         persona.name,
         'persona',
-        `⚠️ I've hit my spending limit for today and can't respond right now. (${budgetCheck.reason})`,
+        `⚠️ I've hit my spending limit for today and can't respond right now. (${preliminaryBudgetCheck.reason})`,
         originalMessage.id
       );
       return;
@@ -647,9 +649,15 @@ This conversation is about the task described above. Keep your responses relevan
       prContext: '', // Strip PRs on retry
       knowledgeContext: '', // Strip knowledge on retry
       slackContext: '', // Strip slack on retry
-      tracker: new TokenTracker(),
+      tracker, // Reuse outer tracker so retry prompt tokens are counted in actual usage
       budget
     });
+
+    // Record actual token usage after generation (instead of pre-check estimates)
+    // Use tracker.totalUsed for input tokens and estimate output from response
+    const actualInputTokens = tracker.totalUsed;
+    const actualOutputTokens = estimateTokens(response);
+    await checkAndRecordUsage(persona.id, model, actualInputTokens, actualOutputTokens, taskId);
 
     if (response && response.length > 0) {
       // Parse and execute any actions from the response

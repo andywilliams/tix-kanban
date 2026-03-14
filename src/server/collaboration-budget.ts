@@ -139,7 +139,8 @@ export async function recordUsage(
  * Prevents the TOCTOU race between separate checkBudget and recordUsage calls.
  */
 export async function checkAndRecordUsage(
-  personaId: string, model: string, inputTokens: number, outputTokens: number, taskId?: string
+  personaId: string, model: string, inputTokens: number, outputTokens: number, taskId?: string,
+  options: { dryRun?: boolean } = {}
 ): Promise<{ allowed: boolean; reason?: string }> {
   return withBudgetLock(async () => {
     const budget = await getTodaysBudget();
@@ -158,6 +159,11 @@ export async function checkAndRecordUsage(
       if (taskCost + cost > BUDGET_LIMITS.perTicket) {
         return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
       }
+    }
+
+    // Dry-run: just check limits, don't record usage
+    if (options.dryRun) {
+      return { allowed: true };
     }
 
     // All checks passed — record atomically in the same lock
