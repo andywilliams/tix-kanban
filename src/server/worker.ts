@@ -63,9 +63,88 @@ async function postTaskUpdate(task: Task, persona: Persona, message: string): Pr
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, model?: string): Promise<{ stdout: string; stderr: string }> {
+const CONTEXT_TOKEN_LIMIT = 150000;
+const CONTEXT_CHAR_LIMIT = CONTEXT_TOKEN_LIMIT * 4;
+const DEFAULT_MAX_TURNS: Record<'task' | 'research' | 'evaluation', number> = {
+  task: 12,
+  research: 20,
+  evaluation: 4,
+};
+
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+interface ClaudeExecutionOptions {
+  timeoutMs?: number;
+  cwd?: string;
+  model?: string;
+  operationType?: 'task' | 'research' | 'evaluation';
+  maxTurns?: number;
+}
+
+function truncatePromptForContext(prompt: string): { prompt: string; wasTruncated: boolean; estimatedTokens: number } {
+  const estimatedTokens = Math.ceil(prompt.length / 4);
+  if (estimatedTokens <= CONTEXT_TOKEN_LIMIT) {
+    return { prompt, wasTruncated: false, estimatedTokens };
+  }
+
+  const headChars = Math.floor(CONTEXT_CHAR_LIMIT * 0.7);
+  const tailChars = CONTEXT_CHAR_LIMIT - headChars;
+  const truncatedChars = prompt.length - CONTEXT_CHAR_LIMIT;
+  const notice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(truncatedChars / 4)} tokens (${truncatedChars} chars).\n\n`;
+  const truncatedPrompt = `${prompt.slice(0, headChars)}${notice}${prompt.slice(-tailChars)}`;
+
+  return {
+    prompt: truncatedPrompt,
+    wasTruncated: true,
+    estimatedTokens,
+  };
+}
+
+function detectKnownClaudeError(stderr: string): string | null {
+  const patterns = [
+    /mcp/i,
+    /failed to connect/i,
+    /connection refused/i,
+    /connection reset/i,
+    /tool error/i,
+    /failed tool/i,
+    /tool execution failed/i,
+    /permission denied/i,
+  ];
+  const match = patterns.find((pattern) => pattern.test(stderr));
+  if (!match) return null;
+
+  const snippet = stderr.split('\n').find(line => line.trim().length > 0)?.trim() || stderr.trim();
+  return `Claude reported tool/MCP error: ${snippet}`;
+}
+
+function executeClaudeWithStdin(prompt: string, args: string[] = [], options: ClaudeExecutionOptions = {}): Promise<{ stdout: string; stderr: string }> {
+  const {
+    timeoutMs = 320000,
+    cwd,
+    model,
+    operationType = 'task',
+    maxTurns = DEFAULT_MAX_TURNS[operationType],
+  } = options;
+
   return new Promise((resolve, reject) => {
+    const { prompt: safePrompt, wasTruncated, estimatedTokens } = truncatePromptForContext(prompt);
+    if (wasTruncated) {
+      console.warn(
+        `[worker] Claude prompt exceeded context estimate (${estimatedTokens} tokens > ${CONTEXT_TOKEN_LIMIT}). Truncating input before stdin write.`
+      );
+    }
+
+    const hasMaxTurnsArg = args.includes('--max-turns');
     const claudeArgs = ['-p', ...args];
+    if (!hasMaxTurnsArg) {
+      claudeArgs.push('--max-turns', String(maxTurns));
+    }
     if (model) {
       claudeArgs.push('--model', model);
     }
@@ -90,11 +169,33 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: 
     
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let timeoutKill: NodeJS.Timeout | null = null;
+    let timeoutHandle: NodeJS.Timeout | null = null;
+
+    const safeResolve = (value: { stdout: string; stderr: string }) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutKill) clearTimeout(timeoutKill);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      resolve(value);
+    };
+
+    const safeReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutKill) clearTimeout(timeoutKill);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      reject(error);
+    };
     
     // Set up timeout
-    const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error(`Claude process timed out after ${timeoutMs}ms`));
+    timeoutHandle = setTimeout(() => {
+      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`));
+      child.kill('SIGTERM');
+      timeoutKill = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, 5000);
     }, timeoutMs);
     
     child.stdout.on('data', (data) => {
@@ -102,25 +203,40 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: 
     });
     
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      stderr += chunk;
+      const knownError = detectKnownClaudeError(chunk);
+      if (knownError) {
+        safeReject(new Error(knownError));
+        child.kill('SIGTERM');
+      }
     });
     
     child.on('close', (code) => {
-      clearTimeout(timeout);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (settled) return;
+      const trimmedStdout = stdout.trim();
+      const trimmedStderr = stderr.trim();
+      const knownError = detectKnownClaudeError(trimmedStderr);
+      if (knownError) {
+        safeReject(new Error(knownError));
+        return;
+      }
       if (code === 0) {
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+        safeResolve({ stdout: trimmedStdout, stderr: trimmedStderr });
       } else {
-        reject(new Error(`Claude process exited with code ${code}: ${stderr}`));
+        const stderrMessage = trimmedStderr || 'no stderr output';
+        safeReject(new Error(`Claude process exited with code ${code}: ${stderrMessage}`));
       }
     });
     
     child.on('error', (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      safeReject(error instanceof Error ? error : new Error(String(error)));
     });
     
     // Send prompt via stdin and close it
-    child.stdin.write(prompt);
+    child.stdin.write(safePrompt);
     child.stdin.end();
   });
 }
@@ -414,9 +530,13 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
-      (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
-      cwd,
-      model
+      {
+        timeoutMs: (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
+        cwd,
+        model,
+        operationType: 'task',
+        maxTurns: (task as any).maxTurns ?? undefined
+      }
     );
     
     if (stderr) {
@@ -538,9 +658,12 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
-      (task as any).timeoutMs || 600000, // task override > 10 min default for research
-      undefined, // No specific working directory needed for research
-      researchModel
+      {
+        timeoutMs: (task as any).timeoutMs || 600000, // task override > 10 min default for research
+        model: researchModel,
+        operationType: 'research',
+        maxTurns: (task as any).maxTurns ?? undefined
+      }
     );
     
     if (stderr) {
@@ -947,9 +1070,11 @@ Reply with ONLY one word: REVIEW (if work appears complete and ready for review)
     const { stdout } = await executeClaudeWithStdin(
       evaluationPrompt,
       ['--dangerously-skip-permissions'],
-      30000, // 30s timeout for quick evaluation
-      undefined,
-      model
+      {
+        timeoutMs: 30000, // 30s timeout for quick evaluation
+        model,
+        operationType: 'evaluation'
+      }
     );
 
     const response = stdout.trim().toUpperCase();
