@@ -102,13 +102,6 @@ export function registerMessageProvider(provider: MessageProvider): void {
 }
 
 /**
- * Register a custom document provider
- */
-export function registerDocumentProvider(provider: DocumentProvider): void {
-  documentProviders.set(provider.name, provider);
-}
-
-/**
  * Get the active ticket provider
  */
 export function getTicketProvider(): TicketProvider | null {
@@ -148,18 +141,6 @@ export function setMessageProvider(name: string): boolean {
   const provider = messageProviders.get(name);
   if (provider) {
     activeMessageProvider = provider;
-    return true;
-  }
-  return false;
-}
-
-/**
- * Set the active document provider by name
- */
-export function setDocumentProvider(name: string): boolean {
-  const provider = documentProviders.get(name);
-  if (provider) {
-    activeDocumentProvider = provider;
     return true;
   }
   return false;

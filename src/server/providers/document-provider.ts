@@ -6,6 +6,12 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import matter from 'gray-matter';
+// Common stop words - defined once at module level to avoid recreation on every extractKeywords call
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
+  'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
+  'could', 'should', 'would', 'may', 'might', 'must', 'shall',
+]);
 
 interface DocumentIndex {
   documents: DocumentData[];
@@ -95,12 +101,12 @@ export class LocalDocumentProvider implements DocumentProvider {
 
       // Allow paths within the current working directory or common safe roots
       const cwd = process.cwd();
-      const home = process.env.HOME || '';
+      const home = os.homedir();
 
       // Path must be within cwd (project root) or the user home directory
       // This prevents arbitrary reads like /etc/passwd
       const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
-      const isWithinHome = home && (resolved.startsWith(home + path.sep) || resolved === home);
+      const isWithinHome = resolved.startsWith(home + path.sep) || resolved === home;
 
       if (!isWithinCwd && !isWithinHome) {
         return null;
@@ -197,14 +203,8 @@ export class LocalDocumentProvider implements DocumentProvider {
       .split(/\s+/)
       .filter(t => t.length > 2);  // Filter short words
     
-    // Remove common stop words
-    const stopWords = new Set([
-      'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
-      'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
-      'could', 'should', 'would', 'may', 'might', 'must', 'shall',
-    ]);
-    
-    return tokens.filter(t => !stopWords.has(t));
+    // Remove common stop words (using module-level constant)
+    return tokens.filter(t => !STOP_WORDS.has(t));
   }
 
   /**
