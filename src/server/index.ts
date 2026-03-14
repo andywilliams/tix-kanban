@@ -178,6 +178,9 @@ import {
   updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
+import { initializeBudgetStorage } from './collaboration-budget.js';
+import { initializeAuditStorage } from './collaboration-audit.js';
+import { initializeControlStorage } from './collaboration-control.js';
 // Notion sync removed - now using CLI-based providers
 // See documentation/providers.md for the new architecture
 import {
@@ -3617,6 +3620,9 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
+    await initializeBudgetStorage();
+    await initializeAuditStorage();
+    await initializeControlStorage();
     // Run archive maintenance on startup to trim old chat messages
     runArchiveMaintenance().catch(err => console.error('Archive maintenance failed:', err));
     await initializeReportsStorage();
