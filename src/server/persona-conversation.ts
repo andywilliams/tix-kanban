@@ -112,6 +112,16 @@ export async function initConversation(
           details: `Conversation reset from terminal state "${previousStatus}" and reinitialized`,
           metadata: { previousStatus, participants, maxIterations, budgetCap },
         });
+      } else {
+        // Apply latest runtime parameters when restoring an active/non-terminal conversation.
+        state = {
+          ...state,
+          participants,
+          maxIterations,
+          budgetCap,
+        };
+        task.conversationState = state;
+        await writeTask(task);
       }
       
       activeConversations.set(taskId, state);
@@ -305,6 +315,7 @@ export async function recordPersonaResponse(
 
     // 1. Human pause (already handled by pauseConversation)
     if (state.status === 'paused') {
+      await persistConversationState(taskId, state, { skipLock: true });
       return { shouldContinue: false, reason: 'Paused by human' };
     }
 
