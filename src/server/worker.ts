@@ -113,15 +113,14 @@ function truncatePromptForContext(prompt: string): { prompt: string; wasTruncate
 
 function detectKnownClaudeError(stderr: string): string | null {
   const patterns = [
-    /\bmcp\b.*(error|fail(?:ed)?|disconnect(?:ed)?|unavailable)/i,
-    /(error|fail(?:ed)?|disconnect(?:ed)?|unavailable).*\bmcp\b/i,
-    /failed to connect/i,
-    /connection refused/i,
-    /connection reset/i,
-    /tool error/i,
-    /failed tool/i,
-    /tool execution failed/i,
-    /permission denied/i,
+    /(?:^|\n)\s*(?:fatal|panic|unhandled exception)\b.*\bclaude\b/i,
+    /(?:^|\n)\s*claude process\b.*\b(?:crash(?:ed)?|exit(?:ed)?|terminated)\b/i,
+    /(?:^|\n)\s*claude process exited with code\s+\d+/i,
+    /(?:^|\n)\s*mcp server\b.*\b(?:error|fail(?:ed)?|disconnect(?:ed)?|unavailable|tim(?:e|ed)\s*out)\b/i,
+    /(?:^|\n)\s*(?:failed to connect|connection (?:refused|reset)).*\bmcp server\b/i,
+    /(?:^|\n)\s*\bmcp server\b.*(?:failed to connect|connection (?:refused|reset))/i,
+    /(?:^|\n)\s*(?:fatal:?\s*)?(?:mcp server|claude process)\b.*\bpermission denied\b/i,
+    /(?:^|\n)\s*(?:fatal:?\s*)?(?:mcp server|claude process)\b.*\btool (?:error|execution failed|failed)\b/i,
   ];
   const match = patterns.find((pattern) => pattern.test(stderr));
   if (!match) return null;
@@ -214,7 +213,7 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
     child.stderr.on('data', (data) => {
       const chunk = data.toString();
       stderr += chunk;
-      const knownError = detectKnownClaudeError(chunk);
+      const knownError = detectKnownClaudeError(stderr);
       if (knownError && !settled) {
         child.kill('SIGTERM');
         timeoutKill = setTimeout(() => {
