@@ -303,7 +303,7 @@ app.put('/api/tasks/:id', async (req, res) => {
         (p) => p.id === targetPersonaRef || p.name.toLowerCase() === targetPersonaRef.toLowerCase(),
       );
       if (targetPersona) {
-        const effectiveRepo = updates.repo !== undefined ? updates.repo : previousTask.repo;
+        const effectiveRepo = updates.repo ?? previousTask.repo;
         const requiredProviders = getRequiredProviders({
           ...previousTask,
           ...updates,
