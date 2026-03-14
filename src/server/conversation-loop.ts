@@ -16,6 +16,7 @@ import { getMessages, addMessage } from './chat-storage.js';
 import { getPersona } from './persona-storage.js';
 import { buildConversationContext, spawnClaude } from './conversation-context.js';
 import { estimateTokens } from './token-budget.js';
+import { calculateCost, DEFAULT_COST_MODEL } from './collaboration-budget.js';
 import {
   initConversation,
   startConversation,
@@ -249,6 +250,7 @@ async function executePersonaTurn(taskId: string, personaId: string): Promise<bo
       const { shouldContinue, reason } = await recordPersonaResponse(
         taskId,
         personaId,
+        response.model,
         response.inputTokens,
         response.outputTokens,
         response.costUSD
@@ -281,21 +283,24 @@ async function generatePersonaResponse(
   task: Task,
   conversationSummary: string,
   recentMessages: any[]
-): Promise<{ text: string; inputTokens: number; outputTokens: number; tokensUsed: number; costUSD: number }> {
+): Promise<{ text: string; model: string; inputTokens: number; outputTokens: number; tokensUsed: number; costUSD: number }> {
   // Build prompt
   const prompt = buildPersonaPrompt(persona, task, conversationSummary, recentMessages);
+  const configuredModel = task.model || persona.model || undefined;
+  const budgetModel = configuredModel || DEFAULT_COST_MODEL;
 
   // Call AI (using Claude CLI for now)
-  const response = await callClaude(prompt, 90000); // 90s timeout
+  const response = await callClaude(prompt, 90000, configuredModel); // 90s timeout
 
   // Estimate tokens and cost
   const inputTokens = estimateTokens(prompt);
   const outputTokens = estimateTokens(response);
   const tokensUsed = inputTokens + outputTokens;
-  const costUSD = estimateCost(inputTokens, outputTokens);
+  const costUSD = calculateCost(budgetModel, inputTokens, outputTokens);
 
   return {
     text: response,
+    model: budgetModel,
     inputTokens,
     outputTokens,
     tokensUsed,
@@ -346,16 +351,9 @@ function buildPersonaPrompt(
 /**
  * Call Claude CLI
  */
-function callClaude(prompt: string, timeoutMs: number): Promise<string> {
-  return spawnClaude(['-p', '-', '--max-turns', '1'], prompt, timeoutMs);
-}
-
-/**
- * Estimate cost (rough approximation for Sonnet)
- */
-function estimateCost(inputTokens: number, outputTokens: number): number {
-  // Sonnet 3.5: $3/1M input, $15/1M output
-  return (inputTokens / 1_000_000) * 3.0 + (outputTokens / 1_000_000) * 15.0;
+function callClaude(prompt: string, timeoutMs: number, model?: string): Promise<string> {
+  const args = model ? ['-p', '-', '--model', model, '--max-turns', '1'] : ['-p', '-', '--max-turns', '1'];
+  return spawnClaude(args, prompt, timeoutMs);
 }
 
 /**

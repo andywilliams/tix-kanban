@@ -283,6 +283,7 @@ export async function resumeConversation(taskId: string): Promise<boolean> {
 export async function recordPersonaResponse(
   taskId: string,
   personaId: string,
+  model: string,
   inputTokens: number,
   outputTokens: number,
   costUSD: number
@@ -300,14 +301,12 @@ export async function recordPersonaResponse(
     // Atomically check limits and record usage in one lock acquisition.
     const budgetResult = await checkAndRecordUsage(
       personaId,
-      'claude-3-5-sonnet-20241022',
+      model,
       inputTokens,
       outputTokens,
       taskId
     );
-    if (budgetResult.allowed) {
-      state.budgetSpent += costUSD;
-    }
+    state.budgetSpent += costUSD;
     const tokensUsed = inputTokens + outputTokens;
 
     await logConversationEvent({

@@ -40,6 +40,7 @@ const MODEL_COSTS = {
   'gpt-3.5-turbo': { input: 0.5, output: 1.5 },
   default: { input: 3.0, output: 15.0 },
 };
+export const DEFAULT_COST_MODEL = 'default';
 
 export interface BudgetEntry {
   timestamp: Date;
@@ -121,35 +122,44 @@ export async function checkAndRecordUsage(
 ): Promise<{ allowed: boolean; reason?: string }> {
   return withBudgetLock(async () => {
     const budget = await getTodaysBudget();
-    const cost = calculateCost(model, inputTokens, outputTokens);
-
-    // Check all limits before recording anything
-    if (budget.totalCost + cost > BUDGET_LIMITS.globalDaily) {
-      return { allowed: false, reason: `Global daily budget exceeded ($${budget.totalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
-    }
-    const personaCost = budget.byPersona[personaId] || 0;
-    if (personaCost + cost > BUDGET_LIMITS.perPersona) {
-      return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
-    }
-    if (taskId) {
-      const taskCost = budget.byTask[taskId] || 0;
-      if (taskCost + cost > BUDGET_LIMITS.perTicket) {
-        return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
-      }
-    }
+    const resolvedModel = model || DEFAULT_COST_MODEL;
+    const cost = calculateCost(resolvedModel, inputTokens, outputTokens);
+    const previousTotalCost = budget.totalCost;
+    const previousPersonaCost = budget.byPersona[personaId] || 0;
+    const previousTaskCost = taskId ? (budget.byTask[taskId] || 0) : 0;
 
     // Dry-run: just check limits, don't record usage
     if (options.dryRun) {
+      if (previousTotalCost + cost > BUDGET_LIMITS.globalDaily) {
+        return { allowed: false, reason: `Global daily budget exceeded ($${previousTotalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
+      }
+      if (previousPersonaCost + cost > BUDGET_LIMITS.perPersona) {
+        return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${previousPersonaCost.toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
+      }
+      if (taskId && previousTaskCost + cost > BUDGET_LIMITS.perTicket) {
+        return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${previousTaskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
+      }
       return { allowed: true };
     }
 
-    // All checks passed — record atomically in the same lock
-    budget.entries.push({ timestamp: new Date(), taskId, personaId, model, inputTokens, outputTokens, cost });
+    // Always record usage first: spend already occurred once we have token counts.
+    budget.entries.push({ timestamp: new Date(), taskId, personaId, model: resolvedModel, inputTokens, outputTokens, cost });
     budget.totalCost += cost;
     budget.byPersona[personaId] = (budget.byPersona[personaId] || 0) + cost;
     if (taskId) budget.byTask[taskId] = (budget.byTask[taskId] || 0) + cost;
     await saveBudget(budget);
     console.log(`💰 Budget: ${personaId} used $${cost.toFixed(4)} (${inputTokens}/${outputTokens} tokens)`);
+
+    // Evaluate limits after recording so overages still include incurred usage.
+    if (budget.totalCost > BUDGET_LIMITS.globalDaily) {
+      return { allowed: false, reason: `Global daily budget exceeded ($${budget.totalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
+    }
+    if (budget.byPersona[personaId] > BUDGET_LIMITS.perPersona) {
+      return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${budget.byPersona[personaId].toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
+    }
+    if (taskId && budget.byTask[taskId] > BUDGET_LIMITS.perTicket) {
+      return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${budget.byTask[taskId].toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
+    }
     return { allowed: true };
   });
 }
