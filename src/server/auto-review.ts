@@ -265,10 +265,20 @@ async function createReviewContext(
 
   // Build cycle-aware instructions
   let cycleInstructions = '';
+  let previousRejectionsSection = '';
+  let reviewFocusSection = '';
   if (reviewCycle === 1) {
     cycleInstructions = `## CYCLE 1 REVIEW
 This is the first review cycle. Review against acceptance criteria, raise ALL issues you find.
 Be thorough — this is your opportunity to identify everything that needs fixing.`;
+    reviewFocusSection = `## REVIEW CRITERIA
+Evaluate these aspects:
+1. **Completeness** - Does the work address all requirements in the task?
+2. **Quality** - Is the work well-executed and following best practices?
+3. **Documentation** - Are changes properly documented/commented?
+4. **Testing** - Are appropriate tests included (if applicable)?
+5. **Security** - Are there any obvious security concerns?
+6. **Readiness** - Is this ready for human review or deployment?`;
   } else {
     // For cycle 2+, show only previous rejections so reviewer focuses on those
     const previousRejections = reviewState.reviewHistory
@@ -283,11 +293,16 @@ You MUST follow these rules:
 - ONLY reject if issues from previous cycles were NOT addressed
 - Do NOT introduce new issues on later cycles
 - If previous issues were fixed, approve the work
-
-## PREVIOUS REJECTION REASONS
-${previousRejections || 'No previous rejections'}
-
 Focus ONLY on whether the above issues were addressed. Do not look for new problems.`;
+
+    previousRejectionsSection = `## PREVIOUS REJECTION REASONS
+${previousRejections || 'No previous rejections'}`;
+
+    reviewFocusSection = `## REVIEW FOCUS
+Do not run a fresh full-criteria review on cycle ${reviewCycle}.
+- Validate only whether the previous rejection reasons were resolved
+- Do NOT introduce new issues
+- Reject only if previously identified problems remain unresolved`;
   }
 
   // Find the work summary comment (most recent one with ## Work Summary)
@@ -309,6 +324,8 @@ You are conducting cycle ${reviewCycle} of quality review for the completed task
 
 ${cycleInstructions}
 
+${previousRejectionsSection}
+
 ## TASK DETAILS
 **Title:** ${task.title}
 **Description:** ${task.description}
@@ -328,17 +345,7 @@ ${reviewCycle === 1 ? (previousReviews || 'No previous reviews') : '(See PREVIOU
 ## YOUR ROLE AS REVIEWER
 Your job is to evaluate if the work completed meets quality standards for ${reviewCycle === 1 ? 'first review' : `review cycle ${reviewCycle}`}.
 
-## REVIEW CRITERIA
-${reviewCycle === 1 ? `Evaluate these aspects:
-1. **Completeness** - Does the work address all requirements in the task?
-2. **Quality** - Is the work well-executed and following best practices?
-3. **Documentation** - Are changes properly documented/commented?
-4. **Testing** - Are appropriate tests included (if applicable)?
-5. **Security** - Are there any obvious security concerns?
-6. **Readiness** - Is this ready for human review or deployment?` : `On subsequent review cycles, focus ONLY on whether the previous rejection reasons have been addressed.
-- Do NOT introduce new issues
-- Only reject if the previously identified problems remain unresolved
-- If previous issues were fixed, approve the work`}
+${reviewFocusSection}
 
 ## DECISION FORMATS
 You must output your decision in this exact format:
