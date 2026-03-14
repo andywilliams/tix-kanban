@@ -139,6 +139,7 @@ export async function getAllPersonas(): Promise<Persona[]> {
         description: data.description,
         specialties: data.specialties,
         stats: data.stats,
+        providers: data.providers,
         prompt,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
@@ -171,6 +172,7 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       description: data.description,
       specialties: data.specialties,
       stats: data.stats,
+      providers: data.providers,
       prompt,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
@@ -182,10 +184,10 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
 }
 
 // Create persona
-export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt' | 'updatedAt'>): Promise<Persona> {
+export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<Persona> {
   try {
-    // Generate ID from name
-    const id = personaData.name
+    // Use provided ID or generate from name
+    const id = personaData.id ?? personaData.name
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .replace(/-+/g, '-')
@@ -207,6 +209,7 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       description: persona.description,
       specialties: persona.specialties,
       stats: persona.stats,
+      providers: persona.providers,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
     };
@@ -1369,12 +1372,14 @@ When a reminder is triggered, you'll be notified. Include task context when rele
         for (const yamlPersona of yamlPersonas) {
           if (!currentIds.has(yamlPersona.id)) {
             await createPersona({
+              id: yamlPersona.id,
               name: yamlPersona.name,
               emoji: yamlPersona.emoji,
               description: yamlPersona.description,
               prompt: yamlPersona.prompt,
               specialties: yamlPersona.specialties,
               model: yamlPersona.model,
+              providers: yamlPersona.providers,
               stats: {
                 tasksCompleted: 0,
                 averageCompletionTime: 0,
