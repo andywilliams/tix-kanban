@@ -158,13 +158,13 @@ function selectNextSpeaker(state: any): string | null {
     return null;
   }
 
-  // Simple round-robin: cycle through participants
-  const currentIndex = state.waitingOn
-    ? state.participants.indexOf(state.waitingOn)
-    : -1;
+  // If waitingOn is set, that IS the next speaker (the loop already advanced it)
+  if (state.waitingOn && state.participants.includes(state.waitingOn)) {
+    return state.waitingOn;
+  }
 
-  const nextIndex = (currentIndex + 1) % state.participants.length;
-  return state.participants[nextIndex];
+  // No waitingOn set yet — start with the first participant
+  return state.participants[0];
 }
 
 /**

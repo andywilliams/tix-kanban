@@ -369,14 +369,23 @@ export async function checkIdleTimeout(taskId: string): Promise<boolean> {
   const elapsed = Date.now() - state.lastActivityAt.getTime();
   if (elapsed > state.idleTimeoutMs) {
     return withTaskLock(taskId, async () => {
-      state.status = 'failed';
-      state.completedAt = new Date();
+      // Re-check inside the lock: another operation may have advanced activity or changed status
+      const lockState = activeConversations.get(taskId);
+      if (!lockState || lockState.status !== 'active') {
+        return false;
+      }
+      const elapsedNow = Date.now() - lockState.lastActivityAt.getTime();
+      if (elapsedNow <= lockState.idleTimeoutMs) {
+        return false; // Activity happened while waiting for the lock
+      }
+      lockState.status = 'failed';
+      lockState.completedAt = new Date();
       activeConversations.delete(taskId); // Clean up memory
-      await persistConversationState(taskId, state);
+      await persistConversationState(taskId, lockState);
       await logConversationEvent({
         taskId,
         type: 'idle-timeout',
-        details: `Conversation timed out after ${Math.round(elapsed / 1000)}s of inactivity`,
+        details: `Conversation timed out after ${Math.round(elapsedNow / 1000)}s of inactivity`,
       });
       return true;
     });
@@ -404,15 +413,24 @@ export async function detectDeadlock(taskId: string): Promise<boolean> {
     const elapsed = Date.now() - state.lastActivityAt.getTime();
     if (elapsed > DEADLOCK_CHECK_INTERVAL_MS) {
       return withTaskLock(taskId, async () => {
-        state.status = 'deadlocked';
-        state.completedAt = new Date();
+        // Re-check inside the lock: status or waitingOn may have changed
+        const lockState = activeConversations.get(taskId);
+        if (!lockState || lockState.status !== 'active' || !lockState.waitingOn) {
+          return false;
+        }
+        const elapsedNow = Date.now() - lockState.lastActivityAt.getTime();
+        if (elapsedNow <= DEADLOCK_CHECK_INTERVAL_MS) {
+          return false; // Activity happened while waiting for the lock
+        }
+        lockState.status = 'deadlocked';
+        lockState.completedAt = new Date();
         activeConversations.delete(taskId); // Clean up memory
-        await persistConversationState(taskId, state);
+        await persistConversationState(taskId, lockState);
         await logConversationEvent({
           taskId,
           type: 'deadlock-detected',
-          details: `Deadlock detected: waiting on ${state.waitingOn} for ${Math.round(elapsed / 1000)}s`,
-          metadata: { waitingOn: state.waitingOn },
+          details: `Deadlock detected: waiting on ${lockState.waitingOn} for ${Math.round(elapsedNow / 1000)}s`,
+          metadata: { waitingOn: lockState.waitingOn },
         });
         return true;
       });
