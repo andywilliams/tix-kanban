@@ -30,7 +30,8 @@ import {
   triggerSlxSync,
   toggleReminderCheckScheduler,
   updateReminderCheckInterval,
-  triggerReminderCheck
+  triggerReminderCheck,
+  getRequiredProviders
 } from './worker.js';
 import {
   getRules,
@@ -303,10 +304,11 @@ app.put('/api/tasks/:id', async (req, res) => {
       );
       if (targetPersona) {
         const effectiveRepo = updates.repo !== undefined ? updates.repo : previousTask.repo;
-        const requiredProviders: string[] = [];
-        if (effectiveRepo) {
-          requiredProviders.push('github');
-        }
+        const requiredProviders = getRequiredProviders({
+          ...previousTask,
+          ...updates,
+          repo: effectiveRepo,
+        } as Task);
 
         for (const provider of requiredProviders) {
           try {

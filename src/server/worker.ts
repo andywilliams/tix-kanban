@@ -33,7 +33,7 @@ import {
 } from './personal-reminders.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
 
-function getRequiredProviders(task: Task): string[] {
+export function getRequiredProviders(task: Task): string[] {
   const requiredProviders: string[] = [];
   if (task.repo) {
     requiredProviders.push('github');
