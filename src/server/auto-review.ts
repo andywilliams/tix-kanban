@@ -263,6 +263,33 @@ async function createReviewContext(
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
 
+  // Build cycle-aware instructions
+  let cycleInstructions = '';
+  if (reviewCycle === 1) {
+    cycleInstructions = `## CYCLE 1 REVIEW
+This is the first review cycle. Review against acceptance criteria, raise ALL issues you find.
+Be thorough — this is your opportunity to identify everything that needs fixing.`;
+  } else {
+    // For cycle 2+, show only previous rejections so reviewer focuses on those
+    const previousRejections = reviewState.reviewHistory
+      .filter(attempt => attempt.decision === 'reject')
+      .map(attempt => `Cycle ${attempt.cycle} rejection: ${attempt.feedback}`)
+      .join('\n\n');
+    
+    cycleInstructions = `## CYCLE ${reviewCycle} REVIEW
+⚠️ IMPORTANT: This is review cycle ${reviewCycle}. 
+
+You MUST follow these rules:
+- ONLY reject if issues from cycle 1 were NOT addressed
+- Do NOT introduce new issues on later cycles
+- If previous issues were fixed, approve the work
+
+## PREVIOUS REJECTION REASONS (cycle 1)
+${previousRejections || 'No previous rejections'}
+
+Focus ONLY on whether the above issues were addressed. Do not look for new problems.`;
+  }
+
   // Find the work summary comment (most recent one with ## Work Summary)
   const workSummaryComment = task.comments?.slice().reverse().find(c => c.body.includes('## Work Summary'));
   
@@ -279,6 +306,8 @@ async function createReviewContext(
   return `## AUTO-REVIEW QUALITY GATE${workSummarySection}
 
 You are conducting cycle ${reviewCycle} of quality review for the completed task.
+
+${cycleInstructions}
 
 ## TASK DETAILS
 **Title:** ${task.title}
