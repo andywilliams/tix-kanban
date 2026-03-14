@@ -88,9 +88,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   }
 
   // Record human message to reset idle timer in collaboration control
-  recordHumanMessage(message.channelId).catch(err =>
-    console.warn('Failed to record human message in collaboration control:', err)
-  );
+  await recordHumanMessage(message.channelId);
 
   // Get all available personas
   const personas = await getAllPersonas();
@@ -453,8 +451,8 @@ async function generatePersonaResponse(
     }
 
     // Preliminary budget check — dry-run only (no recording). Actual usage is recorded after generation.
-    // Use conservative token estimates (80k input + 8k output) to check if there's headroom.
-    const preliminaryBudgetCheck = await checkAndRecordUsage(persona.id, model, 80000, 8000, taskId, { dryRun: true });
+    // Use conservative token estimates (10k input + 2k output) to check if there's headroom.
+    const preliminaryBudgetCheck = await checkAndRecordUsage(persona.id, model, 10000, 2000, taskId, { dryRun: true });
     if (!preliminaryBudgetCheck.allowed) {
       console.log(`💸 ${persona.name} budget exceeded: ${preliminaryBudgetCheck.reason}`);
       auditTurnDenied(originalMessage.channelId, persona.id, preliminaryBudgetCheck.reason || 'Budget exceeded').catch(() => {});
