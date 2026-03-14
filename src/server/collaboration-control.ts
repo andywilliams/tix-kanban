@@ -133,11 +133,13 @@ export async function recordTurn(channelId: string, personaId: string, hasProgre
  * when humans send messages but no persona has responded yet.
  */
 export async function recordHumanMessage(channelId: string): Promise<void> {
-  let state = await getCollaborationState(channelId);
-  if (!state) return; // No active collaboration to update
-  state.lastMessageAt = new Date();
-  await saveCollaborationState(state);
-  console.log(`💬 Human message recorded in ${channelId} - idle timer reset`);
+  return withChannelLock(channelId, async () => {
+    let state = await getCollaborationState(channelId);
+    if (!state) return; // No active collaboration to update
+    state.lastMessageAt = new Date();
+    await saveCollaborationState(state);
+    console.log(`💬 Human message recorded in ${channelId} - idle timer reset`);
+  });
 }
 
 export async function getCollaborationStatus(channelId: string): Promise<string> {

@@ -141,7 +141,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
   }
 
   if (d.budgetCap !== undefined) {
-    if (typeof d.budgetCap !== 'object' || Array.isArray(d.budgetCap)) {
+    if (d.budgetCap === null || typeof d.budgetCap !== 'object' || Array.isArray(d.budgetCap)) {
       errors.push('Field "budgetCap" must be an object');
     } else {
       const bc = d.budgetCap as Record<string, unknown>;
