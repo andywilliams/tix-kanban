@@ -34,9 +34,33 @@ export interface MessageProvider {
   configure?(config: any): Promise<void>;
 }
 
+export interface DocumentData {
+  id: string;
+  path: string;
+  title: string;
+  content: string;
+  lastModified: string;
+  keywords?: string[];  // Extracted keywords for faster matching
+}
+
+export interface DocumentProvider {
+  name: string;
+  waitUntilReady?(): Promise<void>;  // Wait for provider to be ready
+  index(paths: string[]): Promise<void>;  // Index documents from paths
+  search(query: string, limit?: number): Promise<DocumentData[]>;  // Search for relevant docs
+  list(): Promise<DocumentData[]>;  // List all indexed documents
+  refresh(): Promise<void>;  // Re-index all documents
+  configure?(config: any): Promise<void>;
+}
+
 export interface ProviderConfig {
   ticketProvider?: string;  // 'tix' | 'file' | 'github-issues' | custom
   messageProvider?: string; // 'slx' | 'file' | custom
+  documentProvider?: string; // 'document' | custom
   ticketProviderConfig?: any;
   messageProviderConfig?: any;
+  documentProviderConfig?: {
+    paths?: string[];  // Default paths to index (e.g., ['docs/', 'adrs/', 'runbooks/'])
+    watchMode?: boolean;  // Auto-refresh on file changes
+  };
 }

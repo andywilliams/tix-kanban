@@ -15,10 +15,10 @@
     "validate-provider": "node scripts/validate-provider.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.33.0",
     "@dnd-kit/core": "^6.0.8",
     "@dnd-kit/sortable": "^7.0.2",
     "@dnd-kit/utilities": "^3.2.1",
-    "@notionhq/client": "^5.9.0",
     "@types/inquirer": "^9.0.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "express": "^4.18.2",

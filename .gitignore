@@ -48,6 +48,7 @@ Thumbs.db
 !README.md
 !API-REFERENCE.md
 !GITHUB_RATE_LIMITS.md
+!documentation/*.md
 
 # Local data (should be in ~/.tix-kanban/)
 tasks/

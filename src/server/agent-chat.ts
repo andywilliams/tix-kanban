@@ -26,18 +26,41 @@ import {
   AgentSoul
 } from './agent-soul.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
-import { addMessage, getMessages, ChatMessage } from './chat-storage.js';
-import { getAllTasks, createTask } from './storage.js';
+import { 
+  addMessage, 
+  getMessages, 
+  ChatMessage,
+  acquireSpeakingTurn,
+  releaseSpeakingTurn,
+  getChannel
+} from './chat-storage.js';
+import { getAllTasks, createTask, getTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
 import {
   TokenTracker,
   buildBudgetedSection,
-  getDefaultBudget
+  getDefaultBudget,
+  estimateTokens
 } from './token-budget.js';
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
+import {
+  canTakeTurn,
+  recordTurn,
+  recordHumanMessage,
+} from './collaboration-control.js';
+import {
+  checkAndRecordUsage,
+  recordUsage,
+  calculateCost,
+} from './collaboration-budget.js';
+import {
+  auditTurnTaken,
+  auditTurnDenied,
+  auditError,
+} from './collaboration-audit.js';
 
 
 export interface ChatContext {
@@ -64,6 +87,9 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     return;
   }
 
+  // Record human message to reset idle timer in collaboration control
+  await recordHumanMessage(message.channelId);
+
   // Get all available personas
   const personas = await getAllPersonas();
 
@@ -83,7 +109,8 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   // Check for "remember" command
   const rememberCmd = parseRememberCommand(message.content);
 
-  // Process each mentioned persona
+  // Process each mentioned persona sequentially to ensure fair turn-taking
+  // When multiple personas are mentioned, they respond one at a time
   for (const persona of mentionedPersonas) {
     // Handle remember command
     if (rememberCmd) {
@@ -91,10 +118,12 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       continue;
     }
 
-    // Generate contextual response
-    generatePersonaResponse(message, persona).catch(error => {
+    // Generate contextual response - await to ensure fair queuing
+    try {
+      await generatePersonaResponse(message, persona);
+    } catch (error) {
       console.error(`Failed to generate response for persona ${persona.name}:`, error);
-    });
+    }
   }
 }
 
@@ -381,8 +410,62 @@ async function generatePersonaResponse(
   originalMessage: ChatMessage,
   persona: Persona
 ): Promise<void> {
+  let turnAcquired = false;
   try {
     console.log(`🤖 Generating response for persona: ${persona.name} (${persona.emoji})`);
+    
+    // Try to acquire speaking turn (implements turn-taking)
+    const acquired = await acquireSpeakingTurn(originalMessage.channelId, persona.id);
+    if (!acquired) {
+      console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
+      // Notify via audit trail so dropped turns are observable
+      auditTurnDenied(originalMessage.channelId, persona.id, 'Another persona is currently speaking').catch(() => {});
+      return;
+    }
+    turnAcquired = true;
+
+    // Check collaboration control: pause/resume and turn limits
+    const turnCheck = await canTakeTurn(originalMessage.channelId, persona.id);
+    if (!turnCheck.allowed) {
+      console.log(`🚫 ${persona.name} blocked by collaboration control: ${turnCheck.reason}`);
+      auditTurnDenied(originalMessage.channelId, persona.id, turnCheck.reason || 'Turn denied by collaboration control').catch(() => {});
+      return;
+    }
+
+    // Check budget before generating a response
+    // We'll do a preliminary check with conservative estimates, then record actual usage after generation
+    const model = persona.model || 'claude-3-5-sonnet-20241022';
+
+    // Determine channel type for per-ticket budget tracking
+    const channelType = getChannelType(originalMessage.channelId);
+
+    // Get task ID for per-ticket budget tracking
+    let taskId: string | undefined;
+    if (channelType === 'task') {
+      try {
+        const channel = await getChannel(originalMessage.channelId);
+        taskId = channel?.taskId;
+      } catch (error) {
+        console.warn(`Failed to get task ID for budget: ${error}`);
+      }
+    }
+
+    // Preliminary budget check — dry-run only (no recording). Actual usage is recorded after generation.
+    // Use conservative token estimates (10k input + 2k output) to check if there's headroom.
+    const preliminaryBudgetCheck = await checkAndRecordUsage(persona.id, model, 10000, 2000, taskId, { dryRun: true });
+    if (!preliminaryBudgetCheck.allowed) {
+      console.log(`💸 ${persona.name} budget exceeded: ${preliminaryBudgetCheck.reason}`);
+      auditTurnDenied(originalMessage.channelId, persona.id, preliminaryBudgetCheck.reason || 'Budget exceeded').catch(() => {});
+      // Notify the channel that the persona is budget-limited
+      await addMessage(
+        originalMessage.channelId,
+        persona.name,
+        'persona',
+        `⚠️ I've hit my spending limit for today and can't respond right now. (${preliminaryBudgetCheck.reason})`,
+        originalMessage.id
+      );
+      return;
+    }
 
     const userId = originalMessage.author;
     const tracker = new TokenTracker();
@@ -398,13 +481,40 @@ async function generatePersonaResponse(
     }
 
     // Get recent chat history — fetch more for general channels so we can filter
-    const channelType = getChannelType(originalMessage.channelId);
     const fetchLimit = (channelType === 'general' || channelType === 'task') ? 30 : 15;
     let recentMessages: ChatMessage[] = [];
     try {
       recentMessages = await getMessages(originalMessage.channelId, fetchLimit);
     } catch (error) {
       console.warn(`Failed to fetch chat history: ${error}`);
+    }
+    
+    // Get task context if this is a task channel
+    let taskContext = '';
+    if (channelType === 'task') {
+      try {
+        const channel = await getChannel(originalMessage.channelId);
+        if (channel && channel.taskId) {
+          const task = await getTask(channel.taskId);
+          if (task) {
+            taskContext = `## Task Context
+
+**Task ID:** ${task.id}
+**Title:** ${task.title}
+**Status:** ${task.status}
+**Description:**
+${task.description}
+
+${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}
+${task.assignee ? `**Assigned to:** ${task.assignee}` : ''}
+
+This conversation is about the task described above. Keep your responses relevant to this context.
+`;
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to get task context: ${error}`);
+      }
     }
 
     // Build memory context (with error resilience)
@@ -512,6 +622,7 @@ async function generatePersonaResponse(
       memoryContext,
       relevantMemories,
       teamContext,
+      taskContext,
       boardContext,
       prContext,
       knowledgeContext,
@@ -532,13 +643,20 @@ async function generatePersonaResponse(
       memoryContext,
       relevantMemories,
       teamContext,
+      taskContext, // Keep task context on retry (important for task conversations)
       boardContext: '', // Strip board on retry
       prContext: '', // Strip PRs on retry
       knowledgeContext: '', // Strip knowledge on retry
       slackContext: '', // Strip slack on retry
-      tracker: new TokenTracker(),
+      tracker, // Reuse outer tracker so retry prompt tokens are counted in actual usage
       budget
     });
+
+    // Record actual token usage after generation (instead of pre-check estimates)
+    // Use tracker.totalUsed for input tokens and estimate output from response
+    const actualInputTokens = tracker.totalUsed;
+    const actualOutputTokens = estimateTokens(response);
+    await recordUsage(persona.id, model, actualInputTokens, actualOutputTokens, taskId);
 
     if (response && response.length > 0) {
       // Parse and execute any actions from the response
@@ -616,11 +734,25 @@ async function generatePersonaResponse(
       maybeUpdateSummary(originalMessage.channelId).catch(() => {});
 
       console.log(`✅ ${persona.name} responded in channel ${originalMessage.channelId}${actions.length > 0 ? ` (${actions.length} actions executed)` : ''}`);
+
+      // Record collaboration turn after a successful response
+      const turnNumber = await recordTurn(originalMessage.channelId, persona.id, true).catch(err => {
+        console.warn('Failed to record collaboration turn:', err);
+        return 0;
+      });
+      auditTurnTaken(
+        originalMessage.channelId, persona.id, turnNumber, originalMessage.id,
+        actualInputTokens, actualOutputTokens,
+        calculateCost(model, actualInputTokens, actualOutputTokens)
+      ).catch(() => {});
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
     }
   } catch (error) {
     console.error(`❌ Failed to generate persona response for ${persona.name}:`, error);
+
+    // Audit the error for observability
+    auditError(originalMessage.channelId, persona.id, error instanceof Error ? error : new Error(String(error))).catch(() => {});
 
     // Post error message
     try {
@@ -632,6 +764,16 @@ async function generatePersonaResponse(
         originalMessage.id
       );
     } catch {}
+  } finally {
+    // Only release turn if it was actually acquired
+    if (turnAcquired) {
+      try {
+        await releaseSpeakingTurn(originalMessage.channelId, persona.id);
+      } catch (releaseError) {
+        console.error('Failed to release speaking turn:', releaseError);
+        // Don't rethrow - we don't want to mask the original error
+      }
+    }
   }
 }
 
@@ -653,6 +795,7 @@ interface PromptContext {
   memoryContext: string;
   relevantMemories: any[];
   teamContext: string;
+  taskContext?: string; // Task context for task channel conversations
   boardContext: string;
   prContext: string;
   knowledgeContext?: string;
@@ -662,7 +805,7 @@ interface PromptContext {
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -702,6 +845,15 @@ function buildChatPrompt(context: PromptContext): string {
 
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
+
+  // Task context (for task channel conversations) - use budgeted tracker
+  if (taskContext) {
+    sections.push(tracker.record('task', buildBudgetedSection(
+      'Task',
+      `\n${taskContext}`,
+      budget.task
+    )));
+  }
 
   // Knowledge base context (if available and relevant)
   if (knowledgeContext) {
