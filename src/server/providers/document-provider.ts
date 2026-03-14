@@ -6,6 +6,12 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import matter from 'gray-matter';
+// Common stop words - defined once at module level to avoid recreation on every extractKeywords call
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
+  'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
+  'could', 'should', 'would', 'may', 'might', 'must', 'shall',
+]);
 
 interface DocumentIndex {
   documents: DocumentData[];
@@ -53,29 +59,25 @@ export class LocalDocumentProvider implements DocumentProvider {
       
       const docs = await this.indexPath(validatedPath);
       newDocs.push(...docs);
-      this.indexedPaths.add(p);
+      this.indexedPaths.add(validatedPath);
     }
 
-    // Deduplicate newDocs by ID (handle duplicates within same batch)
-    const seenIds = new Set<string>();
-    const uniqueNewDocs = newDocs.filter(doc => {
-      if (seenIds.has(doc.id)) return false;
-      seenIds.add(doc.id);
-      return true;
-    });
-
-    // Deduplicate: replace existing documents with matching IDs (they may have been updated)
-    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
-    const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
+    // Use a Map to deduplicate AND preserve updated versions
+    // Key: document ID, Value: document (last occurrence wins for updates)
+    const docsMap = new Map<string, DocumentData>();
     
-    // Remove documents that will be replaced by new versions
-    const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
-    this.documentIndex.documents = this.documentIndex.documents.filter(
-      d => !docsToRemove.has(d.id)
-    );
+    // First, add existing documents (they may be updated by new docs with same ID)
+    for (const doc of this.documentIndex.documents) {
+      docsMap.set(doc.id, doc);
+    }
     
-    // Add all new documents (both new and updated versions)
-    this.documentIndex.documents.push(...uniqueNewDocs);
+    // Then, add/overwrite with new documents (updated versions replace old ones)
+    for (const doc of newDocs) {
+      docsMap.set(doc.id, doc);
+    }
+    
+    // Convert back to array
+    this.documentIndex.documents = Array.from(docsMap.values());
     
     // Rebuild TF-IDF index
     await this.buildTfidfIndex();
@@ -95,12 +97,13 @@ export class LocalDocumentProvider implements DocumentProvider {
 
       // Allow paths within the current working directory or common safe roots
       const cwd = process.cwd();
-      const home = process.env.HOME || '';
+      const home = os.homedir();
 
       // Path must be within cwd (project root) or the user home directory
       // This prevents arbitrary reads like /etc/passwd
       const isWithinCwd = resolved.startsWith(cwd + path.sep) || resolved === cwd;
-      const isWithinHome = home && (resolved.startsWith(home + path.sep) || resolved === home);
+      const isWithinHome =
+        home.length > 0 && (resolved.startsWith(home + path.sep) || resolved === home);
 
       if (!isWithinCwd && !isWithinHome) {
         return null;
@@ -119,17 +122,16 @@ export class LocalDocumentProvider implements DocumentProvider {
     const docs: DocumentData[] = [];
     
     try {
-      // Use lstat to detect symlinks without following them
+      // Use lstat to detect symlinks without following them (prevents symlink cycles)
       const lstat = await fs.lstat(targetPath);
       if (lstat.isSymbolicLink()) {
-        // Skip symlinks to prevent cycles
         return docs;
       }
 
       const stat = lstat;
       
       if (stat.isDirectory()) {
-        // Track visited real paths to detect hard-link cycles
+        // Track real paths to detect hard-link cycles
         const realPath = await fs.realpath(targetPath);
         if (visited.has(realPath)) return docs;
         visited.add(realPath);
@@ -179,7 +181,7 @@ export class LocalDocumentProvider implements DocumentProvider {
         title,
         content: body,
         lastModified: stat.mtime.toISOString(),
-        keywords: this.extractKeywords(title + ' ' + body),
+        keywords: this.buildKeywordCountMap(this.extractKeywords(title + ' ' + body)),
       };
     } catch (err: any) {
       console.error(`Error reading file ${filePath}:`, err.message);
@@ -198,36 +200,66 @@ export class LocalDocumentProvider implements DocumentProvider {
       .split(/\s+/)
       .filter(t => t.length > 2);  // Filter short words
     
-    // Remove common stop words
-    const stopWords = new Set([
-      'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
-      'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
-      'could', 'should', 'would', 'may', 'might', 'must', 'shall',
-    ]);
-    
-    return tokens.filter(t => !stopWords.has(t));
+    // Remove common stop words (using module-level constant)
+    return tokens.filter(t => !STOP_WORDS.has(t));
+  }
+
+  /**
+   * Convert a token list into a keyword -> count map for compact persistence.
+   */
+  private buildKeywordCountMap(tokens: string[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const token of tokens) {
+      counts[token] = (counts[token] || 0) + 1;
+    }
+    return counts;
+  }
+
+  /**
+   * Normalize stored keyword data. Supports legacy array format for migration.
+   */
+  private normalizeKeywordCounts(keywords: unknown): Record<string, number> {
+    if (!keywords) return {};
+
+    if (Array.isArray(keywords)) {
+      const counts: Record<string, number> = {};
+      for (const token of keywords) {
+        if (typeof token !== 'string') continue;
+        counts[token] = (counts[token] || 0) + 1;
+      }
+      return counts;
+    }
+
+    if (typeof keywords === 'object') {
+      const counts: Record<string, number> = {};
+      for (const [term, count] of Object.entries(keywords as Record<string, unknown>)) {
+        if (!term || typeof count !== 'number' || !Number.isFinite(count) || count <= 0) continue;
+        counts[term] = count;
+      }
+      return counts;
+    }
+
+    return {};
   }
 
   /**
    * Build TF-IDF index from documents
    */
-  private async buildTfidfIndex(): Promise<void> {
-    const { documents } = this.documentIndex;
+  private async buildTfidfIndex(target?: { documents: DocumentData[]; tfidf: Map<string, Map<string, number>>; idf: Map<string, number> }): Promise<void> {
+    const idx = target ?? this.documentIndex;
+    const { documents } = idx;
     const termFrequency: Map<string, Map<string, number>> = new Map();
     const documentFrequency: Map<string, number> = new Map();
     
     // Calculate term frequency (TF) for each document
     for (const doc of documents) {
-      const terms = doc.keywords || [];
-      const termCounts: Map<string, number> = new Map();
-      
-      for (const term of terms) {
-        termCounts.set(term, (termCounts.get(term) || 0) + 1);
-      }
+      const termCounts = this.normalizeKeywordCounts(doc.keywords);
       
       // Normalize TF (divide by total terms in doc)
-      const totalTerms = terms.length;
-      for (const [term, count] of termCounts) {
+      const totalTerms = Object.values(termCounts).reduce((sum, count) => sum + count, 0);
+      if (totalTerms === 0) continue;
+
+      for (const [term, count] of Object.entries(termCounts)) {
         if (!termFrequency.has(term)) {
           termFrequency.set(term, new Map());
         }
@@ -258,8 +290,8 @@ export class LocalDocumentProvider implements DocumentProvider {
       tfidf.set(term, scores);
     }
     
-    this.documentIndex.tfidf = tfidf;
-    this.documentIndex.idf = idf;
+    idx.tfidf = tfidf;
+    idx.idf = idf;
   }
 
   /**
@@ -304,13 +336,45 @@ export class LocalDocumentProvider implements DocumentProvider {
   async refresh(): Promise<void> {
     await this.ready;
     const paths = Array.from(this.indexedPaths);
-    this.documentIndex = {
-      documents: [],
-      tfidf: new Map(),
-      idf: new Map(),
+
+    // Build the new index entirely in a temp object so concurrent search()/list()
+    // calls keep reading from the current live index during the async rebuild.
+    const newIndex = {
+      documents: [] as DocumentData[],
+      tfidf: new Map<string, Map<string, number>>(),
+      idf: new Map<string, number>(),
     };
-    
-    await this.index(paths);
+    const newPaths = new Set<string>();
+
+    for (const p of paths) {
+      const validatedPath = this.validatePath(p);
+      if (!validatedPath) {
+        console.warn(`Path validation failed during refresh for: ${p}`);
+        continue;
+      }
+      const docs = await this.indexPath(validatedPath);
+      newIndex.documents.push(...docs);
+      newPaths.add(p);
+    }
+
+    // Deduplicate documents by ID using a Map (last occurrence wins for updates)
+    // This ensures modified files are updated, not skipped
+    const docsMap = new Map<string, DocumentData>();
+    for (const doc of newIndex.documents) {
+      docsMap.set(doc.id, doc); // Overwrites any existing doc with same ID
+    }
+    newIndex.documents = Array.from(docsMap.values());
+
+    // Build TF-IDF on the temp index (doesn't touch the live index)
+    await this.buildTfidfIndex(newIndex);
+
+    // Atomic swap: concurrent readers now see the fully-built new index.
+    // Stale paths (deleted/renamed since last index) are not carried over.
+    this.documentIndex = newIndex;
+    this.indexedPaths = newPaths;
+
+    // Persist the new index to disk
+    await this.saveIndex();
   }
 
   /**
@@ -341,7 +405,11 @@ export class LocalDocumentProvider implements DocumentProvider {
       const data = await fs.readFile(indexPath, 'utf8');
       const indexData = JSON.parse(data);
       
-      this.documentIndex.documents = indexData.documents || [];
+      const loadedDocuments = Array.isArray(indexData.documents) ? indexData.documents : [];
+      this.documentIndex.documents = loadedDocuments.map((doc: DocumentData) => ({
+        ...doc,
+        keywords: this.normalizeKeywordCounts(doc.keywords),
+      }));
       this.indexedPaths = new Set(indexData.indexedPaths || []);
       
       // Rebuild TF-IDF from loaded documents
