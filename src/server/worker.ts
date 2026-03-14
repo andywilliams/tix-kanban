@@ -1186,7 +1186,12 @@ async function runWorker(): Promise<void> {
     
     await processTask(taskToProcess);
     
-    console.log(`✅ Worker cycle completed. Next task: ${backlogTasks.length > 1 ? backlogTasks[1].title : 'None'}`);
+    // Show the next queued task after the one we just processed
+    const processedIndex = backlogTasks.findIndex(t => t.id === taskToProcess!.id);
+    const nextTask = processedIndex >= 0 && processedIndex + 1 < backlogTasks.length
+      ? backlogTasks[processedIndex + 1]
+      : null;
+    console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
   } finally {
