@@ -23,16 +23,21 @@ export async function execProvider<T>(
   opts?: ExecProviderOptions
 ): Promise<T> {
   try {
+    const timeoutMs = opts?.timeout ?? 30_000;
     const { stdout } = await execFile(command, args, {
-      timeout: opts?.timeout ?? 30_000,
+      timeout: timeoutMs,
       env: { ...process.env, ...opts?.env },
       maxBuffer: 10 * 1024 * 1024, // 10MB max output
     });
 
     return JSON.parse(stdout);
   } catch (err: any) {
-    if (err.killed === true || err.signal === 'SIGTERM' || err.signal === 'SIGKILL') {
-      throw new Error(`Command "${command} ${args.join(' ')}" timed out after ${opts?.timeout ?? 30_000}ms`);
+    const timedOut = err.killed === true && (err.code === 'ETIMEDOUT' || err.message?.includes('timed out'));
+    if (timedOut) {
+      throw new Error(`Command "${command} ${args.join(' ')}" timed out after ${timeoutMs}ms`);
+    }
+    if (err.killed === true && err.signal) {
+      throw new Error(`Command "${command} ${args.join(' ')}" was killed by signal ${err.signal}`);
     }
     if (err.code === 'ENOENT') {
       throw new Error(`Command "${command}" not found. Ensure it is installed and in PATH.`);
