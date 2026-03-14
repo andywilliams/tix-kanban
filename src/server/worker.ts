@@ -41,6 +41,22 @@ export function getRequiredProviders(task: Task): string[] {
   return requiredProviders;
 }
 
+async function handleProviderDenial(task: Task, provider: string, reason: string): Promise<void> {
+  const denialComment: Comment = {
+    id: Math.random().toString(36).substr(2, 9),
+    taskId: task.id,
+    body: `⚠️ **Provider access denied**: ${reason}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
+    author: 'Worker (system)',
+    createdAt: new Date(),
+  };
+
+  await updateTask(task.id, {
+    status: 'review',
+    agentActivity: undefined,
+    comments: [...(task.comments || []), denialComment],
+  });
+}
+
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
   if (!content) return '';
@@ -588,9 +604,6 @@ async function processTask(task: Task): Promise<void> {
   try {
     console.log(`📋 Processing task: ${task.title}`);
 
-    // Move task to in-progress
-    await updateTask(task.id, { status: 'in-progress' });
-
     // Fetch the full task with all history (comments, links)
     const fullTask = await getTask(task.id);
     if (!fullTask) {
@@ -611,21 +624,13 @@ async function processTask(task: Task): Promise<void> {
       } catch (accessError) {
         const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
         console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
-        const denialComment: Comment = {
-          id: Math.random().toString(36).substr(2, 9),
-          taskId: fullTask.id,
-          body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
-          author: 'Worker (system)',
-          createdAt: new Date(),
-        };
-        await updateTask(fullTask.id, {
-          status: 'review',
-          agentActivity: undefined,
-          comments: [...(fullTask.comments || []), denialComment],
-        });
+        await handleProviderDenial(fullTask, provider, denialMessage);
         return;
       }
     }
+
+    // Move task to in-progress only after provider access checks pass
+    await updateTask(task.id, { status: 'in-progress' });
 
     // Mark agent as actively working on this task
     await updateTask(task.id, {
@@ -1152,30 +1157,20 @@ async function runWorker(): Promise<void> {
       }
 
       let deniedProvider: string | null = null;
+      let denialMessage: string | null = null;
       for (const provider of getRequiredProviders(candidate)) {
         try {
           enforceProviderAccess(candidatePersona, provider);
-        } catch {
+        } catch (accessError) {
           deniedProvider = provider;
+          denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
           break;
         }
       }
 
-      if (deniedProvider) {
-        const denialMessage = `Persona "${candidatePersona.name}" is not allowed to access provider "${deniedProvider}".`;
-        const denialComment: Comment = {
-          id: Math.random().toString(36).substr(2, 9),
-          taskId: candidate.id,
-          body: `⚠️ **Provider access denied**: ${denialMessage}\n\nThis task requires the persona to have access to the \`${deniedProvider}\` provider. Assign a persona with the required provider access to unblock this task.`,
-          author: 'Worker (system)',
-          createdAt: new Date(),
-        };
-        await updateTask(candidate.id, {
-          status: 'review',
-          agentActivity: undefined,
-          comments: [...(candidate.comments || []), denialComment],
-        });
-        console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access`);
+      if (deniedProvider && denialMessage) {
+        await handleProviderDenial(candidate, deniedProvider, denialMessage);
+        console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access: ${denialMessage}`);
         continue;
       }
 
