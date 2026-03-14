@@ -40,7 +40,7 @@ export interface DocumentData {
   title: string;
   content: string;
   lastModified: string;
-  keywords?: string[];  // Extracted keywords for faster matching
+  keywords?: Record<string, number>;  // Extracted keyword -> count map for faster matching
 }
 
 export interface DocumentProvider {

@@ -180,7 +180,7 @@ export class LocalDocumentProvider implements DocumentProvider {
         title,
         content: body,
         lastModified: stat.mtime.toISOString(),
-        keywords: this.extractKeywords(title + ' ' + body),
+        keywords: this.buildKeywordCountMap(this.extractKeywords(title + ' ' + body)),
       };
     } catch (err: any) {
       console.error(`Error reading file ${filePath}:`, err.message);
@@ -204,6 +204,44 @@ export class LocalDocumentProvider implements DocumentProvider {
   }
 
   /**
+   * Convert a token list into a keyword -> count map for compact persistence.
+   */
+  private buildKeywordCountMap(tokens: string[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const token of tokens) {
+      counts[token] = (counts[token] || 0) + 1;
+    }
+    return counts;
+  }
+
+  /**
+   * Normalize stored keyword data. Supports legacy array format for migration.
+   */
+  private normalizeKeywordCounts(keywords: unknown): Record<string, number> {
+    if (!keywords) return {};
+
+    if (Array.isArray(keywords)) {
+      const counts: Record<string, number> = {};
+      for (const token of keywords) {
+        if (typeof token !== 'string') continue;
+        counts[token] = (counts[token] || 0) + 1;
+      }
+      return counts;
+    }
+
+    if (typeof keywords === 'object') {
+      const counts: Record<string, number> = {};
+      for (const [term, count] of Object.entries(keywords as Record<string, unknown>)) {
+        if (!term || typeof count !== 'number' || !Number.isFinite(count) || count <= 0) continue;
+        counts[term] = count;
+      }
+      return counts;
+    }
+
+    return {};
+  }
+
+  /**
    * Build TF-IDF index from documents
    */
   private async buildTfidfIndex(target?: { documents: DocumentData[]; tfidf: Map<string, Map<string, number>>; idf: Map<string, number> }): Promise<void> {
@@ -214,16 +252,13 @@ export class LocalDocumentProvider implements DocumentProvider {
     
     // Calculate term frequency (TF) for each document
     for (const doc of documents) {
-      const terms = doc.keywords || [];
-      const termCounts: Map<string, number> = new Map();
-      
-      for (const term of terms) {
-        termCounts.set(term, (termCounts.get(term) || 0) + 1);
-      }
+      const termCounts = this.normalizeKeywordCounts(doc.keywords);
       
       // Normalize TF (divide by total terms in doc)
-      const totalTerms = terms.length;
-      for (const [term, count] of termCounts) {
+      const totalTerms = Object.values(termCounts).reduce((sum, count) => sum + count, 0);
+      if (totalTerms === 0) continue;
+
+      for (const [term, count] of Object.entries(termCounts)) {
         if (!termFrequency.has(term)) {
           termFrequency.set(term, new Map());
         }
@@ -363,13 +398,17 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Load index from disk
    */
-  async loadIndex(): Promise<void> {
+  private async loadIndex(): Promise<void> {
     try {
       const indexPath = path.join(this.dataDir, 'index.json');
       const data = await fs.readFile(indexPath, 'utf8');
       const indexData = JSON.parse(data);
       
-      this.documentIndex.documents = indexData.documents || [];
+      const loadedDocuments = Array.isArray(indexData.documents) ? indexData.documents : [];
+      this.documentIndex.documents = loadedDocuments.map((doc: DocumentData) => ({
+        ...doc,
+        keywords: this.normalizeKeywordCounts(doc.keywords),
+      }));
       this.indexedPaths = new Set(indexData.indexedPaths || []);
       
       // Rebuild TF-IDF from loaded documents
