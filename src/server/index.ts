@@ -180,9 +180,6 @@ import {
   updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
-import { initializeBudgetStorage } from './collaboration-budget.js';
-import { initializeAuditStorage } from './collaboration-audit.js';
-import { initializeControlStorage } from './collaboration-control.js';
 // Notion sync removed - now using CLI-based providers
 // See documentation/providers.md for the new architecture
 import {
@@ -298,7 +295,7 @@ app.put('/api/tasks/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Enforce provider access at assignment/update time, not just at worker runtime.
+    // Enforce provider access at assignment/update time, not only at worker runtime.
     const targetPersonaRef = updates.persona ?? previousTask.persona;
     if (targetPersonaRef) {
       const personas = await getAllPersonas();
@@ -306,12 +303,8 @@ app.put('/api/tasks/:id', async (req, res) => {
         (p) => p.id === targetPersonaRef || p.name.toLowerCase() === targetPersonaRef.toLowerCase(),
       );
       if (targetPersona) {
-        const effectiveRepo = updates.repo ?? previousTask.repo;
-        const requiredProviders = getRequiredProviders({
-          ...previousTask,
-          ...updates,
-          repo: effectiveRepo,
-        } as Task);
+        const effectiveRepo = updates.repo !== undefined ? updates.repo : previousTask.repo;
+        const requiredProviders = getRequiredProviders({ ...previousTask, ...updates, repo: effectiveRepo } as Task);
 
         for (const provider of requiredProviders) {
           try {
@@ -849,8 +842,11 @@ app.get('/api/documents/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter "q" is required' });
     }
     
-    let limit = parseInt(req.query.limit as string);
-    if (isNaN(limit) || limit <= 0) limit = 5;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
+    if (Number.isNaN(limit) || limit <= 0) {
+      return res.status(400).json({ error: 'Query parameter "limit" must be a positive integer' });
+    }
+
     const documents = await provider.search(query, limit);
     res.json(documents);
   } catch (error) {
@@ -3645,6 +3641,10 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
+import { initializeBudgetStorage } from './collaboration-budget.js';
+import { initializeAuditStorage } from './collaboration-audit.js';
+import { initializeControlStorage } from './collaboration-control.js';
+
 // Initialize storage and start server
 async function startServer() {
   try {
@@ -3652,6 +3652,9 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
+    await initializeBudgetStorage();
+    await initializeAuditStorage();
+    await initializeControlStorage();
     // Run archive maintenance on startup to trim old chat messages
     runArchiveMaintenance().catch(err => console.error('Archive maintenance failed:', err));
     await initializeReportsStorage();

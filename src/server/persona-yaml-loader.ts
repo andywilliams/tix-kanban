@@ -142,7 +142,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
   }
 
   if (d.budgetCap !== undefined) {
-    // Guard null explicitly before object-shape validation.
+    // Guard null explicitly before validating nested keys.
     if (d.budgetCap === null || typeof d.budgetCap !== 'object' || Array.isArray(d.budgetCap)) {
       errors.push('Field "budgetCap" must be an object');
     } else {
@@ -291,17 +291,23 @@ export async function loadPersonasFromDir(dirPath: string): Promise<Persona[]> {
 /**
  * Throw if `persona` has a providers allow-list that does NOT include `requestedProvider`.
  *
- * If the persona has no providers list, all providers are allowed (open access).
+ * If the persona has no providers list (undefined/null), all providers are allowed (open access).
+ * An explicitly-empty providers list denies all providers.
  */
 export function enforceProviderAccess(
   persona: PersonaYamlSchema | Persona,
   requestedProvider: string,
 ): void {
+  // Shared by YAML parsing and runtime task execution paths.
   const providers = (persona as PersonaYamlSchema).providers;
-  // Undefined, null, and empty list are all open-access according to docs.
-  if (providers === undefined || providers === null || providers.length === 0) {
+  if (providers === undefined || providers === null) {
     // No restriction – all providers allowed
     return;
+  }
+  if (providers.length === 0) {
+    throw new Error(
+      `Persona "${persona.name}" has an empty providers allow-list, so access to provider "${requestedProvider}" is denied.`,
+    );
   }
   if (!providers.includes(requestedProvider)) {
     throw new Error(
