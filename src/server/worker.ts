@@ -125,7 +125,8 @@ function detectKnownClaudeError(stderr: string): string | null {
   const match = patterns.find((pattern) => pattern.test(stderr));
   if (!match) return null;
 
-  const snippet = stderr.split('\n').find(line => line.trim().length > 0)?.trim() || stderr.trim();
+  const matchResult = match.exec(stderr);
+  const snippet = (matchResult?.[0] ?? stderr.split('\n').find(line => line.trim().length > 0) ?? stderr).trim();
   return `Claude reported tool/MCP error: ${snippet}`;
 }
 
@@ -201,7 +202,7 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
       timeoutKill = setTimeout(() => {
         child.kill('SIGKILL');
       }, 5000);
-      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`), {
+      safeReject(new TimeoutError(`Claude process exceeded ${timeoutMs}ms and was terminated`), {
         preserveTimeoutKill: true
       });
     }, timeoutMs);
