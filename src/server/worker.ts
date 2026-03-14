@@ -107,7 +107,8 @@ function truncatePromptForContext(prompt: string): { prompt: string; wasTruncate
 
 function detectKnownClaudeError(stderr: string): string | null {
   const patterns = [
-    /mcp/i,
+    /\bmcp\b.*(error|fail(?:ed)?|disconnect(?:ed)?|unavailable)/i,
+    /(error|fail(?:ed)?|disconnect(?:ed)?|unavailable).*\bmcp\b/i,
     /failed to connect/i,
     /connection refused/i,
     /connection reset/i,
@@ -191,11 +192,11 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
     
     // Set up timeout
     timeoutHandle = setTimeout(() => {
-      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`));
-      child.kill('SIGTERM');
       timeoutKill = setTimeout(() => {
         child.kill('SIGKILL');
       }, 5000);
+      safeReject(new TimeoutError(`TimeoutError: Claude process exceeded ${timeoutMs}ms and was terminated`));
+      child.kill('SIGTERM');
     }, timeoutMs);
     
     child.stdout.on('data', (data) => {
@@ -217,14 +218,14 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
       if (settled) return;
       const trimmedStdout = stdout.trim();
       const trimmedStderr = stderr.trim();
-      const knownError = detectKnownClaudeError(trimmedStderr);
-      if (knownError) {
-        safeReject(new Error(knownError));
-        return;
-      }
       if (code === 0) {
         safeResolve({ stdout: trimmedStdout, stderr: trimmedStderr });
       } else {
+        const knownError = detectKnownClaudeError(trimmedStderr);
+        if (knownError) {
+          safeReject(new Error(knownError));
+          return;
+        }
         const stderrMessage = trimmedStderr || 'no stderr output';
         safeReject(new Error(`Claude process exited with code ${code}: ${stderrMessage}`));
       }
