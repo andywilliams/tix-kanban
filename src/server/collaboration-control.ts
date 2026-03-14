@@ -92,7 +92,10 @@ export async function canTakeTurn(channelId: string, personaId: string): Promise
   if (timeSinceLastMessage > IDLE_TIMEOUT_MS) return { allowed: false, reason: `Idle timeout - no messages for ${Math.floor(timeSinceLastMessage / 60000)} minutes` };
   const timeSinceProgress = Date.now() - state.lastProgressAt.getTime();
   if (timeSinceProgress > DEADLOCK_TIMEOUT_MS) return { allowed: false, reason: `Deadlock detected - no progress for ${Math.floor(timeSinceProgress / 60000)} minutes` };
-  if (!state.participatingPersonas.includes(personaId)) state.participatingPersonas.push(personaId);
+  if (!state.participatingPersonas.includes(personaId)) {
+    state.participatingPersonas.push(personaId);
+    await saveCollaborationState(state);
+  }
   return { allowed: true };
 }
 

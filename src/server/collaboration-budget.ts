@@ -14,6 +14,16 @@ import os from 'os';
 const BUDGET_DIR = path.join(os.homedir(), '.tix-kanban', 'budgets');
 const DAILY_BUDGET_FILE = path.join(BUDGET_DIR, 'daily-budget.json');
 
+// File lock to prevent concurrent read-modify-write races on budget file
+let budgetLock: Promise<void> = Promise.resolve();
+
+function withBudgetLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = budgetLock;
+  const next = prev.then(fn, fn);
+  budgetLock = next.then(() => {}, () => {});
+  return next;
+}
+
 // Budget limits (in USD)
 export const BUDGET_LIMITS = {
   globalDaily: 10.0,
@@ -83,35 +93,39 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
 export async function checkBudget(
   personaId: string, model: string, estimatedInputTokens: number, estimatedOutputTokens: number, taskId?: string
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const budget = await getTodaysBudget();
-  const estimatedCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens);
-  if (budget.totalCost + estimatedCost > BUDGET_LIMITS.globalDaily) {
-    return { allowed: false, reason: \`Global daily budget exceeded (\$\${budget.totalCost.toFixed(2)} / \$\${BUDGET_LIMITS.globalDaily})\` };
-  }
-  const personaCost = budget.byPersona[personaId] || 0;
-  if (personaCost + estimatedCost > BUDGET_LIMITS.perPersona) {
-    return { allowed: false, reason: \`Persona budget exceeded for \${personaId} (\$\${personaCost.toFixed(2)} / \$\${BUDGET_LIMITS.perPersona})\` };
-  }
-  if (taskId) {
-    const taskCost = budget.byTask[taskId] || 0;
-    if (taskCost + estimatedCost > BUDGET_LIMITS.perTicket) {
-      return { allowed: false, reason: \`Task budget exceeded for \${taskId} (\$\${taskCost.toFixed(2)} / \$\${BUDGET_LIMITS.perTicket})\` };
+  return withBudgetLock(async () => {
+    const budget = await getTodaysBudget();
+    const estimatedCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens);
+    if (budget.totalCost + estimatedCost > BUDGET_LIMITS.globalDaily) {
+      return { allowed: false, reason: \`Global daily budget exceeded (\$\${budget.totalCost.toFixed(2)} / \$\${BUDGET_LIMITS.globalDaily})\` };
     }
-  }
-  return { allowed: true };
+    const personaCost = budget.byPersona[personaId] || 0;
+    if (personaCost + estimatedCost > BUDGET_LIMITS.perPersona) {
+      return { allowed: false, reason: \`Persona budget exceeded for \${personaId} (\$\${personaCost.toFixed(2)} / \$\${BUDGET_LIMITS.perPersona})\` };
+    }
+    if (taskId) {
+      const taskCost = budget.byTask[taskId] || 0;
+      if (taskCost + estimatedCost > BUDGET_LIMITS.perTicket) {
+        return { allowed: false, reason: \`Task budget exceeded for \${taskId} (\$\${taskCost.toFixed(2)} / \$\${BUDGET_LIMITS.perTicket})\` };
+      }
+    }
+    return { allowed: true };
+  });
 }
 
 export async function recordUsage(
   personaId: string, model: string, inputTokens: number, outputTokens: number, taskId?: string
 ): Promise<void> {
-  const budget = await getTodaysBudget();
-  const cost = calculateCost(model, inputTokens, outputTokens);
-  budget.entries.push({ timestamp: new Date(), taskId, personaId, model, inputTokens, outputTokens, cost });
-  budget.totalCost += cost;
-  budget.byPersona[personaId] = (budget.byPersona[personaId] || 0) + cost;
-  if (taskId) budget.byTask[taskId] = (budget.byTask[taskId] || 0) + cost;
-  await saveBudget(budget);
-  console.log(\`💰 Budget: \${personaId} used \$\${cost.toFixed(4)} (\${inputTokens}/\${outputTokens} tokens)\`);
+  return withBudgetLock(async () => {
+    const budget = await getTodaysBudget();
+    const cost = calculateCost(model, inputTokens, outputTokens);
+    budget.entries.push({ timestamp: new Date(), taskId, personaId, model, inputTokens, outputTokens, cost });
+    budget.totalCost += cost;
+    budget.byPersona[personaId] = (budget.byPersona[personaId] || 0) + cost;
+    if (taskId) budget.byTask[taskId] = (budget.byTask[taskId] || 0) + cost;
+    await saveBudget(budget);
+    console.log(\`💰 Budget: \${personaId} used \$\${cost.toFixed(4)} (\${inputTokens}/\${outputTokens} tokens)\`);
+  });
 }
 
 export async function getBudgetStatus() {

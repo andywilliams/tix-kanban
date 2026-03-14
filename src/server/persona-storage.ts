@@ -16,6 +16,7 @@ interface PersonaIndex {
     description: string;
     specialties: string[];
     stats: PersonaStats;
+    providers?: string[];
     createdAt: string;
     updatedAt: string;
   };
