@@ -280,11 +280,11 @@ Be thorough — this is your opportunity to identify everything that needs fixin
 ⚠️ IMPORTANT: This is review cycle ${reviewCycle}. 
 
 You MUST follow these rules:
-- ONLY reject if issues from cycle 1 were NOT addressed
+- ONLY reject if issues from previous cycles were NOT addressed
 - Do NOT introduce new issues on later cycles
 - If previous issues were fixed, approve the work
 
-## PREVIOUS REJECTION REASONS (cycle 1)
+## PREVIOUS REJECTION REASONS
 ${previousRejections || 'No previous rejections'}
 
 Focus ONLY on whether the above issues were addressed. Do not look for new problems.`;
