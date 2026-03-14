@@ -15,6 +15,11 @@
  */
 
 import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+
+const BUDGET_FILE = path.join(os.homedir(), '.tix-kanban', 'budget-tracker.json');
 
 // Configuration constants
 const DEFAULT_MAX_ITERATIONS = 20;
@@ -71,12 +76,45 @@ interface BudgetTracker {
 // In-memory conversation states (persisted to task.conversationState field)
 const activeConversations = new Map<string, ConversationState>();
 
-// Budget tracking (persisted to file daily)
+// Budget tracking (persisted to ~/.tix-kanban/budget-tracker.json, loaded at startup)
 let budgetTracker: BudgetTracker = {
   date: new Date().toISOString().split('T')[0],
   globalSpent: 0,
   perPersona: {},
 };
+
+/**
+ * Load budget tracker from disk (called once at module init)
+ */
+async function loadBudgetTracker(): Promise<void> {
+  try {
+    const data = await fs.readFile(BUDGET_FILE, 'utf8');
+    const saved: BudgetTracker = JSON.parse(data);
+    const today = new Date().toISOString().split('T')[0];
+    // Only restore if the saved date matches today — otherwise start fresh for new day
+    if (saved.date === today) {
+      budgetTracker = saved;
+    }
+  } catch {
+    // No saved file or parse error — start with defaults (zero spend)
+  }
+}
+
+/**
+ * Persist budget tracker to disk
+ */
+async function saveBudgetTracker(): Promise<void> {
+  try {
+    const dir = path.dirname(BUDGET_FILE);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(BUDGET_FILE, JSON.stringify(budgetTracker, null, 2), 'utf8');
+  } catch (err: any) {
+    console.error('Failed to persist budget tracker:', err.message);
+  }
+}
+
+// Load persisted budget on module initialisation
+loadBudgetTracker().catch(err => console.error('Failed to load budget tracker:', err));
 
 /**
  * Initialize or retrieve conversation state for a task
@@ -292,6 +330,9 @@ export async function recordPersonaResponse(
     // Update global and per-persona budgets
     budgetTracker.globalSpent += costUSD;
     budgetTracker.perPersona[personaId] = (budgetTracker.perPersona[personaId] || 0) + costUSD;
+
+    // Persist updated budget to disk (fire-and-forget — non-blocking)
+    saveBudgetTracker().catch(err => console.error('Budget persist error:', err));
 
     await logConversationEvent({
       taskId,
@@ -587,6 +628,8 @@ export function resetDailyBudget(): void {
       perPersona: {},
     };
     console.log(`📊 Daily budget tracker reset for ${today}`);
+    // Persist the fresh daily tracker to disk
+    saveBudgetTracker().catch(err => console.error('Budget persist error after reset:', err));
   }
 }
 

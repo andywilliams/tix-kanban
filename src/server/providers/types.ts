@@ -34,24 +34,6 @@ export interface MessageProvider {
   configure?(config: any): Promise<void>;
 }
 
-export interface DocumentData {
-  id: string;
-  path: string;
-  title: string;
-  content: string;
-  lastModified: string;
-  keywords?: Record<string, number>;  // Extracted keyword -> count map for faster matching
-}
-
-export interface DocumentProvider {
-  name: string;
-  index(paths: string[]): Promise<void>;  // Index documents from paths
-  search(query: string, limit?: number): Promise<DocumentData[]>;  // Search for relevant docs
-  list(): Promise<DocumentData[]>;  // List all indexed documents
-  refresh(): Promise<void>;  // Re-index all documents
-  configure?(config: any): Promise<void>;
-  waitUntilReady?(): Promise<void>;  // Optional: wait for provider initialization
-}
 
 export interface ProviderConfig {
   ticketProvider?: string;  // 'tix' | 'file' | 'github-issues' | custom
