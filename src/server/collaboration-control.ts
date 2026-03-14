@@ -93,6 +93,8 @@ export async function resumeCollaboration(channelId: string): Promise<void> {
     state.pausedAt = undefined;
     state.pausedBy = undefined;
     state.turnCount = 0;
+    state.lastProgressAt = new Date();
+    state.lastMessageAt = new Date();
     await saveCollaborationState(state);
     console.log(`▶️ Collaboration resumed in ${channelId}`);
   });
