@@ -175,9 +175,14 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
 
 /**
  * Derive a persona id from a filename, e.g. "senior-developer.yaml" → "senior-developer"
+ * Sanitizes to lowercase with hyphens: "My_Persona.yaml" → "my-persona"
  */
 function idFromFilename(filename: string): string {
-  return path.basename(filename).replace(/\.(yaml|yml)$/, '');
+  return path
+    .basename(filename)
+    .replace(/\.(yaml|yml)$/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-');
 }
 
 function buildDefaultStats(): PersonaStats {
