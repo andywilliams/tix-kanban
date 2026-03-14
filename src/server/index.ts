@@ -842,7 +842,11 @@ app.get('/api/documents/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter "q" is required' });
     }
     
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
+    if (Number.isNaN(limit) || limit <= 0) {
+      return res.status(400).json({ error: 'Query parameter "limit" must be a positive integer' });
+    }
+
     const documents = await provider.search(query, limit);
     res.json(documents);
   } catch (error) {

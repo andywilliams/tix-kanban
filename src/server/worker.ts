@@ -1180,7 +1180,9 @@ async function runWorker(): Promise<void> {
             `🚫 Provider access denied for backlog task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access: ${denialMessage}`
           );
 
-          await handleProviderDenial(candidate, provider, denialMessage);
+          if (candidate.status !== "review") {
+            await handleProviderDenial(candidate, provider, denialMessage);
+          }
           eligible = false;
           break;
         }
