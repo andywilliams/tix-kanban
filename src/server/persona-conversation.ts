@@ -589,6 +589,21 @@ export function getConversationState(taskId: string): ConversationState | undefi
 }
 
 /**
+ * Get conversation state, falling back to disk for completed/terminated conversations.
+ * Use in API handlers that need to serve results after the conversation ends.
+ */
+export async function getConversationStateWithFallback(taskId: string): Promise<ConversationState | undefined> {
+  const inMemory = activeConversations.get(taskId);
+  if (inMemory) return inMemory;
+
+  // Fall back to disk — completed conversations are removed from activeConversations
+  const task = await readTask(taskId);
+  if (!task || !task.conversationState) return undefined;
+
+  return deserializeConversationState(task.conversationState);
+}
+
+/**
  * Mark conversation as entering LLM call (prevents false deadlock detection)
  */
 export function setInLLMCall(taskId: string): void {

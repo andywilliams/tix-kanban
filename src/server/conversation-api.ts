@@ -6,7 +6,7 @@ import { Request, Response } from 'express';
 import {
   pauseConversation,
   resumeConversation,
-  getConversationState,
+  getConversationStateWithFallback,
   getGlobalBudgetStatus,
   BUDGET_CAPS,
 } from './persona-conversation.js';
@@ -19,14 +19,14 @@ import { triggerConversation, runConversationLoop } from './conversation-loop.js
 export async function startConversationHandler(req: Request, res: Response): Promise<void> {
   try {
     const { taskId } = req.params;
-    const { personaIds } = req.body;
+    const { personaIds, maxIterations, budgetCap } = req.body;
 
     if (!personaIds || !Array.isArray(personaIds) || personaIds.length === 0) {
       res.status(400).json({ error: 'personaIds array required' });
       return;
     }
 
-    const result = await triggerConversation(taskId, personaIds);
+    const result = await triggerConversation(taskId, personaIds, { maxIterations, budgetCap });
 
     if (result.error) {
       res.status(400).json(result);
@@ -90,7 +90,8 @@ export async function getConversationStateHandler(req: Request, res: Response): 
   try {
     const { taskId } = req.params;
 
-    const state = getConversationState(taskId);
+    // Falls back to disk for completed/terminated conversations no longer in memory
+    const state = await getConversationStateWithFallback(taskId);
 
     if (!state) {
       res.status(404).json({ error: 'Conversation not found' });

@@ -382,7 +382,11 @@ function sleep(ms: number): Promise<void> {
 /**
  * Trigger conversation for a ticket (exposed API endpoint)
  */
-export async function triggerConversation(taskId: string, personaIds?: string[]): Promise<any> {
+export async function triggerConversation(
+  taskId: string,
+  personaIds?: string[],
+  options?: { maxIterations?: number; budgetCap?: number }
+): Promise<any> {
   const task = await readTask(taskId);
 
   if (!task) {
@@ -401,8 +405,8 @@ export async function triggerConversation(taskId: string, personaIds?: string[])
   }
 
   const result = await startTicketConversation(taskId, participants, {
-    maxIterations: 20,
-    budgetCap: BUDGET_CAPS.perTicket,
+    maxIterations: options?.maxIterations ?? 20,
+    budgetCap: options?.budgetCap ?? BUDGET_CAPS.perTicket,
   });
 
   return result;

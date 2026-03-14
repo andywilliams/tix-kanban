@@ -35,6 +35,25 @@ export interface MessageProvider {
 }
 
 
+export interface DocumentData {
+  id: string;
+  path: string;
+  title: string;
+  content: string;
+  lastModified: string;
+  keywords?: string[];
+}
+
+export interface DocumentProvider {
+  name: string;
+  index(paths: string[]): Promise<void>;
+  search(query: string, limit?: number): Promise<DocumentData[]>;
+  list(): Promise<DocumentData[]>;
+  refresh(): Promise<void>;
+  waitUntilReady?(): Promise<void>;
+  configure?(config: any): Promise<void>;
+}
+
 export interface ProviderConfig {
   ticketProvider?: string;  // 'tix' | 'file' | 'github-issues' | custom
   messageProvider?: string; // 'slx' | 'file' | custom
