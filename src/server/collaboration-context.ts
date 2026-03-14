@@ -8,7 +8,15 @@ import Anthropic from '@anthropic-ai/sdk';
 const KEEP_LAST_N_MESSAGES = 5;
 const HAIKU_MODEL = 'claude-3-5-haiku-20241022';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Lazy init: only create the client on first use so module load doesn't throw
+// if ANTHROPIC_API_KEY is not set in the environment.
+let _anthropic: Anthropic | null = null;
+function getAnthropicClient(): Anthropic {
+  if (!_anthropic) {
+    _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return _anthropic;
+}
 
 export interface ContextWindow {
   summary?: string;
@@ -54,7 +62,7 @@ Please provide a concise summary of:
 Keep the summary brief (2-3 paragraphs max) but capture all important context.`;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropicClient().messages.create({
       model: HAIKU_MODEL,
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],

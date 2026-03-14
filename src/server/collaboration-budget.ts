@@ -69,6 +69,12 @@ async function getTodaysBudget(): Promise<DailyBudget> {
     const data = await fs.readFile(DAILY_BUDGET_FILE, 'utf8');
     const budget: DailyBudget = JSON.parse(data);
     if (budget.date !== today) {
+      // Archive previous day's data before starting fresh (fix: rollover data loss)
+      if (budget.totalCost > 0 || budget.entries.length > 0) {
+        const archivePath = path.join(BUDGET_DIR, `daily-budget-${budget.date}.json`);
+        await fs.writeFile(archivePath, JSON.stringify(budget, null, 2));
+        console.log(`📦 Archived budget for ${budget.date}: $${budget.totalCost.toFixed(2)}`);
+      }
       return { date: today, entries: [], totalCost: 0, byTask: {}, byPersona: {} };
     }
     budget.entries.forEach(entry => { entry.timestamp = new Date(entry.timestamp); });
@@ -97,16 +103,16 @@ export async function checkBudget(
     const budget = await getTodaysBudget();
     const estimatedCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens);
     if (budget.totalCost + estimatedCost > BUDGET_LIMITS.globalDaily) {
-      return { allowed: false, reason: \`Global daily budget exceeded (\$\${budget.totalCost.toFixed(2)} / \$\${BUDGET_LIMITS.globalDaily})\` };
+      return { allowed: false, reason: `Global daily budget exceeded ($${budget.totalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
     }
     const personaCost = budget.byPersona[personaId] || 0;
     if (personaCost + estimatedCost > BUDGET_LIMITS.perPersona) {
-      return { allowed: false, reason: \`Persona budget exceeded for \${personaId} (\$\${personaCost.toFixed(2)} / \$\${BUDGET_LIMITS.perPersona})\` };
+      return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
     }
     if (taskId) {
       const taskCost = budget.byTask[taskId] || 0;
       if (taskCost + estimatedCost > BUDGET_LIMITS.perTicket) {
-        return { allowed: false, reason: \`Task budget exceeded for \${taskId} (\$\${taskCost.toFixed(2)} / \$\${BUDGET_LIMITS.perTicket})\` };
+        return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
       }
     }
     return { allowed: true };
@@ -124,7 +130,44 @@ export async function recordUsage(
     budget.byPersona[personaId] = (budget.byPersona[personaId] || 0) + cost;
     if (taskId) budget.byTask[taskId] = (budget.byTask[taskId] || 0) + cost;
     await saveBudget(budget);
-    console.log(\`💰 Budget: \${personaId} used \$\${cost.toFixed(4)} (\${inputTokens}/\${outputTokens} tokens)\`);
+    console.log(`💰 Budget: ${personaId} used $${cost.toFixed(4)} (${inputTokens}/${outputTokens} tokens)`);
+  });
+}
+
+/**
+ * Atomically check budget and record usage in a single lock acquisition.
+ * Prevents the TOCTOU race between separate checkBudget and recordUsage calls.
+ */
+export async function checkAndRecordUsage(
+  personaId: string, model: string, inputTokens: number, outputTokens: number, taskId?: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  return withBudgetLock(async () => {
+    const budget = await getTodaysBudget();
+    const cost = calculateCost(model, inputTokens, outputTokens);
+
+    // Check all limits before recording anything
+    if (budget.totalCost + cost > BUDGET_LIMITS.globalDaily) {
+      return { allowed: false, reason: `Global daily budget exceeded ($${budget.totalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
+    }
+    const personaCost = budget.byPersona[personaId] || 0;
+    if (personaCost + cost > BUDGET_LIMITS.perPersona) {
+      return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
+    }
+    if (taskId) {
+      const taskCost = budget.byTask[taskId] || 0;
+      if (taskCost + cost > BUDGET_LIMITS.perTicket) {
+        return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
+      }
+    }
+
+    // All checks passed — record atomically in the same lock
+    budget.entries.push({ timestamp: new Date(), taskId, personaId, model, inputTokens, outputTokens, cost });
+    budget.totalCost += cost;
+    budget.byPersona[personaId] = (budget.byPersona[personaId] || 0) + cost;
+    if (taskId) budget.byTask[taskId] = (budget.byTask[taskId] || 0) + cost;
+    await saveBudget(budget);
+    console.log(`💰 Budget: ${personaId} used $${cost.toFixed(4)} (${inputTokens}/${outputTokens} tokens)`);
+    return { allowed: true };
   });
 }
 
@@ -149,6 +192,6 @@ export async function getBudgetStatus() {
 
 export async function archiveTodaysBudget(): Promise<void> {
   const budget = await getTodaysBudget();
-  await fs.writeFile(path.join(BUDGET_DIR, \`daily-budget-\${budget.date}.json\`), JSON.stringify(budget, null, 2));
-  console.log(\`📦 Archived budget for \${budget.date}: \$\${budget.totalCost.toFixed(2)}\`);
+  await fs.writeFile(path.join(BUDGET_DIR, `daily-budget-${budget.date}.json`), JSON.stringify(budget, null, 2));
+  console.log(`📦 Archived budget for ${budget.date}: $${budget.totalCost.toFixed(2)}`);
 }

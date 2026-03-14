@@ -5,12 +5,22 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { getChannel } from './chat-storage.js';
+// chat-storage import removed: getChannel was unused
 
 const CONTROL_DIR = path.join(os.homedir(), '.tix-kanban', 'collaboration-control');
 const MAX_TURNS_PER_COLLABORATION = 20;
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEADLOCK_TIMEOUT_MS = 10 * 60 * 1000;
+
+// Per-channel file locks to prevent concurrent read-modify-write races
+const channelLocks = new Map<string, Promise<void>>();
+
+function withChannelLock<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = channelLocks.get(channelId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  channelLocks.set(channelId, next.then(() => {}, () => {}));
+  return next;
+}
 
 export interface CollaborationState {
   channelId: string;
@@ -64,49 +74,57 @@ export async function saveCollaborationState(state: CollaborationState): Promise
 }
 
 export async function pauseCollaboration(channelId: string, pausedBy: string): Promise<void> {
-  let state = await getCollaborationState(channelId);
-  if (!state) throw new Error(`No collaboration found for channel ${channelId}`);
-  state.isPaused = true;
-  state.pausedAt = new Date();
-  state.pausedBy = pausedBy;
-  await saveCollaborationState(state);
-  console.log(`⏸️ Collaboration paused by ${pausedBy} in ${channelId}`);
+  return withChannelLock(channelId, async () => {
+    let state = await getCollaborationState(channelId);
+    if (!state) throw new Error(`No collaboration found for channel ${channelId}`);
+    state.isPaused = true;
+    state.pausedAt = new Date();
+    state.pausedBy = pausedBy;
+    await saveCollaborationState(state);
+    console.log(`⏸️ Collaboration paused by ${pausedBy} in ${channelId}`);
+  });
 }
 
 export async function resumeCollaboration(channelId: string): Promise<void> {
-  let state = await getCollaborationState(channelId);
-  if (!state) throw new Error(`No collaboration found for channel ${channelId}`);
-  state.isPaused = false;
-  state.pausedAt = undefined;
-  state.pausedBy = undefined;
-  await saveCollaborationState(state);
-  console.log(`▶️ Collaboration resumed in ${channelId}`);
+  return withChannelLock(channelId, async () => {
+    let state = await getCollaborationState(channelId);
+    if (!state) throw new Error(`No collaboration found for channel ${channelId}`);
+    state.isPaused = false;
+    state.pausedAt = undefined;
+    state.pausedBy = undefined;
+    await saveCollaborationState(state);
+    console.log(`▶️ Collaboration resumed in ${channelId}`);
+  });
 }
 
 export async function canTakeTurn(channelId: string, personaId: string): Promise<{ allowed: boolean; reason?: string }> {
-  let state = await getCollaborationState(channelId);
-  if (!state) state = await initializeCollaboration(channelId, [personaId]);
-  if (state.isPaused) return { allowed: false, reason: `Collaboration paused by ${state.pausedBy}` };
-  if (state.turnCount >= MAX_TURNS_PER_COLLABORATION) return { allowed: false, reason: `Turn limit reached (${state.turnCount}/${MAX_TURNS_PER_COLLABORATION})` };
-  const timeSinceLastMessage = Date.now() - state.lastMessageAt.getTime();
-  if (timeSinceLastMessage > IDLE_TIMEOUT_MS) return { allowed: false, reason: `Idle timeout - no messages for ${Math.floor(timeSinceLastMessage / 60000)} minutes` };
-  const timeSinceProgress = Date.now() - state.lastProgressAt.getTime();
-  if (timeSinceProgress > DEADLOCK_TIMEOUT_MS) return { allowed: false, reason: `Deadlock detected - no progress for ${Math.floor(timeSinceProgress / 60000)} minutes` };
-  if (!state.participatingPersonas.includes(personaId)) {
-    state.participatingPersonas.push(personaId);
-    await saveCollaborationState(state);
-  }
-  return { allowed: true };
+  return withChannelLock(channelId, async () => {
+    let state = await getCollaborationState(channelId);
+    if (!state) state = await initializeCollaboration(channelId, [personaId]);
+    if (state.isPaused) return { allowed: false, reason: `Collaboration paused by ${state.pausedBy}` };
+    if (state.turnCount >= MAX_TURNS_PER_COLLABORATION) return { allowed: false, reason: `Turn limit reached (${state.turnCount}/${MAX_TURNS_PER_COLLABORATION})` };
+    const timeSinceLastMessage = Date.now() - state.lastMessageAt.getTime();
+    if (timeSinceLastMessage > IDLE_TIMEOUT_MS) return { allowed: false, reason: `Idle timeout - no messages for ${Math.floor(timeSinceLastMessage / 60000)} minutes` };
+    const timeSinceProgress = Date.now() - state.lastProgressAt.getTime();
+    if (timeSinceProgress > DEADLOCK_TIMEOUT_MS) return { allowed: false, reason: `Deadlock detected - no progress for ${Math.floor(timeSinceProgress / 60000)} minutes` };
+    if (!state.participatingPersonas.includes(personaId)) {
+      state.participatingPersonas.push(personaId);
+      await saveCollaborationState(state);
+    }
+    return { allowed: true };
+  });
 }
 
 export async function recordTurn(channelId: string, personaId: string, hasProgress: boolean = true): Promise<void> {
-  let state = await getCollaborationState(channelId);
-  if (!state) state = await initializeCollaboration(channelId, [personaId]);
-  state.turnCount++;
-  state.lastMessageAt = new Date();
-  if (hasProgress) state.lastProgressAt = new Date();
-  await saveCollaborationState(state);
-  console.log(`📊 Turn ${state.turnCount}/${MAX_TURNS_PER_COLLABORATION} by ${personaId} in ${channelId}`);
+  return withChannelLock(channelId, async () => {
+    let state = await getCollaborationState(channelId);
+    if (!state) state = await initializeCollaboration(channelId, [personaId]);
+    state.turnCount++;
+    state.lastMessageAt = new Date();
+    if (hasProgress) state.lastProgressAt = new Date();
+    await saveCollaborationState(state);
+    console.log(`📊 Turn ${state.turnCount}/${MAX_TURNS_PER_COLLABORATION} by ${personaId} in ${channelId}`);
+  });
 }
 
 /**
