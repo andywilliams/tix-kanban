@@ -53,6 +53,7 @@ import {
 } from './collaboration-control.js';
 import {
   checkAndRecordUsage,
+  recordUsage,
   calculateCost,
 } from './collaboration-budget.js';
 import {
@@ -657,7 +658,7 @@ This conversation is about the task described above. Keep your responses relevan
     // Use tracker.totalUsed for input tokens and estimate output from response
     const actualInputTokens = tracker.totalUsed;
     const actualOutputTokens = estimateTokens(response);
-    await checkAndRecordUsage(persona.id, model, actualInputTokens, actualOutputTokens, taskId);
+    await recordUsage(persona.id, model, actualInputTokens, actualOutputTokens, taskId);
 
     if (response && response.length > 0) {
       // Parse and execute any actions from the response
@@ -743,8 +744,8 @@ This conversation is about the task described above. Keep your responses relevan
       );
       auditTurnTaken(
         originalMessage.channelId, persona.id, 0, originalMessage.id,
-        estimatedInputTokens, responseTokens,
-        calculateCost(model, estimatedInputTokens, responseTokens)
+        actualInputTokens, responseTokens,
+        calculateCost(model, actualInputTokens, responseTokens)
       ).catch(() => {});
     } else {
       console.log(`⚠️ ${persona.name} generated empty response`);
