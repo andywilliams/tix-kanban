@@ -15,7 +15,7 @@
  */
 
 import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { BUDGET_LIMITS, checkAndRecordUsage, getBudgetStatus } from './collaboration-budget.js';
+import { BUDGET_LIMITS, getBudgetStatus, recordUsage } from './collaboration-budget.js';
 
 // Configuration constants
 const DEFAULT_MAX_ITERATIONS = 20;
@@ -292,14 +292,34 @@ export async function recordPersonaResponse(
     state.lastActivityAt = new Date();
     state.currentIteration += 1;
 
-    // Record against centralized budget system (global/ticket/persona limits)
-    const budgetResult = await checkAndRecordUsage(
+    // Record usage first, then enforce centralized budget limits.
+    await recordUsage(
       personaId,
       'claude-3-5-sonnet-20241022',
       inputTokens,
       outputTokens,
       taskId
     );
+    const budgetStatus = await getBudgetStatus();
+    const personaCost = budgetStatus.byPersona[personaId]?.cost || 0;
+    const taskCost = budgetStatus.byTask[taskId]?.cost || 0;
+    let budgetResult: { allowed: boolean; reason?: string } = { allowed: true };
+    if (budgetStatus.totalCost > BUDGET_CAPS.globalDaily) {
+      budgetResult = {
+        allowed: false,
+        reason: `Global daily budget exceeded ($${budgetStatus.totalCost.toFixed(2)} / $${BUDGET_CAPS.globalDaily})`,
+      };
+    } else if (personaCost > BUDGET_CAPS.perPersona) {
+      budgetResult = {
+        allowed: false,
+        reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_CAPS.perPersona})`,
+      };
+    } else if (taskCost > BUDGET_CAPS.perTicket) {
+      budgetResult = {
+        allowed: false,
+        reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_CAPS.perTicket})`,
+      };
+    }
     const tokensUsed = inputTokens + outputTokens;
 
     await logConversationEvent({

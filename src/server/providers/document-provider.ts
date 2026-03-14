@@ -13,6 +13,12 @@ interface DocumentIndex {
   idf: Map<string, number>;  // term -> inverse document frequency
 }
 
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
+  'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
+  'could', 'should', 'would', 'may', 'might', 'must', 'shall',
+]);
+
 export class LocalDocumentProvider implements DocumentProvider {
   name = 'document';
   private documentIndex: DocumentIndex = {
@@ -39,8 +45,13 @@ export class LocalDocumentProvider implements DocumentProvider {
   /**
    * Index markdown files from given paths
    */
-  async index(paths: string[]): Promise<void> {
+  async index(
+    paths: string[],
+    options: { targetIndex?: DocumentIndex; persist?: boolean } = {}
+  ): Promise<void> {
     await this.ready;
+    const targetIndex = options.targetIndex || this.documentIndex;
+    const persist = options.persist ?? true;
     const newDocs: DocumentData[] = [];
     
     for (const p of paths) {
@@ -65,23 +76,25 @@ export class LocalDocumentProvider implements DocumentProvider {
     });
 
     // Deduplicate: replace existing documents with matching IDs (they may have been updated)
-    const existingIds = new Set(this.documentIndex.documents.map(d => d.id));
+    const existingIds = new Set(targetIndex.documents.map(d => d.id));
     const newDocIds = new Set(uniqueNewDocs.map(d => d.id));
     
     // Remove documents that will be replaced by new versions
     const docsToRemove = new Set([...existingIds].filter(id => newDocIds.has(id)));
-    this.documentIndex.documents = this.documentIndex.documents.filter(
+    targetIndex.documents = targetIndex.documents.filter(
       d => !docsToRemove.has(d.id)
     );
     
     // Add all new documents (both new and updated versions)
-    this.documentIndex.documents.push(...uniqueNewDocs);
+    targetIndex.documents.push(...uniqueNewDocs);
     
     // Rebuild TF-IDF index
-    await this.buildTfidfIndex();
+    await this.buildTfidfIndex(targetIndex);
     
     // Persist index
-    await this.saveIndex();
+    if (persist) {
+      await this.saveIndex();
+    }
   }
 
   /**
@@ -95,7 +108,7 @@ export class LocalDocumentProvider implements DocumentProvider {
 
       // Allow paths within the current working directory or common safe roots
       const cwd = process.cwd();
-      const home = process.env.HOME || '';
+      const home = os.homedir();
 
       // Path must be within cwd (project root) or the user home directory
       // This prevents arbitrary reads like /etc/passwd
@@ -199,20 +212,14 @@ export class LocalDocumentProvider implements DocumentProvider {
       .filter(t => t.length > 2);  // Filter short words
     
     // Remove common stop words
-    const stopWords = new Set([
-      'the', 'and', 'for', 'that', 'this', 'with', 'from', 'but', 'not',
-      'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'can',
-      'could', 'should', 'would', 'may', 'might', 'must', 'shall',
-    ]);
-    
-    return tokens.filter(t => !stopWords.has(t));
+    return tokens.filter(t => !STOP_WORDS.has(t));
   }
 
   /**
    * Build TF-IDF index from documents
    */
-  private async buildTfidfIndex(): Promise<void> {
-    const { documents } = this.documentIndex;
+  private async buildTfidfIndex(targetIndex: DocumentIndex = this.documentIndex): Promise<void> {
+    const { documents } = targetIndex;
     const termFrequency: Map<string, Map<string, number>> = new Map();
     const documentFrequency: Map<string, number> = new Map();
     
@@ -258,8 +265,8 @@ export class LocalDocumentProvider implements DocumentProvider {
       tfidf.set(term, scores);
     }
     
-    this.documentIndex.tfidf = tfidf;
-    this.documentIndex.idf = idf;
+    targetIndex.tfidf = tfidf;
+    targetIndex.idf = idf;
   }
 
   /**
@@ -304,13 +311,15 @@ export class LocalDocumentProvider implements DocumentProvider {
   async refresh(): Promise<void> {
     await this.ready;
     const paths = Array.from(this.indexedPaths);
-    this.documentIndex = {
+    const nextIndex: DocumentIndex = {
       documents: [],
       tfidf: new Map(),
       idf: new Map(),
     };
-    
-    await this.index(paths);
+
+    await this.index(paths, { targetIndex: nextIndex, persist: false });
+    this.documentIndex = nextIndex;
+    await this.saveIndex();
   }
 
   /**
