@@ -116,7 +116,7 @@ export async function canTakeTurn(channelId: string, personaId: string): Promise
   });
 }
 
-export async function recordTurn(channelId: string, personaId: string, hasProgress: boolean = true): Promise<void> {
+export async function recordTurn(channelId: string, personaId: string, hasProgress: boolean = true): Promise<number> {
   return withChannelLock(channelId, async () => {
     let state = await getCollaborationState(channelId);
     if (!state) state = await initializeCollaboration(channelId, [personaId]);
@@ -125,6 +125,7 @@ export async function recordTurn(channelId: string, personaId: string, hasProgre
     if (hasProgress) state.lastProgressAt = new Date();
     await saveCollaborationState(state);
     console.log(`📊 Turn ${state.turnCount}/${MAX_TURNS_PER_COLLABORATION} by ${personaId} in ${channelId}`);
+    return state.turnCount;
   });
 }
 

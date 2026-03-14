@@ -96,29 +96,6 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
   return (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output;
 }
 
-export async function checkBudget(
-  personaId: string, model: string, estimatedInputTokens: number, estimatedOutputTokens: number, taskId?: string
-): Promise<{ allowed: boolean; reason?: string }> {
-  return withBudgetLock(async () => {
-    const budget = await getTodaysBudget();
-    const estimatedCost = calculateCost(model, estimatedInputTokens, estimatedOutputTokens);
-    if (budget.totalCost + estimatedCost > BUDGET_LIMITS.globalDaily) {
-      return { allowed: false, reason: `Global daily budget exceeded ($${budget.totalCost.toFixed(2)} / $${BUDGET_LIMITS.globalDaily})` };
-    }
-    const personaCost = budget.byPersona[personaId] || 0;
-    if (personaCost + estimatedCost > BUDGET_LIMITS.perPersona) {
-      return { allowed: false, reason: `Persona budget exceeded for ${personaId} ($${personaCost.toFixed(2)} / $${BUDGET_LIMITS.perPersona})` };
-    }
-    if (taskId) {
-      const taskCost = budget.byTask[taskId] || 0;
-      if (taskCost + estimatedCost > BUDGET_LIMITS.perTicket) {
-        return { allowed: false, reason: `Task budget exceeded for ${taskId} ($${taskCost.toFixed(2)} / $${BUDGET_LIMITS.perTicket})` };
-      }
-    }
-    return { allowed: true };
-  });
-}
-
 export async function recordUsage(
   personaId: string, model: string, inputTokens: number, outputTokens: number, taskId?: string
 ): Promise<void> {

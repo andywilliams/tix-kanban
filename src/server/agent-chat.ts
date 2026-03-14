@@ -737,11 +737,12 @@ This conversation is about the task described above. Keep your responses relevan
 
       // Record collaboration turn after a successful response
       const responseTokens = Math.ceil(cleanResponse.length / 4);
-      recordTurn(originalMessage.channelId, persona.id, true).catch(err =>
-        console.warn('Failed to record collaboration turn:', err)
-      );
+      const turnNumber = await recordTurn(originalMessage.channelId, persona.id, true).catch(err => {
+        console.warn('Failed to record collaboration turn:', err);
+        return 0;
+      });
       auditTurnTaken(
-        originalMessage.channelId, persona.id, 0, originalMessage.id,
+        originalMessage.channelId, persona.id, turnNumber, originalMessage.id,
         actualInputTokens, responseTokens,
         calculateCost(model, actualInputTokens, responseTokens)
       ).catch(() => {});
