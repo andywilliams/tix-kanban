@@ -323,19 +323,22 @@ ${task.comments?.map(c => `- ${c.author}: ${c.body}`).join('\n') || 'No comments
 ${task.links?.map(l => `- ${l.type}: ${l.title} (${l.url})`).join('\n') || 'No links'}
 
 ## PREVIOUS REVIEW CYCLES
-${previousReviews || 'No previous reviews'}
+${reviewCycle === 1 ? (previousReviews || 'No previous reviews') : '(See PREVIOUS REJECTION REASONS above for prior feedback)'}
 
 ## YOUR ROLE AS REVIEWER
 Your job is to evaluate if the work completed meets quality standards for ${reviewCycle === 1 ? 'first review' : `review cycle ${reviewCycle}`}.
 
 ## REVIEW CRITERIA
-Evaluate these aspects:
+${reviewCycle === 1 ? `Evaluate these aspects:
 1. **Completeness** - Does the work address all requirements in the task?
 2. **Quality** - Is the work well-executed and following best practices?
 3. **Documentation** - Are changes properly documented/commented?
 4. **Testing** - Are appropriate tests included (if applicable)?
 5. **Security** - Are there any obvious security concerns?
-6. **Readiness** - Is this ready for human review or deployment?
+6. **Readiness** - Is this ready for human review or deployment?` : `On subsequent review cycles, focus ONLY on whether the previous rejection reasons have been addressed.
+- Do NOT introduce new issues
+- Only reject if the previously identified problems remain unresolved
+- If previous issues were fixed, approve the work`}
 
 ## DECISION FORMATS
 You must output your decision in this exact format:
