@@ -3609,10 +3609,6 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
-import { initializeBudgetStorage } from './collaboration-budget.js';
-import { initializeAuditStorage } from './collaboration-audit.js';
-import { initializeControlStorage } from './collaboration-control.js';
-
 // Initialize storage and start server
 async function startServer() {
   try {
@@ -3620,9 +3616,6 @@ async function startServer() {
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
-    await initializeBudgetStorage();
-    await initializeAuditStorage();
-    await initializeControlStorage();
     // Run archive maintenance on startup to trim old chat messages
     runArchiveMaintenance().catch(err => console.error('Archive maintenance failed:', err));
     await initializeReportsStorage();
