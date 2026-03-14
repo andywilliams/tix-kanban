@@ -92,11 +92,17 @@ function truncatePromptForContext(prompt: string): { prompt: string; wasTruncate
     return { prompt, wasTruncated: false, estimatedTokens };
   }
 
-  const headChars = Math.floor(CONTEXT_CHAR_LIMIT * 0.7);
-  const tailChars = CONTEXT_CHAR_LIMIT - headChars;
-  const truncatedChars = prompt.length - CONTEXT_CHAR_LIMIT;
-  const notice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(truncatedChars / 4)} tokens (${truncatedChars} chars).\n\n`;
-  const truncatedPrompt = `${prompt.slice(0, headChars)}${notice}${prompt.slice(-tailChars)}`;
+  const initialTruncatedChars = prompt.length - CONTEXT_CHAR_LIMIT;
+  const notice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(initialTruncatedChars / 4)} tokens (${initialTruncatedChars} chars).\n\n`;
+  const availableContextChars = Math.max(0, CONTEXT_CHAR_LIMIT - notice.length);
+  const headChars = Math.floor(availableContextChars * 0.7);
+  const tailChars = availableContextChars - headChars;
+  const truncatedChars = prompt.length - (headChars + tailChars);
+  const finalNotice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(truncatedChars / 4)} tokens (${truncatedChars} chars).\n\n`;
+  const finalAvailableContextChars = Math.max(0, CONTEXT_CHAR_LIMIT - finalNotice.length);
+  const finalHeadChars = Math.floor(finalAvailableContextChars * 0.7);
+  const finalTailChars = finalAvailableContextChars - finalHeadChars;
+  const truncatedPrompt = `${prompt.slice(0, finalHeadChars)}${finalNotice}${prompt.slice(-finalTailChars)}`;
 
   return {
     prompt: truncatedPrompt,
@@ -210,8 +216,13 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
       stderr += chunk;
       const knownError = detectKnownClaudeError(chunk);
       if (knownError) {
-        safeReject(new Error(knownError));
         child.kill('SIGTERM');
+        timeoutKill = setTimeout(() => {
+          child.kill('SIGKILL');
+        }, 2500);
+        safeReject(new Error(knownError), {
+          preserveTimeoutKill: true
+        });
       }
     });
     
