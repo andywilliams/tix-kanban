@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
+import { enforceProviderAccess } from './persona-yaml-loader.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -31,31 +32,6 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
-import { enforceProviderAccess } from './persona-yaml-loader.js';
-
-export function getRequiredProviders(task: Task): string[] {
-  const requiredProviders: string[] = [];
-  if (task.repo) {
-    requiredProviders.push('github');
-  }
-  return requiredProviders;
-}
-
-async function handleProviderDenial(task: Task, provider: string, reason: string): Promise<void> {
-  const denialComment: Comment = {
-    id: Math.random().toString(36).substr(2, 9),
-    taskId: task.id,
-    body: `⚠️ **Provider access denied**: ${reason}\n\nThis task requires the persona to have access to the \`${provider}\` provider. Assign a persona with the required provider access to unblock this task.`,
-    author: 'Worker (system)',
-    createdAt: new Date(),
-  };
-
-  await updateTask(task.id, {
-    status: 'review',
-    agentActivity: undefined,
-    comments: [...(task.comments || []), denialComment],
-  });
-}
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -88,95 +64,9 @@ async function postTaskUpdate(task: Task, persona: Persona, message: string): Pr
 }
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-const CONTEXT_TOKEN_LIMIT = 150000;
-const CONTEXT_CHAR_LIMIT = CONTEXT_TOKEN_LIMIT * 4;
-const DEFAULT_MAX_TURNS: Record<'task' | 'research' | 'evaluation', number> = {
-  task: 12,
-  research: 20,
-  evaluation: 4,
-};
-
-class TimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TimeoutError';
-  }
-}
-
-interface ClaudeExecutionOptions {
-  timeoutMs?: number;
-  cwd?: string;
-  model?: string;
-  operationType?: 'task' | 'research' | 'evaluation';
-  maxTurns?: number;
-}
-
-function truncatePromptForContext(prompt: string): { prompt: string; wasTruncated: boolean; estimatedTokens: number } {
-  const estimatedTokens = Math.ceil(prompt.length / 4);
-  if (estimatedTokens <= CONTEXT_TOKEN_LIMIT) {
-    return { prompt, wasTruncated: false, estimatedTokens };
-  }
-
-  const initialTruncatedChars = prompt.length - CONTEXT_CHAR_LIMIT;
-  const notice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(initialTruncatedChars / 4)} tokens (${initialTruncatedChars} chars).\n\n`;
-  const availableContextChars = Math.max(0, CONTEXT_CHAR_LIMIT - notice.length);
-  const headChars = Math.floor(availableContextChars * 0.7);
-  const tailChars = availableContextChars - headChars;
-  const truncatedChars = prompt.length - (headChars + tailChars);
-  const finalNotice = `\n\n[worker-warning] Input was truncated to fit Claude context window. Removed approximately ${Math.ceil(truncatedChars / 4)} tokens (${truncatedChars} chars).\n\n`;
-  const finalAvailableContextChars = Math.max(0, CONTEXT_CHAR_LIMIT - finalNotice.length);
-  const finalHeadChars = Math.floor(finalAvailableContextChars * 0.7);
-  const finalTailChars = finalAvailableContextChars - finalHeadChars;
-  const truncatedPrompt = `${prompt.slice(0, finalHeadChars)}${finalNotice}${prompt.slice(-finalTailChars)}`;
-
-  return {
-    prompt: truncatedPrompt,
-    wasTruncated: true,
-    estimatedTokens,
-  };
-}
-
-function detectKnownClaudeError(stderr: string): string | null {
-  const patterns = [
-    /(?:^|\n)\s*(?:fatal|panic|unhandled exception)\b.*\bclaude\b/i,
-    /(?:^|\n)\s*claude process\b.*\b(?:crash(?:ed)?|exit(?:ed)?|terminated)\b/i,
-    /(?:^|\n)\s*claude process exited with code\s+\d+/i,
-    /(?:^|\n)\s*mcp server\b.*\b(?:error|fail(?:ed)?|disconnect(?:ed)?|unavailable|tim(?:e|ed)\s*out)\b/i,
-    /(?:^|\n)\s*(?:failed to connect|connection (?:refused|reset)).*\bmcp server\b/i,
-    /(?:^|\n)\s*\bmcp server\b.*(?:failed to connect|connection (?:refused|reset))/i,
-    /(?:^|\n)\s*(?:fatal:?\s*)?(?:mcp server|claude process)\b.*\bpermission denied\b/i,
-    /(?:^|\n)\s*(?:fatal:?\s*)?(?:mcp server|claude process)\b.*\btool (?:error|execution failed|failed)\b/i,
-  ];
-  const match = patterns.find((pattern) => pattern.test(stderr));
-  if (!match) return null;
-
-  const matchResult = match.exec(stderr);
-  const snippet = (matchResult?.[0] ?? stderr.split('\n').find(line => line.trim().length > 0) ?? stderr).trim();
-  return `Claude reported tool/MCP error: ${snippet}`;
-}
-
-function executeClaudeWithStdin(prompt: string, args: string[] = [], options: ClaudeExecutionOptions = {}): Promise<{ stdout: string; stderr: string }> {
-  const {
-    timeoutMs = 320000,
-    cwd,
-    model,
-    operationType = 'task',
-    maxTurns = DEFAULT_MAX_TURNS[operationType],
-  } = options;
-
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 320000, cwd?: string, model?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const { prompt: safePrompt, wasTruncated, estimatedTokens } = truncatePromptForContext(prompt);
-    if (wasTruncated) {
-      console.warn(
-        `[worker] Claude prompt exceeded context estimate (${estimatedTokens} tokens > ${CONTEXT_TOKEN_LIMIT}). Truncating input before stdin write.`
-      );
-    }
-
-    const hasMaxTurnsArg = args.includes('--max-turns');
     const claudeArgs = ['-p', ...args];
-    if (!hasMaxTurnsArg) {
-      claudeArgs.push('--max-turns', String(maxTurns));
-    }
     if (model) {
       claudeArgs.push('--model', model);
     }
@@ -201,35 +91,11 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
     
     let stdout = '';
     let stderr = '';
-    let settled = false;
-    let timeoutKill: NodeJS.Timeout | null = null;
-    let timeoutHandle: NodeJS.Timeout | null = null;
-
-    const safeResolve = (value: { stdout: string; stderr: string }) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutKill) clearTimeout(timeoutKill);
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      resolve(value);
-    };
-
-    const safeReject = (error: Error, options?: { preserveTimeoutKill?: boolean }) => {
-      if (settled) return;
-      settled = true;
-      if (!options?.preserveTimeoutKill && timeoutKill) clearTimeout(timeoutKill);
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      reject(error);
-    };
     
     // Set up timeout
-    timeoutHandle = setTimeout(() => {
-      child.kill('SIGTERM');
-      timeoutKill = setTimeout(() => {
-        child.kill('SIGKILL');
-      }, 5000);
-      safeReject(new TimeoutError(`Claude process exceeded ${timeoutMs}ms and was terminated`), {
-        preserveTimeoutKill: true
-      });
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`Claude process timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     
     child.stdout.on('data', (data) => {
@@ -237,46 +103,25 @@ function executeClaudeWithStdin(prompt: string, args: string[] = [], options: Cl
     });
     
     child.stderr.on('data', (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      const knownError = detectKnownClaudeError(stderr);
-      if (knownError && !settled) {
-        child.kill('SIGTERM');
-        timeoutKill = setTimeout(() => {
-          child.kill('SIGKILL');
-        }, 2500);
-        safeReject(new Error(knownError), {
-          preserveTimeoutKill: true
-        });
-      }
+      stderr += data.toString();
     });
     
     child.on('close', (code) => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      if (timeoutKill) clearTimeout(timeoutKill);
-      if (settled) return;
-      const trimmedStdout = stdout.trim();
-      const trimmedStderr = stderr.trim();
+      clearTimeout(timeout);
       if (code === 0) {
-        safeResolve({ stdout: trimmedStdout, stderr: trimmedStderr });
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
       } else {
-        const knownError = detectKnownClaudeError(trimmedStderr);
-        if (knownError) {
-          safeReject(new Error(knownError));
-          return;
-        }
-        const stderrMessage = trimmedStderr || 'no stderr output';
-        safeReject(new Error(`Claude process exited with code ${code}: ${stderrMessage}`));
+        reject(new Error(`Claude process exited with code ${code}: ${stderr}`));
       }
     });
     
     child.on('error', (error) => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      safeReject(error instanceof Error ? error : new Error(String(error)));
+      clearTimeout(timeout);
+      reject(error);
     });
     
     // Send prompt via stdin and close it
-    child.stdin.write(safePrompt);
+    child.stdin.write(prompt);
     child.stdin.end();
   });
 }
@@ -570,13 +415,9 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
-      {
-        timeoutMs: (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
-        cwd,
-        model,
-        operationType: 'task',
-        maxTurns: (task as any).maxTurns ?? undefined
-      }
+      (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
+      cwd,
+      model
     );
     
     if (stderr) {
@@ -698,12 +539,9 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
-      {
-        timeoutMs: (task as any).timeoutMs || 600000, // task override > 10 min default for research
-        model: researchModel,
-        operationType: 'research',
-        maxTurns: (task as any).maxTurns ?? undefined
-      }
+      (task as any).timeoutMs || 600000, // task override > 10 min default for research
+      undefined, // No specific working directory needed for research
+      researchModel
     );
     
     if (stderr) {
@@ -742,6 +580,9 @@ async function processTask(task: Task): Promise<void> {
   try {
     console.log(`📋 Processing task: ${task.title}`);
 
+    // Move task to in-progress
+    await updateTask(task.id, { status: 'in-progress' });
+
     // Fetch the full task with all history (comments, links)
     const fullTask = await getTask(task.id);
     if (!fullTask) {
@@ -756,19 +597,17 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
 
-    for (const provider of getRequiredProviders(fullTask)) {
-      try {
-        enforceProviderAccess(persona, provider);
-      } catch (accessError) {
-        const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
-        console.warn(`🚫 Provider access denied for task "${fullTask.title}": ${denialMessage}`);
-        await handleProviderDenial(fullTask, provider, denialMessage);
-        return;
-      }
+    // Enforce provider access restrictions before proceeding
+    // Determine required providers based on task properties
+    const requiredProviders: string[] = [];
+    if (fullTask.repo) {
+      requiredProviders.push('github');
     }
-
-    // Move task to in-progress only after provider access checks pass
-    await updateTask(task.id, { status: 'in-progress' });
+    // Add more provider detection here as needed (e.g., Slack, Notion, etc.)
+    
+    for (const provider of requiredProviders) {
+      enforceProviderAccess(persona, provider);
+    }
 
     // Mark agent as actively working on this task
     await updateTask(task.id, {
@@ -1121,11 +960,9 @@ Reply with ONLY one word: REVIEW (if work appears complete and ready for review)
     const { stdout } = await executeClaudeWithStdin(
       evaluationPrompt,
       ['--dangerously-skip-permissions'],
-      {
-        timeoutMs: 30000, // 30s timeout for quick evaluation
-        model,
-        operationType: 'evaluation'
-      }
+      30000, // 30s timeout for quick evaluation
+      undefined,
+      model
     );
 
     const response = stdout.trim().toUpperCase();
@@ -1288,52 +1125,13 @@ async function runWorker(): Promise<void> {
       workerState.interval = '*/10 * * * *'; // Every 10 minutes
     }
     
-    // Process the highest-priority task that is allowed by provider restrictions.
-    const eligibleBacklogTasks: Task[] = [];
-    for (const candidate of backlogTasks) {
-      const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
-      if (!candidatePersona) {
-        continue;
-      }
-
-      let deniedProvider: string | null = null;
-      let denialMessage: string | null = null;
-      for (const provider of getRequiredProviders(candidate)) {
-        try {
-          enforceProviderAccess(candidatePersona, provider);
-        } catch (accessError) {
-          deniedProvider = provider;
-          denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
-          break;
-        }
-      }
-
-      if (deniedProvider && denialMessage) {
-        // Only deny one task per cycle to avoid mass-moving all blocked tasks irreversibly
-        if (candidate.status !== 'review') {
-          await handleProviderDenial(candidate, deniedProvider, denialMessage);
-          console.log(`⏭️  Skipping task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${deniedProvider} access: ${denialMessage}`);
-        }
-        continue;
-      }
-
-      eligibleBacklogTasks.push(candidate);
-    }
-
-    const taskToProcess = eligibleBacklogTasks[0];
-    if (!taskToProcess) {
-      console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
-      return;
-    }
+    // Process the highest priority task
+    const taskToProcess = backlogTasks[0];
     workerState.lastTaskId = taskToProcess.id;
     
     await processTask(taskToProcess);
     
-    const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
-    const nextTask = processedIndex >= 0 && processedIndex + 1 < eligibleBacklogTasks.length
-      ? eligibleBacklogTasks[processedIndex + 1]
-      : null;
-    console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
+    console.log(`✅ Worker cycle completed. Next task: ${backlogTasks.length > 1 ? backlogTasks[1].title : 'None'}`);
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
   } finally {

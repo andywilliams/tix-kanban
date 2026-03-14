@@ -1362,11 +1362,10 @@ When a reminder is triggered, you'll be notified. Include task context when rele
       console.log('✅ All default personas already present');
     }
 
-    // Load YAML-defined personas from personas/builtin/ (and .forge/personas/ for user-defined ones)
-    const builtinYamlDir = path.join(process.cwd(), 'personas', 'builtin');
+    // Load YAML-defined personas from BUILTIN_PERSONAS_DIR (and .forge/personas/ for user-defined ones)
     const userYamlDir = path.join(process.cwd(), '.forge', 'personas');
 
-    for (const dir of [builtinYamlDir, userYamlDir]) {
+    for (const dir of [BUILTIN_PERSONAS_DIR, userYamlDir]) {
       try {
         const yamlPersonas = await loadPersonasFromDir(dir);
         let yamlAdded = 0;
