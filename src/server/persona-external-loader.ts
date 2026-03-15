@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
@@ -8,6 +9,13 @@ import {
   BUILTIN_TRIGGER_DEFAULTS
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
+
+// Directories from which persona YAML files may be loaded.
+// Only paths that start with one of these prefixes are allowed.
+const ALLOWED_PERSONA_DIRS: string[] = [
+  path.join(os.homedir(), '.tix-kanban', 'personas'),
+  path.join(os.homedir(), '.tix-kanban', 'external-personas'),
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,11 +145,22 @@ async function loadFromFile(filePath: string): Promise<string> {
   console.log(`[persona-external-loader] Loading persona from ${filePath}`);
   
   try {
-    // Resolve to absolute path
+    // Resolve to absolute path (handles relative paths and symlink-free traversal)
     const absolutePath = path.resolve(filePath);
-    
-    // Security check: ensure path is within allowed directories
-    // (This can be configured based on security requirements)
+
+    // Security check: reject paths that fall outside the allowed directories.
+    // This prevents an external-source configuration from being used to read
+    // arbitrary files (e.g. /etc/passwd or private keys) from the host.
+    const isAllowed = ALLOWED_PERSONA_DIRS.some(
+      (dir) => absolutePath === dir || absolutePath.startsWith(dir + path.sep)
+    );
+    if (!isAllowed) {
+      throw new Error(
+        `Security: persona file path "${filePath}" is not within an allowed directory. ` +
+        `Allowed directories: ${ALLOWED_PERSONA_DIRS.join(', ')}`
+      );
+    }
+
     const content = await fs.readFile(absolutePath, 'utf8');
     return content;
   } catch (error) {
@@ -363,12 +382,4 @@ export function clearPersonaCache(location?: string): void {
   }
 }
 
-/**
- * Refresh a cached persona (force re-fetch)
- */
-export async function refreshExternalPersona(
-  source: ExternalPersonaSource
-): Promise<LoadedExternalPersona> {
-  clearPersonaCache(source.location);
-  return loadExternalPersona(source);
-}
+
