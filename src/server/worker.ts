@@ -421,7 +421,12 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
   const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
   const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
-  return Boolean(effectiveTriggers[eventType]);
+  const val = effectiveTriggers[eventType];
+  if (val === null || val === undefined || val === false) return false;
+  if (val === true) return true;
+  // PersonaTriggerConfig object — treat absent `enabled` as true, explicit `false` as disabled
+  if (typeof val === 'object') return (val as any).enabled !== false;
+  return Boolean(val);
 }
 
 function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
