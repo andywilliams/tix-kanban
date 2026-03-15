@@ -314,7 +314,7 @@ async function resolveConflicts(
         if (Array.isArray(values[0].value)) {
           // Merge arrays and deduplicate
           const mergedArray = values.flatMap(v => v.value as any[]);
-          (merged as any)[field] = Array.from(new Set(mergedArray.map(JSON.stringify))).map(JSON.parse);
+          (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
         } else if (typeof values[0].value === 'object' && values[0].value !== null) {
           // Merge objects
           const mergedObject = {};

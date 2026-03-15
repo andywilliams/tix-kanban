@@ -5,10 +5,8 @@
  * Implements task decomposition and delegation.
  */
 
-import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { getPersona } from './persona-storage.js';
-import { startParallelExecution, markPersonaStarted, recordPersonaCompletion } from './parallel-execution.js';
-import type { Task } from '../client/types/index.js';
+import { readTask, logActivity } from './storage.js';
+import { startParallelExecution } from './parallel-execution.js';
 
 export interface OrchestratorConfig {
   personaId: string; // The orchestrator persona
@@ -355,7 +353,7 @@ export async function evaluateDelegationRules(
     
     if (matches) {
       return {
-        shouldDelegate: rule.action !== 'delegate' ? true : false,
+        shouldDelegate: true,
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };

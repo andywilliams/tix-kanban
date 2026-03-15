@@ -5,9 +5,8 @@
  * Events include PR operations, test failures, status changes, etc.
  */
 
-import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { listPersonas } from './persona-storage.js';
-import type { ActivityLog } from '../client/types/index.js';
+import { readTask, logActivity } from './storage.js';
+import { getAllPersonas } from './persona-storage.js';
 
 export type TriggerEventType =
   | 'pr_opened'
@@ -56,22 +55,43 @@ const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
  * Initialize trigger system - load persona trigger configs
  */
 export async function initializeTriggerSystem(): Promise<void> {
-  const personas = await listPersonas();
-  
+  const personas = await getAllPersonas();
+
+  const triggerKeyToEventType: Record<string, TriggerEventType> = {
+    onPROpened: 'pr_opened',
+    onPRMerged: 'pr_merged',
+    onPRClosed: 'pr_closed',
+    onPRReviewRequested: 'pr_review_requested',
+    onCIPassed: 'test_success',
+    onTestFailure: 'test_failure',
+    onTestSuccess: 'test_success',
+    onStatusChange: 'status_change',
+    onTaskCreated: 'task_created',
+    onAssignmentChanged: 'assignment_changed',
+    onPriorityChanged: 'priority_changed',
+    onCommentAdded: 'comment_added',
+    onDueDateApproaching: 'due_date_approaching',
+  };
+
   for (const persona of personas) {
-    if (persona.triggers && persona.triggers.length > 0) {
-      const eventTypes = persona.triggers as TriggerEventType[];
-      const trigger: PersonaTrigger = {
-        personaId: persona.id,
-        eventTypes,
-        priority: 100, // Default priority
-      };
-      
-      for (const eventType of eventTypes) {
-        if (!triggerSubscriptions.has(eventType)) {
-          triggerSubscriptions.set(eventType, []);
+    if (persona.triggers) {
+      const eventTypes = Object.entries(persona.triggers)
+        .filter(([key, val]) => val === true && triggerKeyToEventType[key])
+        .map(([key]) => triggerKeyToEventType[key]);
+
+      if (eventTypes.length > 0) {
+        const trigger: PersonaTrigger = {
+          personaId: persona.id,
+          eventTypes,
+          priority: persona.triggers.priority ?? 100,
+        };
+
+        for (const eventType of eventTypes) {
+          if (!triggerSubscriptions.has(eventType)) {
+            triggerSubscriptions.set(eventType, []);
+          }
+          triggerSubscriptions.get(eventType)!.push(trigger);
         }
-        triggerSubscriptions.get(eventType)!.push(trigger);
       }
     }
   }

@@ -35,13 +35,36 @@ export interface PersonaYamlSchema {
   skills?: string[];
   /** Invocation permissions – which personas this one can call (optional) */
   invocations?: InvocationConfig;
+  /** Whether this persona can orchestrate/delegate to others (optional) */
+  orchestrator?: boolean;
+  /** Alias for orchestrator (optional) */
+  canDelegate?: boolean;
+  /** Specialist mappings for delegation (optional) */
+  specialists?: Array<{ specialty: string; personaIds: string[] }>;
+  /** Rules for automatic delegation (optional) */
+  delegationRules?: Array<{
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches'; value: any };
+    action: 'delegate' | 'parallel' | 'sequential';
+    targetPersonas: string[];
+  }>;
 }
 
 const VALID_TRIGGER_KEYS = new Set([
   'onPROpened',
   'onPRMerged',
+  'onPRClosed',
+  'onPRReviewRequested',
   'onCIPassed',
+  'onTestFailure',
+  'onTestSuccess',
+  'onStatusChange',
   'onTaskCreated',
+  'onAssignmentChanged',
+  'onPriorityChanged',
+  'onCommentAdded',
+  'onDueDateApproaching',
+  'conditions',
+  'priority',
 ]);
 
 const VALID_SKILLS = new Set([
@@ -131,7 +154,15 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
         }
-        if (typeof triggerValue !== 'boolean') {
+        if (triggerKey === 'conditions') {
+          if (!Array.isArray(triggerValue)) {
+            errors.push(`Field "triggers.conditions" must be an array`);
+          }
+        } else if (triggerKey === 'priority') {
+          if (typeof triggerValue !== 'number') {
+            errors.push(`Field "triggers.priority" must be a number`);
+          }
+        } else if (typeof triggerValue !== 'boolean') {
           errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
         }
       }
@@ -269,10 +300,14 @@ export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Perso
     prompt: yaml.prompt,
     specialties: yaml.specialties,
     skills: yaml.skills,
-    triggers: triggers,
+    triggers,
     budgetCap: yaml.budgetCap,
     model: yaml.model,
     providers: yaml.providers,
+    orchestrator: yaml.orchestrator,
+    canDelegate: yaml.canDelegate,
+    specialists: yaml.specialists,
+    delegationRules: yaml.delegationRules,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,

@@ -7,6 +7,7 @@
 import { 
   initializeTriggerSystem, 
   registerTrigger, 
+  clearAllTriggers,
   emitEvent, 
   emitPROpened, 
   emitTestFailure,
@@ -25,7 +26,6 @@ import {
 } from './parallel-execution.js';
 import {
   registerOrchestrator,
-  getOrchestratorConfig,
   isOrchestrator,
   orchestrateTask,
   startOrchestration,
@@ -36,7 +36,7 @@ import {
   type OrchestratorConfig,
   type OrchestratedTask,
 } from './orchestrator.js';
-import { listPersonas, getPersona } from './persona-storage.js';
+import { getAllPersonas } from './persona-storage.js';
 import type { Persona, PersonaTriggers } from '../client/types/index.js';
 
 /**
@@ -49,7 +49,7 @@ export async function initializePhase3(): Promise<void> {
   await initializeTriggerSystem();
   
   // Load orchestrator configs
-  const personas = await listPersonas();
+  const personas = await getAllPersonas();
   for (const persona of personas) {
     if (persona.orchestrator || persona.canDelegate) {
       const config: OrchestratorConfig = {
