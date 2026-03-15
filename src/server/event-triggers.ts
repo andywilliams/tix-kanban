@@ -251,10 +251,10 @@ function evaluateCondition(condition: TriggerCondition, task: any, event: Trigge
       return false;
     
     case 'greaterThan':
-      return actualValue > condition.value;
+      return typeof actualValue === 'number' && actualValue > Number(condition.value);
     
     case 'lessThan':
-      return actualValue < condition.value;
+      return typeof actualValue === 'number' && actualValue < Number(condition.value);
     
     default:
       return false;

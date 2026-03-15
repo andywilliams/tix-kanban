@@ -171,7 +171,10 @@ async function finalizeExecution(executionId: string): Promise<void> {
     throw new Error(`Execution ${executionId} not found`);
   }
   
-  const completedParticipants = execution.participants.filter(p => p.status === 'completed');
+  // Sort by completion time so priority reflects actual completion order
+  const completedParticipants = execution.participants
+    .filter(p => p.status === 'completed')
+    .sort((a, b) => (a.completedAt?.getTime() ?? 0) - (b.completedAt?.getTime() ?? 0));
   
   if (completedParticipants.length === 0) {
     execution.status = 'failed';
