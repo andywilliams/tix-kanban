@@ -377,7 +377,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
         'pr', 'view', String(number),
         '--repo', repo,
         '--json', 'statusCheckRollup',
-        '--jq', '.statusCheckRollup[] | .conclusion // "PENDING"',
+        '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion',
       ],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );

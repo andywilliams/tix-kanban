@@ -119,6 +119,20 @@ export async function initializeTriggerSystem(): Promise<void> {
  * Register a persona trigger subscription
  */
 export async function registerTrigger(trigger: PersonaTrigger): Promise<void> {
+  // Remove this persona from any event types it's no longer subscribed to,
+  // so stale subscriptions don't linger if the persona's trigger list changed.
+  const newEventTypeSet = new Set(trigger.eventTypes);
+  for (const [eventType, subscribers] of triggerSubscriptions) {
+    if (!newEventTypeSet.has(eventType as TriggerEventType)) {
+      const filtered = subscribers.filter(t => t.personaId !== trigger.personaId);
+      if (filtered.length === 0) {
+        triggerSubscriptions.delete(eventType);
+      } else {
+        triggerSubscriptions.set(eventType, filtered);
+      }
+    }
+  }
+
   for (const eventType of trigger.eventTypes) {
     if (!triggerSubscriptions.has(eventType)) {
       triggerSubscriptions.set(eventType, []);
