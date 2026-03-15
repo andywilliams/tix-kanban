@@ -109,6 +109,7 @@ async function loadFromUrl(
     // Block loopback, private RFC-1918 ranges, link-local, and IPv4-mapped IPv6 addresses
     if (
       hostname === 'localhost' ||
+      hostname.startsWith('127.') ||           // 127.0.0.0/8 loopback range
       hostname === '::' ||                       // IPv6 all-zeros (equivalent to 0.0.0.0)
       hostname === '0.0.0.0' ||               // Linux resolves to localhost
       hostname === '::1' ||                   // IPv6 loopback
@@ -161,8 +162,8 @@ async function loadFromUrl(
  * Files must resolve to one of these directories to prevent path traversal attacks.
  */
 const ALLOWED_PERSONA_DIRS: string[] = [
-  path.resolve(process.cwd(), 'personas'),
-  path.resolve(process.cwd(), 'config/personas'),
+  path.resolve(__dirname, '../../personas'),
+  path.resolve(__dirname, '../../personas/builtin'),
 ];
 
 /**
