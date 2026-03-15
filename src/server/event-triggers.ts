@@ -168,6 +168,24 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
  * Returns Persona objects sorted by priority (highest first)
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
+  const triggersWithConditions = await getTriggersByTriggerKey(triggerKey);
+  // Convert to Persona[] by looking up each persona
+  const personas: Persona[] = [];
+  for (const { persona } of triggersWithConditions) {
+    if (persona) {
+      personas.push(persona);
+    }
+  }
+  
+  // Sort by priority (descending) - triggers are already sorted in the registry
+  return personas;
+}
+
+/**
+ * Get triggered personas with their trigger conditions by worker.ts style trigger key
+ * Returns array of { persona, conditions, priority } for condition evaluation
+ */
+export async function getTriggersByTriggerKey(triggerKey: string): Promise<Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }>> {
   const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
   if (!eventType) {
     return [];
@@ -178,17 +196,18 @@ export async function getPersonasByTriggerKey(triggerKey: string): Promise<Perso
     return [];
   }
   
-  // Convert PersonaTrigger[] to Persona[] by looking up each persona
-  const personas: Persona[] = [];
+  // Convert PersonaTrigger[] to array with persona objects and their conditions
+  const result: Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }> = [];
   for (const trigger of triggers) {
     const persona = await getPersona(trigger.personaId);
-    if (persona) {
-      personas.push(persona);
-    }
+    result.push({
+      persona,
+      conditions: trigger.conditions,
+      priority: trigger.priority,
+    });
   }
   
-  // Sort by priority (descending) - triggers are already sorted in the registry
-  return personas;
+  return result;
 }
 
 /**
