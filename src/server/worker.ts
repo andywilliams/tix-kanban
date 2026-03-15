@@ -409,13 +409,16 @@ async function getPRState(repo: string, number: number): Promise<'open' | 'close
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
+    // Emit each check's conclusion, or "PENDING" for checks still in progress.
+    // Using select(.conclusion) would exclude pending checks, causing SUCCESS to
+    // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
       [
         'pr', 'view', String(number),
         '--repo', repo,
         '--json', 'statusCheckRollup',
-        '--jq', '.statusCheckRollup[] | select(.conclusion) | .conclusion',
+        '--jq', '.statusCheckRollup[] | .conclusion // "PENDING"',
       ],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
@@ -429,6 +432,12 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return null;
     }
 
+    // If any check is still running, CI hasn't fully completed yet.
+    const hasPending = conclusions.some((value) => value === 'PENDING');
+    if (hasPending) {
+      return null;
+    }
+
     const hasFailure = conclusions.some((value) => {
       return value === 'FAILURE' || value === 'TIMED_OUT' || value === 'CANCELLED' || value === 'ACTION_REQUIRED';
     });
@@ -436,8 +445,9 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return 'FAILURE';
     }
 
-    const hasSuccess = conclusions.some((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
-    return hasSuccess ? 'SUCCESS' : null;
+    // All checks concluded — every check must have passed.
+    const allPassed = conclusions.every((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
+    return allPassed ? 'SUCCESS' : null;
   } catch (error) {
     console.warn(`Failed to fetch CI state for ${repo}#${number}:`, error);
     return null;
