@@ -317,7 +317,16 @@ async function resolveConflicts(
         if (Array.isArray(values[0].value)) {
           // Merge arrays and deduplicate
           const mergedArray = values.flatMap(v => v.value as any[]);
-          (merged as any)[field] = Array.from(new Set(mergedArray.map(JSON.stringify))).map(JSON.parse);
+          // Deduplicate by `id` when available (preserves Date objects and non-JSON-safe types).
+          // Fall back to JSON key for plain-value arrays (strings, numbers).
+          const seen = new Map<string, unknown>();
+          for (const item of mergedArray) {
+            const key = (item && typeof item === 'object' && 'id' in item)
+              ? String((item as Record<string, unknown>).id)
+              : JSON.stringify(item);
+            if (!seen.has(key)) seen.set(key, item);
+          }
+          (merged as any)[field] = [...seen.values()];
         } else if (typeof values[0].value === 'object' && values[0].value !== null) {
           // Merge objects — sort ascending so highest-priority persona is applied last
           // and wins conflicts (Object.assign gives precedence to the last argument).
