@@ -6,7 +6,8 @@
  */
 
 import { readTask, logActivity } from './storage.js';
-import { getAllPersonas } from './persona-storage.js';
+import { getAllPersonas, getPersona } from './persona-storage.js';
+import { Persona } from '../client/types/index.js';
 
 export type TriggerEventType =
   | 'pr_opened'
@@ -16,6 +17,8 @@ export type TriggerEventType =
   | 'test_failure'
   | 'test_success'
   | 'status_change'
+  | 'task_created'
+  | 'task_started'
   | 'assignment_changed'
   | 'priority_changed'
   | 'comment_added'
@@ -70,6 +73,7 @@ export async function initializeTriggerSystem(): Promise<void> {
     onTestFailure: 'test_failure',
     onStatusChange: 'status_change',
     onTaskCreated: 'task_created',
+    onTaskStarted: 'task_started',
     onAssignmentChanged: 'assignment_changed',
     onPriorityChanged: 'priority_changed',
     onCommentAdded: 'comment_added',
@@ -148,6 +152,52 @@ export async function unregisterTrigger(personaId: string, eventType: TriggerEve
  */
 export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigger[] {
   return triggerSubscriptions.get(eventType) || [];
+}
+
+// Mapping from worker.ts style trigger keys to internal TriggerEventType
+const WORKER_TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+  onPROpened: 'pr_opened',
+  onPRMerged: 'pr_merged',
+  onPRClosed: 'pr_closed',
+  onPRReviewRequested: 'pr_review_requested',
+  onCIPassed: 'test_success',
+  onTestSuccess: 'test_success',
+  onTestFailure: 'test_failure',
+  onStatusChange: 'status_change',
+  onTaskCreated: 'task_created',
+  onTaskStarted: 'task_started',
+  onAssignmentChanged: 'assignment_changed',
+  onPriorityChanged: 'priority_changed',
+  onCommentAdded: 'comment_added',
+  onDueDateApproaching: 'due_date_approaching',
+};
+
+/**
+ * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
+ * Returns Persona objects sorted by priority (highest first)
+ */
+export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
+  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  if (!eventType) {
+    return [];
+  }
+  
+  const triggers = getTriggeredPersonas(eventType);
+  if (triggers.length === 0) {
+    return [];
+  }
+  
+  // Convert PersonaTrigger[] to Persona[] by looking up each persona
+  const personas: Persona[] = [];
+  for (const trigger of triggers) {
+    const persona = await getPersona(trigger.personaId);
+    if (persona) {
+      personas.push(persona);
+    }
+  }
+  
+  // Sort by priority (descending) - triggers are already sorted in the registry
+  return personas;
 }
 
 /**
