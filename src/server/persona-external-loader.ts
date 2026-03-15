@@ -345,7 +345,7 @@ function schemaToPersona(
 /**
  * Load a persona from an external source (URL or file path)
  */
-async function loadExternalPersona(
+export async function loadExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
   let yamlContent: string;
@@ -397,7 +397,7 @@ async function loadExternalPersona(
  * NOTE: This is a Phase 4 API entry point - currently unused but reserved for
  * future wiring into startup/worker flows for bulk loading external personas.
  */
-async function loadExternalPersonas(
+export async function loadExternalPersonas(
   sources: ExternalPersonaSource[]
 ): Promise<LoadedExternalPersona[]> {
   const results: LoadedExternalPersona[] = [];
@@ -421,7 +421,7 @@ async function loadExternalPersonas(
 /**
  * Clear the cache for a specific location or all locations
  */
-function clearPersonaCache(location?: string, authToken?: string): void {
+export function clearPersonaCache(location?: string, authToken?: string): void {
   if (location) {
     const keysToDelete = authToken
       ? [getPersonaCacheKey(location, authToken)]
@@ -437,7 +437,7 @@ function clearPersonaCache(location?: string, authToken?: string): void {
 /**
  * Refresh a cached persona (force re-fetch)
  */
-async function refreshExternalPersona(
+export async function refreshExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
   clearPersonaCache(source.location, source.authToken);
