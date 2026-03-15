@@ -299,6 +299,17 @@ function extractAcceptanceCriteria(description: string): string | null {
     if (criteria.length > 0) {
       return criteria.join('\n');
     }
+
+    // AC section found but has no bullet/checkbox items — extract prose lines instead of falling through
+    const proseLines = section
+      .split('\n')
+      .slice(1) // skip the heading line
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+    if (proseLines.length > 0) {
+      return proseLines.join('\n');
+    }
+    return null; // AC section exists but is empty — don't fall through to unrelated content
   }
   
   // Try to find checkboxes anywhere in description (both checked and unchecked)

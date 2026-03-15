@@ -17,7 +17,7 @@ import {
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
-import { parsePRLinks, getPRStateShared } from './pr-utils.js';
+import { parsePRLinks, getPRStateShared, ParsedPRLink } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -154,13 +154,6 @@ const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
 type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
-
-interface ParsedPRLink {
-  repo: string;
-  number: number;
-  key: string;
-  url?: string;
-}
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
@@ -372,45 +365,8 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
   return results;
 }
 
-function parseTaskPRLinks(links: Task['links']): ParsedPRLink[] {
-  const parsed = new Map<string, ParsedPRLink>();
-  for (const link of links || []) {
-    if (link.type !== 'pr' && !link.url?.includes('/pull/')) {
-      continue;
-    }
-    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
-    if (!match) {
-      continue;
-    }
-    const repo = match[1];
-    const number = parseInt(match[2], 10);
-    if (!Number.isFinite(number)) {
-      continue;
-    }
-    const key = `${repo}#${number}`;
-    parsed.set(key, { repo, number, key, url: link.url });
-  }
-  return [...parsed.values()];
-}
-
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
-  try {
-    const { stdout } = await exec(
-      `gh pr view ${quoteShellArg(String(number))} --repo ${quoteShellArg(repo)} --json state --jq .state`,
-      { timeout: 10000, maxBuffer: 1024 * 1024 }
-    );
-    const state = stdout.trim().toUpperCase();
-    if (state === 'OPEN') return 'open';
-    if (state === 'MERGED') return 'merged';
-    if (state === 'CLOSED') return 'closed';
-  } catch (error) {
-    console.warn(`Failed to fetch PR state for ${repo}#${number}:`, error);
-  }
-  return null;
 }
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
@@ -558,12 +514,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
-    const prLinks = parseTaskPRLinks(fullTask.links);
+    const prLinks = parsePRLinks(fullTask.links);
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
-      const state = await getPRState(pr.repo, pr.number);
+      const state = await getPRStateShared(pr.repo, pr.number);
       const ciState = await getPRCIState(pr.repo, pr.number);
       const current: PRSnapshot = { state, ciState };
       newSnapshots[pr.key] = current;
@@ -639,6 +595,26 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     taskState.prs = { ...taskState.prs, ...newSnapshots };
     triggerState.tasks[task.id] = taskState;
     pendingStatusUpdates[task.id] = fullTask.status;
+
+    // If task is stranded in review (max cycles reached) and all PRs have now merged, close it.
+    // auto-review.ts adds a "Keeping this task in review until at least one linked PR is merged"
+    // comment when max review cycles are exceeded — detect that and auto-close once a PR merges.
+    const hasAutoReviewNote = fullTask.comments?.some(
+      (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
+    );
+    if (hasAutoReviewNote && prLinks.length > 0) {
+      const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
+      if (anyMerged) {
+        console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
+        await updateTask(task.id, { status: 'done' });
+        const workerId = fullTask.persona;
+        if (workerId) {
+          const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
+          await updatePersonaStats(workerId, completionTimeMs / 60000, true).catch(() => {});
+        }
+        await deleteTaskReviewState(task.id).catch(() => {});
+      }
+    }
   }
 
   if (pendingInvocations.size > 0) {
