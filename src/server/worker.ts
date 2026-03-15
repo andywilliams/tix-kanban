@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
-import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { enforceProviderAccess, BUILTIN_TRIGGER_DEFAULTS } from './persona-yaml-loader.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -173,11 +173,6 @@ interface WorkerTriggerTaskState {
 interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
-
-const BUILTIN_EVENT_TRIGGER_DEFAULTS: Record<string, Partial<NonNullable<Persona['triggers']>>> = {
-  'qa-reviewer': { onPROpened: true },
-  'tech-writer': { onPRMerged: true },
-};
 
 interface WorkerState {
   enabled: boolean;
@@ -448,7 +443,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 }
 
 function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
-  const defaults = BUILTIN_EVENT_TRIGGER_DEFAULTS[persona.id] || {};
+  const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
   const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
   return Boolean(effectiveTriggers[eventType]);
 }
@@ -592,6 +587,18 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     taskState.prs = newSnapshots;
     taskState.lastStatus = fullTask.status;
     triggerState.tasks[task.id] = taskState;
+
+    // If task is stranded in review (max cycles reached) and all PRs have now merged, close it
+    const hasAutoReviewNote = fullTask.comments?.some(
+      (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
+    );
+    if (hasAutoReviewNote && prLinks.length > 0) {
+      const allMerged = prLinks.every((pr) => newSnapshots[pr.key]?.state === 'merged');
+      if (allMerged) {
+        console.log(`✅ All PRs merged for stranded review task ${task.id} — marking done`);
+        await updateTask(task.id, { status: 'done' });
+      }
+    }
   }
 
   if (pendingInvocations.size > 0) {
