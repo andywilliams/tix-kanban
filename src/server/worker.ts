@@ -529,7 +529,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if (taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') {
+    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status !== 'backlog') {
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }

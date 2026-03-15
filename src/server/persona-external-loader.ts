@@ -475,8 +475,9 @@ export async function loadExternalPersonas(
  */
 export function clearPersonaCache(location?: string): void {
   if (location) {
-    delete personaCache[location];
-    console.log(`[persona-external-loader] Cleared cache for ${location}`);
+    const normalizedLocation = new URL(location).toString();
+    delete personaCache[normalizedLocation];
+    console.log(`[persona-external-loader] Cleared cache for ${normalizedLocation}`);
   } else {
     Object.keys(personaCache).forEach(key => delete personaCache[key]);
     console.log('[persona-external-loader] Cleared all persona cache');
