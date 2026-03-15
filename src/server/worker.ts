@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec as execCallback, spawn } from 'child_process';
+import { exec as execCallback, execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
@@ -37,6 +37,7 @@ import {
 } from './personal-reminders.js';
 
 const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -371,8 +372,9 @@ function quoteShellArg(value: string): string {
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
-    const { stdout } = await exec(
-      `gh pr view ${quoteShellArg(String(number))} --repo ${quoteShellArg(repo)} --json statusCheckRollup --jq ".statusCheckRollup[] | select(.conclusion) | .conclusion"`,
+    const { stdout } = await execFile(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion) | .conclusion'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
 

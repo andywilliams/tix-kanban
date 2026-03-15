@@ -84,13 +84,33 @@ function isPrivateOrLoopbackIp(ipAddress: string): boolean {
   }
 
   if (ipVersion === 6) {
-    return (
+    if (
       normalized === '::' ||
       normalized === '::1' ||
       normalized.startsWith('fc') ||
       normalized.startsWith('fd') ||
       normalized.startsWith('fe80:')
-    );
+    ) return true;
+
+    // IPv4-mapped IPv6 — handle both dotted-decimal (::ffff:127.0.0.1)
+    // and hex form (::ffff:7f00:1) to prevent SSRF bypass.
+    if (normalized.startsWith('::ffff:')) {
+      const rest = normalized.slice(7);
+      // Dotted-decimal form: ::ffff:a.b.c.d
+      if (rest.includes('.')) return isPrivateOrLoopbackIp(rest);
+      // Hex form: ::ffff:xxyy:zzww → convert two 16-bit groups to four octets
+      const hexParts = rest.split(':');
+      if (hexParts.length === 2) {
+        const hi = parseInt(hexParts[0], 16);
+        const lo = parseInt(hexParts[1], 16);
+        if (!isNaN(hi) && !isNaN(lo)) {
+          const dotted = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+          return isPrivateOrLoopbackIp(dotted);
+        }
+      }
+    }
+
+    return false;
   }
 
   return true;
