@@ -5,14 +5,15 @@
  * Events include PR operations, test failures, status changes, etc.
  */
 
-import { readTask, getAllPersonas } from './storage.js';
-import type { ActivityLog } from '../client/types/index.js';
+import { readTask, logActivity } from './storage.js';
+import { getAllPersonas } from './persona-storage.js';
 
 export type TriggerEventType =
   | 'pr_opened'
   | 'pr_merged'
   | 'pr_closed'
   | 'pr_review_requested'
+  | 'ci_passed'
   | 'test_failure'
   | 'test_success'
   | 'status_change'
@@ -51,26 +52,24 @@ export interface TriggerCondition {
 // In-memory subscription registry
 const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
 
-// Map camelCase trigger keys to snake_case event types
-function mapTriggerKeyToEventType(key: string): TriggerEventType | null {
-  const mapping: Record<string, TriggerEventType> = {
-    onPROpened: 'pr_opened',
-    onPRMerged: 'pr_merged',
-    onPRClosed: 'pr_closed',
-    onPRReviewRequested: 'pr_review_requested',
-    onCIPassed: 'test_success',
-    onTestFailure: 'test_failure',
-    onTestSuccess: 'test_success',
-    onStatusChange: 'status_change',
-    onTaskCreated: 'task_created',
-    onAssignmentChanged: 'assignment_changed',
-    onPriorityChanged: 'priority_changed',
-    onCommentAdded: 'comment_added',
-    onLinkAdded: 'link_added',
-    onDueDateApproaching: 'due_date_approaching',
-  };
-  return mapping[key] || null;
-}
+// Map camelCase PersonaTriggers keys to snake_case event types.
+// onCIPassed maps to 'ci_passed' (distinct from test_success).
+const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+  onPROpened: 'pr_opened',
+  onPRMerged: 'pr_merged',
+  onPRClosed: 'pr_closed',
+  onPRReviewRequested: 'pr_review_requested',
+  onCIPassed: 'ci_passed',
+  onTestFailure: 'test_failure',
+  onTestSuccess: 'test_success',
+  onStatusChange: 'status_change',
+  onTaskCreated: 'task_created',
+  onAssignmentChanged: 'assignment_changed',
+  onPriorityChanged: 'priority_changed',
+  onCommentAdded: 'comment_added',
+  onLinkAdded: 'link_added',
+  onDueDateApproaching: 'due_date_approaching',
+};
 
 /**
  * Initialize trigger system - load persona trigger configs
@@ -80,33 +79,30 @@ export async function initializeTriggerSystem(): Promise<void> {
   
   for (const persona of personas) {
     if (persona.triggers && typeof persona.triggers === 'object') {
-      const triggerEntries = Object.entries(persona.triggers).filter(([_, enabled]) => enabled);
-      
-      if (triggerEntries.length > 0) {
-        const eventTypes: TriggerEventType[] = [];
-        
-        for (const [key, enabled] of triggerEntries) {
-          if (enabled) {
-            const eventType = mapTriggerKeyToEventType(key);
-            if (eventType) {
-              eventTypes.push(eventType);
-            }
-          }
+      const eventTypes: TriggerEventType[] = [];
+
+      for (const [key, value] of Object.entries(persona.triggers)) {
+        // Skip non-boolean metadata fields
+        if (key === 'conditions' || key === 'priority') continue;
+        if (value === true) {
+          const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
+          if (eventType) eventTypes.push(eventType);
         }
+      }
+
+      if (eventTypes.length > 0) {
+        const trigger: PersonaTrigger = {
+          personaId: persona.id,
+          eventTypes,
+          conditions: persona.triggers.conditions,
+          priority: persona.triggers.priority ?? 100,
+        };
         
-        if (eventTypes.length > 0) {
-          const trigger: PersonaTrigger = {
-            personaId: persona.id,
-            eventTypes,
-            priority: 100, // Default priority
-          };
-          
-          for (const eventType of eventTypes) {
-            if (!triggerSubscriptions.has(eventType)) {
-              triggerSubscriptions.set(eventType, []);
-            }
-            triggerSubscriptions.get(eventType)!.push(trigger);
+        for (const eventType of eventTypes) {
+          if (!triggerSubscriptions.has(eventType)) {
+            triggerSubscriptions.set(eventType, []);
           }
+          triggerSubscriptions.get(eventType)!.push(trigger);
         }
       }
     }
@@ -241,8 +237,12 @@ function evaluateCondition(condition: TriggerCondition, task: any, event: Trigge
     
     case 'matches':
       if (typeof actualValue === 'string' && typeof condition.value === 'string') {
-        const regex = new RegExp(condition.value);
-        return regex.test(actualValue);
+        try {
+          return new RegExp(condition.value).test(actualValue);
+        } catch {
+          console.warn(`[event-triggers] Invalid regex pattern in condition: "${condition.value}"`);
+          return false;
+        }
       }
       return false;
     

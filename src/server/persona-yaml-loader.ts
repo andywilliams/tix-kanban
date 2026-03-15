@@ -147,6 +147,19 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     } else {
       const triggers = d.triggers as Record<string, unknown>;
       for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
+        // 'conditions' and 'priority' are valid non-boolean fields
+        if (triggerKey === 'conditions') {
+          if (!Array.isArray(triggerValue)) {
+            errors.push('Field "triggers.conditions" must be an array');
+          }
+          continue;
+        }
+        if (triggerKey === 'priority') {
+          if (typeof triggerValue !== 'number') {
+            errors.push('Field "triggers.priority" must be a number');
+          }
+          continue;
+        }
         if (!VALID_TRIGGER_KEYS.has(triggerKey)) {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;

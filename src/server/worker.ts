@@ -332,7 +332,7 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
       try {
         const { execSync } = await import('child_process');
         const branch = execSync(
-          `gh pr view ${number} --repo ${repo} --json headRefName --jq .headRefName`,
+          `gh pr view ${number} --repo ${quoteShellArg(repo)} --json headRefName --jq .headRefName`,
           { encoding: 'utf-8', stdio: 'pipe', timeout: 10000 }
         ).trim();
         if (branch) {

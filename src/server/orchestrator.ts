@@ -348,7 +348,11 @@ export async function evaluateDelegationRules(
         break;
       case 'matches':
         if (typeof fieldValue === 'string') {
-          matches = new RegExp(rule.condition.value).test(fieldValue);
+          try {
+            matches = new RegExp(rule.condition.value).test(fieldValue);
+          } catch {
+            console.warn(`[orchestrator] Invalid regex pattern in delegation rule: "${rule.condition.value}"`);
+          }
         }
         break;
     }

@@ -36,7 +36,7 @@ import {
   type OrchestratorConfig,
   type OrchestratedTask,
 } from './orchestrator.js';
-import { listPersonas, getPersona } from './persona-storage.js';
+import { getAllPersonas, getPersona } from './persona-storage.js';
 import type { Persona, PersonaTriggers } from '../client/types/index.js';
 
 /**
@@ -49,7 +49,7 @@ export async function initializePhase3(): Promise<void> {
   await initializeTriggerSystem();
   
   // Load orchestrator configs
-  const personas = await listPersonas();
+  const personas = await getAllPersonas();
   for (const persona of personas) {
     if (persona.orchestrator || persona.canDelegate) {
       const config: OrchestratorConfig = {
@@ -82,6 +82,7 @@ function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventTyp
   if (triggers.onPRMerged) eventTypes.push('pr_merged');
   if (triggers.onPRClosed) eventTypes.push('pr_closed');
   if (triggers.onPRReviewRequested) eventTypes.push('pr_review_requested');
+  if (triggers.onCIPassed) eventTypes.push('ci_passed');
   if (triggers.onTestFailure) eventTypes.push('test_failure');
   if (triggers.onTestSuccess) eventTypes.push('test_success');
   if (triggers.onStatusChange) eventTypes.push('status_change');
