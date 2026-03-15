@@ -126,8 +126,11 @@ async function loadFromUrl(
     throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
   }
 
-  // Check cache after SSRF validation
-  const cached = getFromCache(url);
+  // Check cache after SSRF validation.
+  // Include authToken in the cache key so requests with different tokens don't
+  // receive each other's authenticated responses.
+  const cacheKey = authToken ? `${url}::token:${authToken}` : url;
+  const cached = getFromCache(cacheKey);
   if (cached) {
     console.log(`[persona-external-loader] Using cached version of ${url}`);
     return cached;
@@ -159,8 +162,8 @@ async function loadFromUrl(
 
     const data: string = response.data;
 
-    // Cache the result
-    addToCache(url, data, cacheDurationSeconds);
+    // Cache the result under the token-aware key
+    addToCache(cacheKey, data, cacheDurationSeconds);
 
     return data;
   } catch (error) {
@@ -267,9 +270,19 @@ function schemaToPersona(
   schema: PersonaYamlSchema, 
   sourceLocation: string
 ): Persona {
-  // Ensure ID is set - derive from sourceLocation if not provided
+  // Ensure ID is set - derive from sourceLocation if not provided.
+  // For URL sources, strip query params before extracting the basename so that
+  // e.g. "https://example.com/persona.yaml?v=2" yields "persona" not "persona-yaml-v-2".
   if (!schema.id) {
-    schema.id = idFromFilename(sourceLocation);
+    let locationForId = sourceLocation;
+    try {
+      const parsed = new URL(sourceLocation);
+      // Use only origin + pathname — drop search/hash
+      locationForId = parsed.origin + parsed.pathname;
+    } catch {
+      // Not a URL (local file path) — use as-is
+    }
+    schema.id = idFromFilename(locationForId);
   }
 
   // Use shared conversion function - passing undefined for filename since ID is set
