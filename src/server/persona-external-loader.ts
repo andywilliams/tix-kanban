@@ -206,10 +206,6 @@ async function loadFromUrl(
       maxRedirects: 0, // Don't follow redirects to prevent SSRF bypass
     });
 
-    if (response.status !== 200) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
     // Response is already text due to responseType: 'text'
     const data = response.data as string;
 

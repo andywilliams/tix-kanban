@@ -96,7 +96,7 @@ export async function initializeTriggerSystem(): Promise<void> {
             if (key === 'onLinkAdded') {
               return val === true && TRIGGER_KEY_TO_EVENT_TYPE[key];
             }
-            const isEnabled = val === true || (typeof val === 'object' && val !== null && (val as any).enabled !== false);
+            const isEnabled = val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
             return isEnabled && TRIGGER_KEY_TO_EVENT_TYPE[key];
           })
           .map(([key]) => TRIGGER_KEY_TO_EVENT_TYPE[key])

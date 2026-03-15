@@ -81,7 +81,7 @@ function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventTyp
   const eventTypes = Object.entries(TRIGGER_KEY_TO_EVENT_TYPE)
     .filter(([key]) => {
       const val = triggers[key as keyof PersonaTriggers];
-      return val === true || (typeof val === 'object' && val !== null && (val as any).enabled !== false);
+      return val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
     })
     .map(([, eventType]) => eventType as TriggerEventType);
 
