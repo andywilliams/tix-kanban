@@ -6,9 +6,9 @@ import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
   validatePersonaYaml, 
-  ValidationResult,
-  BUILTIN_TRIGGER_DEFAULTS
+  ValidationResult
 } from './persona-yaml-loader.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 import jsYaml from 'js-yaml';
 
 // Directories from which persona YAML files may be loaded.

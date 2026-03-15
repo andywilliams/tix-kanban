@@ -3,25 +3,51 @@
  *
  * Enables personas to subscribe to task events and respond automatically.
  * Events include PR operations, test failures, status changes, etc.
+ *
+ * TODO: This module has duplicate implementations with worker.ts trigger logic.
+ * worker.ts (lines 155, 446-536) contains a simpler trigger system that is
+ * currently in use. Consider consolidating to one implementation.
  */
 
 import { readTask, logActivity } from './storage.js';
-import { getAllPersonas } from './persona-storage.js';
+import { getAllPersonas, getPersona } from './persona-storage.js';
+import { Persona } from '../client/types/index.js';
+import { evaluateFieldCondition } from './condition-utils.js';
+
+// Shared mapping from worker.ts style trigger keys to internal TriggerEventType.
+// Keep this as the single source of truth to avoid duplicate mappings.
+export const WORKER_TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+  onPROpened: 'pr_opened',
+  onPRMerged: 'pr_merged',
+  onPRClosed: 'pr_closed',
+  onPRReviewRequested: 'pr_review_requested',
+  onCIPassed: 'test_success',
+  onTestSuccess: 'test_success',
+  onTestFailure: 'test_failure',
+  onStatusChange: 'status_change',
+  onTaskCreated: 'task_created',
+  onTaskStarted: 'task_started',
+  onAssignmentChanged: 'assignment_changed',
+  onPriorityChanged: 'priority_changed',
+  onCommentAdded: 'comment_added',
+  onLinkAdded: 'link_added',
+  onDueDateApproaching: 'due_date_approaching',
+};
 
 export type TriggerEventType =
   | 'pr_opened'
   | 'pr_merged'
   | 'pr_closed'
   | 'pr_review_requested'
-  | 'ci_passed'
   | 'test_failure'
   | 'test_success'
   | 'status_change'
+  | 'task_created'
+  | 'task_started'
   | 'assignment_changed'
   | 'priority_changed'
   | 'comment_added'
   | 'link_added'
-  | 'task_created'
   | 'due_date_approaching';
 
 export interface TriggerEvent {
@@ -52,64 +78,47 @@ export interface TriggerCondition {
 // In-memory subscription registry
 const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
 
-// Map camelCase PersonaTriggers keys to snake_case event types.
-// onCIPassed maps to 'ci_passed' (distinct from test_success).
-export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
-  onPROpened: 'pr_opened',
-  onPRMerged: 'pr_merged',
-  onPRClosed: 'pr_closed',
-  onPRReviewRequested: 'pr_review_requested',
-  onCIPassed: 'ci_passed',
-  onTestFailure: 'test_failure',
-  onTestSuccess: 'test_success',
-  onStatusChange: 'status_change',
-  onTaskCreated: 'task_created',
-  onAssignmentChanged: 'assignment_changed',
-  onPriorityChanged: 'priority_changed',
-  onCommentAdded: 'comment_added',
-  onLinkAdded: 'link_added',
-  onDueDateApproaching: 'due_date_approaching',
-};
-
 /**
  * Initialize trigger system - load persona trigger configs
  */
 export async function initializeTriggerSystem(): Promise<void> {
-  // Clear existing subscriptions to prevent duplicate accumulation on repeated calls
+  // Clear existing subscriptions to avoid accumulating duplicates on re-init
   triggerSubscriptions.clear();
-  const personas = await getAllPersonas();
-  
-  for (const persona of personas) {
-    if (persona.triggers && typeof persona.triggers === 'object') {
-      const eventTypes: TriggerEventType[] = [];
 
-      for (const [key, value] of Object.entries(persona.triggers)) {
-        // Skip non-boolean metadata fields
-        if (key === 'conditions' || key === 'priority') continue;
-        if (value === true) {
-          const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
-          if (eventType) eventTypes.push(eventType);
-        }
-      }
+  const personas = await getAllPersonas();
+
+  for (const persona of personas) {
+    if (persona.triggers) {
+      const eventTypes = [...new Set(
+        Object.entries(persona.triggers)
+          .filter(([key, val]) => {
+            const isEnabled = val === true || (typeof val === 'object' && val !== null && 'enabled' in val && (val as any).enabled === true);
+            return isEnabled && WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key];
+          })
+          .map(([key]) => WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key])
+      )];
 
       if (eventTypes.length > 0) {
         const trigger: PersonaTrigger = {
           personaId: persona.id,
           eventTypes,
-          conditions: persona.triggers.conditions,
-          priority: persona.triggers.priority ?? 100,
+          conditions: persona.triggers?.conditions,
+          priority: persona.triggers?.priority ?? 100,
         };
-        
+
         for (const eventType of eventTypes) {
           if (!triggerSubscriptions.has(eventType)) {
             triggerSubscriptions.set(eventType, []);
           }
-          const list = triggerSubscriptions.get(eventType)!;
-          list.push(trigger);
-          list.sort((a, b) => b.priority - a.priority);
+          triggerSubscriptions.get(eventType)!.push(trigger);
         }
       }
     }
+  }
+
+  // Keep ordering consistent with registerTrigger(): highest priority first.
+  for (const subscribers of triggerSubscriptions.values()) {
+    subscribers.sort((a, b) => b.priority - a.priority);
   }
   
   console.log(`🎯 Initialized ${triggerSubscriptions.size} event trigger types with ${personas.length} persona subscriptions`);
@@ -119,10 +128,10 @@ export async function initializeTriggerSystem(): Promise<void> {
  * Register a persona trigger subscription
  */
 export async function registerTrigger(trigger: PersonaTrigger): Promise<void> {
-  // Remove this persona from any event types it's no longer subscribed to,
-  // so stale subscriptions don't linger if the persona's trigger list changed.
   const newEventTypeSet = new Set(trigger.eventTypes);
-  for (const [eventType, subscribers] of triggerSubscriptions) {
+
+  // Remove stale subscriptions for event types this persona no longer subscribes to
+  for (const [eventType, subscribers] of triggerSubscriptions.entries()) {
     if (!newEventTypeSet.has(eventType as TriggerEventType)) {
       const filtered = subscribers.filter(t => t.personaId !== trigger.personaId);
       if (filtered.length === 0) {
@@ -174,6 +183,78 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
   return triggerSubscriptions.get(eventType) || [];
 }
 
+export async function getPersonasByTriggerKeyWithContext(
+  triggerKey: string,
+  task?: { id: string } | null,
+  metadata?: TriggerEvent['metadata']
+): Promise<Persona[]> {
+  const triggersWithConditions = await getTriggersByTriggerKey(triggerKey);
+  if (triggersWithConditions.length === 0) {
+    return [];
+  }
+
+  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  if (!eventType) {
+    return [];
+  }
+
+  const personas: Persona[] = [];
+  for (const { persona, conditions } of triggersWithConditions) {
+    if (!persona) {
+      continue;
+    }
+
+    if (conditions && conditions.length > 0) {
+      if (!task) {
+        continue;
+      }
+      const syntheticEvent: TriggerEvent = {
+        type: eventType,
+        taskId: task.id,
+        metadata,
+        timestamp: new Date(),
+      };
+      const allMatch = conditions.every((condition) => evaluateCondition(condition, task, syntheticEvent));
+      if (!allMatch) {
+        continue;
+      }
+    }
+
+    personas.push(persona);
+  }
+
+  return personas;
+}
+
+/**
+ * Get triggered personas with their trigger conditions by worker.ts style trigger key
+ * Returns array of { persona, conditions, priority } for condition evaluation
+ */
+export async function getTriggersByTriggerKey(triggerKey: string): Promise<Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }>> {
+  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  if (!eventType) {
+    return [];
+  }
+  
+  const triggers = getTriggeredPersonas(eventType);
+  if (triggers.length === 0) {
+    return [];
+  }
+  
+  // Convert PersonaTrigger[] to array with persona objects and their conditions
+  const result: Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }> = [];
+  for (const trigger of triggers) {
+    const persona = await getPersona(trigger.personaId);
+    result.push({
+      persona,
+      conditions: trigger.conditions,
+      priority: trigger.priority,
+    });
+  }
+  
+  return result;
+}
+
 /**
  * Emit an event and get the list of personas that should respond
  */
@@ -223,74 +304,18 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
 }
 
 /**
- * Evaluate a single trigger condition against task/event data.
- *
- * Exported so that other modules (e.g. worker.ts, orchestrator.ts) can reuse
- * the same evaluation logic instead of duplicating it.
- *
- * @param condition - The condition to evaluate
- * @param task      - The task object to match against
- * @param event     - Optional trigger event; required only for metadata.* fields
+ * Evaluate a trigger condition against task/event data
  */
-export function evaluateCondition(
-  condition: TriggerCondition,
-  task: any,
-  event?: TriggerEvent
-): boolean {
-  let actualValue: any;
-  
-  // Extract value from task or event metadata
+export function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
+  // metadata.* fields are resolved against event metadata, not the task
   if (condition.field.startsWith('metadata.')) {
     const metadataKey = condition.field.substring(9);
-    actualValue = event?.metadata?.[metadataKey];
-  } else {
-    actualValue = task[condition.field];
+    const metaValue = event.metadata?.[metadataKey];
+    if (metaValue === undefined) return false;
+    return evaluateFieldCondition({ ...condition, field: '_meta' }, { _meta: metaValue });
   }
-  
-  if (actualValue === undefined) {
-    return false;
-  }
-  
-  switch (condition.operator) {
-    case 'equals':
-      return actualValue === condition.value;
-    
-    case 'contains':
-      if (Array.isArray(actualValue)) {
-        return actualValue.includes(condition.value);
-      }
-      if (typeof actualValue === 'string') {
-        return actualValue.includes(condition.value);
-      }
-      return false;
-    
-    case 'matches':
-      if (typeof actualValue === 'string' && typeof condition.value === 'string') {
-        try {
-          const pattern = condition.value;
-          // Guard against ReDoS: reject patterns that are overly long or contain
-          // nested quantifiers (e.g. (a+)+) which are common catastrophic-backtracking vectors.
-          if (pattern.length > 200 || /(\(.+[+*?]\)[+*?]|\[.+\][+*]{2})/.test(pattern)) {
-            console.warn(`[event-triggers] Potentially unsafe regex pattern rejected in condition: "${pattern}"`);
-            return false;
-          }
-          return new RegExp(pattern).test(actualValue);
-        } catch {
-          console.warn(`[event-triggers] Invalid regex pattern in condition: "${condition.value}"`);
-          return false;
-        }
-      }
-      return false;
-    
-    case 'greaterThan':
-      return typeof actualValue === 'number' && actualValue > Number(condition.value);
-    
-    case 'lessThan':
-      return typeof actualValue === 'number' && actualValue < Number(condition.value);
-    
-    default:
-      return false;
-  }
+
+  return evaluateFieldCondition(condition, task);
 }
 
 /**

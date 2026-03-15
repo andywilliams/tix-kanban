@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
 import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,13 +34,13 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
-  /** Phase 3: Can this persona delegate to others (optional) */
+  /** Whether this persona can orchestrate/delegate to others (optional) */
   orchestrator?: boolean;
   /** Alias for orchestrator (optional) */
   canDelegate?: boolean;
-  /** Specialist mappings for orchestrator (optional) */
+  /** Specialist mappings for delegation (optional) */
   specialists?: Array<{ specialty: string; personaIds: string[] }>;
-  /** Delegation rules for orchestrator (optional) */
+  /** Rules for automatic delegation (optional) */
   delegationRules?: Array<{
     condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
     action: 'delegate' | 'parallel' | 'sequential';
@@ -57,21 +58,23 @@ const VALID_TRIGGER_KEYS = new Set([
   'onTestSuccess',
   'onStatusChange',
   'onTaskCreated',
+  'onTaskStarted',
   'onAssignmentChanged',
   'onPriorityChanged',
   'onCommentAdded',
   'onLinkAdded',
   'onDueDateApproaching',
+  // PersonaTriggers fields
+  'conditions',
+  'priority',
+  'enabled',  // For PersonaTriggerConfig
 ]);
 
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
 ]);
 const PERSONA_ID_PATTERN = /^[a-z0-9-]+$/;
-export const BUILTIN_TRIGGER_DEFAULTS: Record<string, PersonaTriggers> = {
-  'qa-reviewer': { onPROpened: true },
-  'tech-writer': { onPRMerged: true },
-};
+// Built-in trigger defaults are now imported from persona-constants.ts
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -272,14 +275,13 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     budgetCap: yaml.budgetCap,
     model: yaml.model,
     providers: yaml.providers,
-    stats: buildDefaultStats(),
-    createdAt: now,
-    updatedAt: now,
-    // Phase 3: Orchestrator fields
     orchestrator: yaml.orchestrator,
     canDelegate: yaml.canDelegate,
     specialists: yaml.specialists,
     delegationRules: yaml.delegationRules,
+    stats: buildDefaultStats(),
+    createdAt: now,
+    updatedAt: now,
   };
 }
 

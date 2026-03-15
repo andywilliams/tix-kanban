@@ -9,7 +9,9 @@ import { parsePRLinks, getPRState } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
-import { enforceProviderAccess, BUILTIN_TRIGGER_DEFAULTS } from './persona-yaml-loader.js';
+import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
+import { evaluateFieldCondition, type FieldCondition } from './condition-utils.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -28,7 +30,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { evaluateCondition, TriggerCondition } from './event-triggers.js';
+import { initializeTriggerSystem, getPersonasByTriggerKeyWithContext, evaluateCondition, TriggerCondition } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -154,7 +156,8 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
+// Worker uses trigger key names (onTaskStarted, onPROpened) not internal event types
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
 
 // ParsedPRLink imported from pr-utils
 
@@ -223,7 +226,14 @@ async function ensureWorkerDirectories(): Promise<void> {
 async function loadWorkerState(): Promise<void> {
   try {
     const content = await fs.readFile(WORKER_STATE_FILE, 'utf8');
-    workerState = { ...workerState, ...JSON.parse(content) };
+    const parsed = JSON.parse(content);
+    // Validate shape before applying
+    if (!parsed || typeof parsed !== 'object') {
+      console.warn('[worker] State file has unexpected shape — resetting');
+      workerState.isRunning = false;
+      return;
+    }
+    workerState = { ...workerState, ...parsed };
     // Always reset isRunning on startup — if we're loading, previous process is dead
     workerState.isRunning = false;
   } catch (error) {
@@ -244,25 +254,30 @@ async function saveWorkerState(): Promise<void> {
   }
 }
 
+// Load worker trigger state from file
 async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
   try {
     const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
     const parsed = JSON.parse(content);
-    if (parsed && typeof parsed === 'object' && parsed.tasks && typeof parsed.tasks === 'object') {
-      return parsed as WorkerTriggerState;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.tasks !== 'object' || Array.isArray(parsed.tasks)) {
+      console.warn('[worker] Trigger state file has unexpected shape — resetting');
+      return { tasks: {} };
     }
+    return parsed as WorkerTriggerState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker trigger state:', error);
     }
+    return { tasks: {} };
   }
-  return { tasks: {} };
 }
 
+// Save worker trigger state to file
 async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
   try {
     await ensureWorkerDirectories();
-    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+    const content = JSON.stringify(state, null, 2);
+    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to save worker trigger state:', error);
   }
@@ -424,7 +439,7 @@ function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
   if (!conditions || conditions.length === 0) return true;
   // Delegate to the shared evaluateCondition from event-triggers.ts — no event
   // context available in the polling path, so metadata.* fields will be undefined.
-  return conditions.every((cond) => evaluateCondition(cond as TriggerCondition, task));
+  return conditions.every((cond) => evaluateFieldCondition(cond as FieldCondition, task));
 }
 
 function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {
@@ -438,8 +453,10 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
   const eventDescriptionMap: Record<TriggerEventType, string> = {
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
+    onPRClosed: 'A linked pull request was just closed for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTaskCreated: 'This task just moved from backlog to in-progress.',
+    onTestFailure: 'CI checks failed for a linked pull request on this task.',
+    onTaskStarted: 'This task just moved from backlog to in-progress.',
   };
 
   return [
@@ -447,10 +464,12 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     '',
     '## Trigger Event Context',
     eventDescriptionMap[eventType],
-    ...(details ? [`Details: ${details}`] : []),
+    details ? `Details: ${details}` : '',
     '',
     'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
-  ].join('\n');
+  ]
+    .filter(line => line !== undefined && line !== null)
+    .join('\n');
 }
 
 async function invokeTriggerPersona(
@@ -513,16 +532,26 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
   };
 
-  // Trigger when a task moves from backlog to in-progress.
+  // Trigger when a task moves into in-progress.
+  // Includes legacy state snapshots where lastStatus may be undefined.
   for (const task of tasks) {
-    const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status === 'in-progress') {
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
+    const taskState = triggerState.tasks[task.id];
+    const previousStatus = taskState?.lastStatus;
+
+    if (task.status === 'in-progress' && (previousStatus === 'backlog' || previousStatus === undefined)) {
+      const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onTaskStarted', task);
+      for (const persona of triggeredPersonas) {
+        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved ${previousStatus ?? 'unknown'} -> in-progress`);
       }
     }
-    taskState.lastStatus = task.status;
-    triggerState.tasks[task.id] = taskState;
+
+    // Update status snapshot only after trigger detection for this cycle.
+    if (taskState) {
+      taskState.lastStatus = task.status;
+      triggerState.tasks[task.id] = taskState;
+    } else {
+      triggerState.tasks[task.id] = { prs: {}, lastStatus: task.status };
+    }
   }
 
   // Scan any task that could have linked PRs, not just review-status tasks
@@ -577,9 +606,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           }
         }
 
+        if (state === 'closed' && previous.state !== 'closed') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRClosed', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPRClosed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
           for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+          for (const persona of getTriggeredPersonas(personas, 'onTestFailure', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onTestFailure', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
       }
@@ -589,7 +630,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     taskState.lastStatus = fullTask.status;
     triggerState.tasks[task.id] = taskState;
 
-    // If task is stranded in review (max cycles reached) and all PRs have now merged, close it
+    // If task is stranded in review (max cycles reached, auto-review note present)
+    // and at least one linked PR has now merged, close the task automatically.
     const hasAutoReviewNote = fullTask.comments?.some(
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
@@ -1526,6 +1568,7 @@ async function runWorkerCycle(): Promise<void> {
   }
 
   const refreshedTasks = await getAllTasks();
+  await initializeTriggerSystem();
   await processEventBasedPersonaTriggers(refreshedTasks);
 
   if (taskToProcess) {
@@ -1563,6 +1606,9 @@ export async function startWorker(): Promise<void> {
   try {
     await ensureWorkerDirectories();
     await loadWorkerState();
+    
+    // Initialize the trigger system for Phase 3 persona collaboration
+    await initializeTriggerSystem();
     
     // Stop existing cron jobs if running
     if (cronJob) {

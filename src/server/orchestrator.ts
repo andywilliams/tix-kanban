@@ -5,11 +5,9 @@
  * Implements task decomposition and delegation.
  */
 
-import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { getPersona } from './persona-storage.js';
-import { startParallelExecution, markPersonaStarted, recordPersonaCompletion } from './parallel-execution.js';
-import type { Task } from '../client/types/index.js';
-import { evaluateCondition, TriggerCondition } from './event-triggers.js';
+import { readTask, logActivity } from './storage.js';
+import { startParallelExecution } from './parallel-execution.js';
+import { evaluateFieldCondition } from './condition-utils.js';
 
 export interface OrchestratorConfig {
   personaId: string; // The orchestrator persona
@@ -130,21 +128,18 @@ export async function startOrchestration(orchestrationId: string): Promise<void>
   orchestration.status = 'executing';
   
   if (orchestration.strategy === 'parallel') {
-    // Start all subtasks in parallel
+    // Mark all subtasks as running before starting parallel execution
+    for (const subtask of orchestration.subtasks) {
+      subtask.status = 'running';
+    }
     const personaIds = orchestration.subtasks.map(st => st.assignedTo);
     const executionId = await startParallelExecution(
       orchestration.taskId,
       personaIds,
       'merge-fields'
     );
-
-    // Store the execution ID so completeSubtask / finalizeExecution can reference it,
-    // and mark all parallel subtasks as running.
     orchestration.parallelExecutionId = executionId;
-    for (const subtask of orchestration.subtasks) {
-      subtask.status = 'running';
-    }
-
+    
     console.log(`🔀 Started parallel execution ${executionId} for orchestration ${orchestrationId}`);
   } else {
     // Sequential - start first subtask
@@ -250,40 +245,38 @@ export async function failSubtask(
   );
   
   console.error(`❌ Subtask ${subtaskId} failed in orchestration ${orchestrationId}: ${error}`);
-  
-  // Check if orchestration should fail
+
+  // For sequential orchestrations, try to advance to the next runnable subtask
+  if (orchestration.strategy === 'sequential') {
+    const completedIds = new Set(
+      orchestration.subtasks.filter(st => st.status === 'completed').map(st => st.id)
+    );
+    const next = orchestration.subtasks.find(
+      st => st.status === 'waiting' && (st.dependencies || []).every(dep => completedIds.has(dep))
+    );
+    if (next) {
+      next.status = 'running';
+      console.log(`➡️ Advanced sequential subtask ${next.id} after failure of ${subtaskId}`);
+      return;
+    } else {
+      // No runnable subtask — remaining subtasks are all blocked by the failed dependency.
+      // Mark them failed and finalize to avoid a permanent deadlock.
+      for (const st of orchestration.subtasks) {
+        if (st.status === 'waiting') {
+          st.status = 'failed';
+          st.error = `Skipped: dependency subtask ${subtaskId} failed`;
+        }
+      }
+      await finalizeOrchestration(orchestrationId);
+      return;
+    }
+  }
+
+  // Check if orchestration should finalize (all done or no remaining progress possible)
   const allDone = orchestration.subtasks.every(st => st.status === 'completed' || st.status === 'failed');
   
   if (allDone) {
     await finalizeOrchestration(orchestrationId);
-    return;
-  }
-
-  // If sequential, try to start the next available subtask (mirroring completeSubtask logic).
-  // Subtasks whose dependencies are all completed can still proceed; subtasks whose dependencies
-  // include a failed subtask remain blocked and will never run, potentially leaving
-  // the orchestration with no remaining runnable subtasks.
-  if (orchestration.strategy === 'sequential') {
-    const nextSubtask = orchestration.subtasks.find(st => {
-      if (st.status !== 'waiting') return false;
-      if (!st.dependencies || st.dependencies.length === 0) return true;
-
-      // Check if all dependencies are completed (not just resolved)
-      return st.dependencies.every(depId => {
-        const dep = orchestration.subtasks.find(s => s.id === depId);
-        return dep?.status === 'completed';
-      });
-    });
-
-    if (nextSubtask) {
-      nextSubtask.status = 'running';
-      console.log(`➡️ Starting next sequential subtask ${nextSubtask.id} for ${nextSubtask.assignedTo} after prior subtask failure`);
-    } else {
-      // No subtask can make progress (all remaining are blocked by a failed dependency).
-      // Finalize now rather than stalling indefinitely.
-      console.warn(`⚠️ No runnable subtasks remain after failure in orchestration ${orchestrationId} — finalizing`);
-      await finalizeOrchestration(orchestrationId);
-    }
   }
 }
 
@@ -369,16 +362,11 @@ export async function evaluateDelegationRules(
   }
   
   for (const rule of config.delegationRules) {
-    // Use the shared evaluateCondition from event-triggers.ts to avoid
-    // duplicating condition-evaluation logic across orchestrator, worker, and
-    // the event-trigger system.  DelegationRule.condition is structurally
-    // identical to TriggerCondition, so the cast is safe.
-    const matches = evaluateCondition(rule.condition as TriggerCondition, task);
-    
+    const matches = evaluateFieldCondition(rule.condition, task);
+
     if (matches) {
       return {
-        // All three action types (delegate, parallel, sequential) mean "yes, delegate"
-        shouldDelegate: true,
+        shouldDelegate: rule.action === 'delegate' || rule.action === 'parallel' || rule.action === 'sequential',
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };

@@ -12,8 +12,10 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "strict": false
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["src/server/**/*"],
-  "exclude": ["src/client/**/*"]
+  "exclude": ["src/client/**/*", "src/server/**/*.test.ts"]
 }
