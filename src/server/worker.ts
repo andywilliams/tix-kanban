@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec as execCallback, execFile as execFileCallback, spawn } from 'child_process';
+import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
@@ -35,7 +35,6 @@ import {
   cleanupOldReminders,
 } from './personal-reminders.js';
 
-const exec = promisify(execCallback);
 const execFile = promisify(execFileCallback);
 
 // Sanitize user content to prevent prompt injection attacks
