@@ -226,7 +226,14 @@ async function ensureWorkerDirectories(): Promise<void> {
 async function loadWorkerState(): Promise<void> {
   try {
     const content = await fs.readFile(WORKER_STATE_FILE, 'utf8');
-    workerState = { ...workerState, ...JSON.parse(content) };
+    const parsed = JSON.parse(content);
+    // Validate shape before applying
+    if (!parsed || typeof parsed !== 'object') {
+      console.warn('[worker] State file has unexpected shape — resetting');
+      workerState.isRunning = false;
+      return;
+    }
+    workerState = { ...workerState, ...parsed };
     // Always reset isRunning on startup — if we're loading, previous process is dead
     workerState.isRunning = false;
   } catch (error) {
