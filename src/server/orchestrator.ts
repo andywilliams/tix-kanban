@@ -20,7 +20,7 @@ export interface OrchestratorConfig {
 export interface DelegationRule {
   condition: {
     field: string;
-    operator: 'equals' | 'contains' | 'matches';
+    operator: 'equals' | 'contains' | 'matches' | 'greaterThan';
     value: any;
   };
   action: 'delegate' | 'parallel' | 'sequential';

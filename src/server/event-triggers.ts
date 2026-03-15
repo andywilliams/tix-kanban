@@ -75,6 +75,8 @@ const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
  * Initialize trigger system - load persona trigger configs
  */
 export async function initializeTriggerSystem(): Promise<void> {
+  // Clear existing subscriptions to prevent duplicate accumulation on repeated calls
+  triggerSubscriptions.clear();
   const personas = await getAllPersonas();
   
   for (const persona of personas) {
