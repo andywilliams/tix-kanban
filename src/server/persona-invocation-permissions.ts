@@ -107,27 +107,26 @@ export function checkInvocationPermission(
     };
   }
 
-  // Check concurrent invocation limit FIRST (applies to both wildcard and explicit permissions)
-  if (permissions.maxConcurrentInvocations !== undefined) {
-    const active = getActiveInvocationCount(invoker);
-    if (active >= permissions.maxConcurrentInvocations) {
-      const hasWildcard = permissions.canInvokeAll ?? false;
-      return {
-        allowed: false,
-        reason: `Persona "${invoker}" has reached max concurrent invocations ` +
-                `(${active}/${permissions.maxConcurrentInvocations})`,
-        metadata: {
-          hasExplicitPermission: !hasWildcard && permissions.canInvoke.includes(target),
-          hasWildcardPermission: hasWildcard,
-          concurrentInvocations: active,
-          maxConcurrent: permissions.maxConcurrentInvocations,
-        },
-      };
-    }
-  }
-
-  // Check wildcard permission
+  // Check wildcard permission FIRST
   if (permissions.canInvokeAll) {
+    // Now check concurrent invocation limit (applies to both wildcard and explicit permissions)
+    if (permissions.maxConcurrentInvocations !== undefined) {
+      const active = getActiveInvocationCount(invoker);
+      if (active >= permissions.maxConcurrentInvocations) {
+        return {
+          allowed: false,
+          reason: `Persona "${invoker}" has reached max concurrent invocations ` +
+                  `(${active}/${permissions.maxConcurrentInvocations})`,
+          metadata: {
+            hasExplicitPermission: false,
+            hasWildcardPermission: true,
+            concurrentInvocations: active,
+            maxConcurrent: permissions.maxConcurrentInvocations,
+          },
+        };
+      }
+    }
+
     return {
       allowed: true,
       metadata: {
@@ -150,6 +149,24 @@ export function checkInvocationPermission(
         hasWildcardPermission: false,
       },
     };
+  }
+
+  // Check concurrent invocation limit for explicit permissions
+  if (permissions.maxConcurrentInvocations !== undefined) {
+    const active = getActiveInvocationCount(invoker);
+    if (active >= permissions.maxConcurrentInvocations) {
+      return {
+        allowed: false,
+        reason: `Persona "${invoker}" has reached max concurrent invocations ` +
+                `(${active}/${permissions.maxConcurrentInvocations})`,
+        metadata: {
+          hasExplicitPermission: true,
+          hasWildcardPermission: false,
+          concurrentInvocations: active,
+          maxConcurrent: permissions.maxConcurrentInvocations,
+        },
+      };
+    }
   }
 
   // Permission granted
