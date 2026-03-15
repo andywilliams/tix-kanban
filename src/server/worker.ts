@@ -156,7 +156,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskCreated' | 'onTaskStarted';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
 
 // ParsedPRLink imported from pr-utils
 
@@ -444,7 +444,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
     onTestFailure: 'CI checks failed for a linked pull request on this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
-    onTaskCreated: 'This task was first observed in in-progress status (no prior state recorded).',
+
   };
 
   return [

@@ -218,12 +218,9 @@ async function loadFromUrl(
 
     return data;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(
-        `Failed to fetch persona from ${url}: ${error.message}`
-      );
-    }
-    throw error;
+    throw new Error(
+      `Failed to fetch persona from ${url}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
