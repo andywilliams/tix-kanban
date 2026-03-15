@@ -439,7 +439,9 @@ function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
         catch { return false; }
       case 'greaterThan': return typeof fieldValue === 'number' && fieldValue > Number(cond.value);
       case 'lessThan': return typeof fieldValue === 'number' && fieldValue < Number(cond.value);
-      default: return true;
+      default:
+        console.warn(`[worker] Unknown trigger condition operator: "${cond.operator}" — treating as no-match`);
+        return false;
     }
   });
 }
@@ -537,7 +539,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', fullTask)) {
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
