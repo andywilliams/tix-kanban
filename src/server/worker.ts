@@ -420,7 +420,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTaskCreated: 'This task just moved from backlog to in-progress.',
+    onTaskCreated: 'This task was just created and seen for the first time by the trigger system.',
   };
 
   return [
