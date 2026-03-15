@@ -302,7 +302,7 @@ Evaluate these aspects:
   } else {
     // For cycle 2+, show only previous rejections so reviewer focuses on those
     const previousRejections = reviewState.reviewHistory
-      .filter(attempt => attempt.decision === 'reject' || attempt.decision === 'rejected')
+      .filter(attempt => attempt.decision === 'reject')
       .map(attempt => `Cycle ${attempt.cycle} rejection: ${attempt.feedback}`)
       .join('\n\n');
     

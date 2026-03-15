@@ -22,8 +22,8 @@ export async function execProvider<T>(
   args: string[],
   opts?: ExecProviderOptions
 ): Promise<T> {
+  const timeoutMs = opts?.timeout ?? 30_000;
   try {
-    const timeoutMs = opts?.timeout ?? 30_000;
     const { stdout } = await execFile(command, args, {
       timeout: timeoutMs,
       env: { ...process.env, ...opts?.env },

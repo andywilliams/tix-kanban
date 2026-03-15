@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { exec as execCallback, spawn } from 'child_process';
 import { promisify } from 'util';
-import { parsePRLinks, getPRState, ParsedPRLink } from './pr-utils.js';
+import { parsePRLinks, getPRState } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';

@@ -1,4 +1,3 @@
-import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
 import { Persona } from '../client/types/index.js';
@@ -99,26 +98,30 @@ async function loadFromUrl(
   }
 
   try {
-    const response = await axios.get(url, {
-      headers,
-      timeout: 10000, // 10 second timeout
-      maxContentLength: 1024 * 1024, // 1MB max
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    let response: Response;
+    try {
+      response = await fetch(url, { headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
-    if (response.status !== 200) {
+    if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = typeof response.data === 'string' 
-      ? response.data 
-      : JSON.stringify(response.data);
+    const text = await response.text();
+    if (text.length > 1024 * 1024) {
+      throw new Error(`Response from ${url} exceeds 1MB limit`);
+    }
 
     // Cache the result
-    addToCache(url, data, cacheDurationSeconds);
+    addToCache(url, text, cacheDurationSeconds);
 
-    return data;
+    return text;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
+    if (error instanceof Error) {
       throw new Error(
         `Failed to fetch persona from ${url}: ${error.message}`
       );
