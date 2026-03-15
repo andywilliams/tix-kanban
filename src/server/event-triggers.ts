@@ -292,7 +292,7 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
 /**
  * Evaluate a trigger condition against task/event data
  */
-function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
+export function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
   // metadata.* fields are resolved against event metadata, not the task
   if (condition.field.startsWith('metadata.')) {
     const metadataKey = condition.field.substring(9);

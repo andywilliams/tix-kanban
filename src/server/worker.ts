@@ -30,7 +30,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { initializeTriggerSystem, getPersonasByTriggerKeyWithContext } from './event-triggers.js';
+import { initializeTriggerSystem, getPersonasByTriggerKeyWithContext, evaluateCondition, TriggerCondition } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
