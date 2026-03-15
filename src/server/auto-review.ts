@@ -6,6 +6,7 @@ import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -109,6 +110,28 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
+async function getPullRequestState(repo: string, number: number): Promise<string | null> {
+  const state = await getPRStateShared(repo, number);
+  // Callers in this file expect uppercase state strings (e.g. 'MERGED')
+  return state ? state.toUpperCase() : null;
+}
+
+async function isPRMerged(links: Task['links']): Promise<boolean> {
+  const linkedPRs = parsePRLinks(links);
+  if (linkedPRs.length === 0) {
+    return false;
+  }
+
+  for (const pr of linkedPRs) {
+    const state = await getPullRequestState(pr.repo, pr.number);
+    if (state === 'MERGED') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Load auto-review configuration
 async function loadAutoReviewConfig(): Promise<AutoReviewConfig> {
   try {
@@ -183,7 +206,7 @@ async function saveTaskReviewState(state: TaskReviewState): Promise<void> {
 }
 
 // Delete task review state
-async function deleteTaskReviewState(taskId: string): Promise<void> {
+export async function deleteTaskReviewState(taskId: string): Promise<void> {
   try {
     const filePath = getReviewStateFilePath(taskId);
     await fs.unlink(filePath);
@@ -716,24 +739,49 @@ async function handleMaxCyclesReached(
       status: 'review',
       comments: updatedComments 
     });
+    // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    // Auto-approve
-    await updateTask(task.id, {
-      status: 'done',
-      comments: updatedComments
-    });
+    const hasLinkedPR = parsePRLinks(task.links).length > 0;
+    const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
-    // Update persona stats for successful completion
-    if (reviewState.workerId) {
-      const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
-      const completionTimeMinutes = completionTimeMs / (1000 * 60);
-      await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
-      console.log(`📊 Updated stats for persona after auto-approval`);
+    if (merged) {
+      // Auto-approve to done only when linked PR is merged (or there is no linked PR)
+      await updateTask(task.id, {
+        status: 'done',
+        comments: updatedComments
+      });
+
+      // Update persona stats for successful completion
+      if (reviewState.workerId) {
+        const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
+        const completionTimeMinutes = completionTimeMs / (1000 * 60);
+        await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
+        console.log(`📊 Updated stats for persona after auto-approval`);
+      }
+
+      // Clean up review state — task is done, no further auto-review needed
+      await deleteTaskReviewState(task.id);
+    } else {
+      const mergeRequiredComment: Comment = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId: task.id,
+        body: '**AUTO-REVIEW NOTE**\n\nAuto-approval reached max cycles, but linked PR is not merged yet. Keeping this task in review until at least one linked PR is merged.',
+        author: 'Auto-Review System',
+        createdAt: new Date(),
+      };
+
+      await updateTask(task.id, {
+        status: 'review',
+        comments: [...updatedComments, mergeRequiredComment]
+      });
+
+      await postReviewUpdate(task, reviewerName, 'Auto-approval was reached, but a linked PR is still not merged. Moving to review until the PR is merged.');
+
+      // Preserve review state — processEventBasedPersonaTriggers in worker.ts will detect
+      // the "Keeping this task in review" note and auto-close once the PR merges.
+      // Deleting review state here would remove the only recovery path for this task.
     }
   }
-  
-  // Clean up review state
-  await deleteTaskReviewState(task.id);
 }
 
 // Public API for configuration management
