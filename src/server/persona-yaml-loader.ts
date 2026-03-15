@@ -1,22 +1,13 @@
 import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
-import { Persona, PersonaStats } from '../client/types/index.js';
+import { Persona, PersonaStats, InvocationConfig } from '../client/types/index.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface BudgetCap {
   perTask?: number;
   perDay?: number;
-}
-
-export interface InvocationConfig {
-  /** List of persona IDs this persona can invoke */
-  allow?: string[];
-  /** If true, can invoke any persona */
-  allowAll?: boolean;
-  /** Maximum concurrent invocations */
-  maxConcurrent?: number;
 }
 
 export interface PersonaYamlSchema {

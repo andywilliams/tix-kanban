@@ -129,6 +129,7 @@ async function loadFromUrl(
       responseType: 'text',
       timeout: 10000, // 10 second timeout
       maxContentLength: 1024 * 1024, // 1MB max
+      maxRedirects: 0, // Prevent SSRF bypass via HTTP redirect chains
     });
 
     if (response.status !== 200) {

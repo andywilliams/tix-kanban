@@ -240,15 +240,13 @@ export function clearActiveInvocations(personaId: string): void {
 export function loadPermissionsFromPersonas(personas: Persona[]): void {
   personas.forEach(persona => {
     // Check if persona has invocation configuration
-    // This would be an extension to the PersonaYamlSchema
-    const personaAny = persona as any;
-    
-    if (personaAny.invocations) {
+    // Persona.invocations is typed via InvocationConfig (no as any needed)
+    if (persona.invocations) {
       setInvocationPermissions({
         personaId: persona.id,
-        canInvoke: personaAny.invocations.allow || [],
-        canInvokeAll: personaAny.invocations.allowAll || false,
-        maxConcurrentInvocations: personaAny.invocations.maxConcurrent,
+        canInvoke: persona.invocations.allow || [],
+        canInvokeAll: persona.invocations.allowAll || false,
+        maxConcurrentInvocations: persona.invocations.maxConcurrent,
       });
     }
   });
