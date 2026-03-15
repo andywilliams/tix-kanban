@@ -358,6 +358,9 @@ export async function evaluateDelegationRules(
       case 'greaterThan':
         matches = typeof fieldValue === 'number' && fieldValue > Number(rule.condition.value);
         break;
+      case 'lessThan':
+        matches = typeof fieldValue === 'number' && fieldValue < Number(rule.condition.value);
+        break;
     }
     
     if (matches) {

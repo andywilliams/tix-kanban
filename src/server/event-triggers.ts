@@ -104,7 +104,9 @@ export async function initializeTriggerSystem(): Promise<void> {
           if (!triggerSubscriptions.has(eventType)) {
             triggerSubscriptions.set(eventType, []);
           }
-          triggerSubscriptions.get(eventType)!.push(trigger);
+          const list = triggerSubscriptions.get(eventType)!;
+          list.push(trigger);
+          list.sort((a, b) => b.priority - a.priority);
         }
       }
     }

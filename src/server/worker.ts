@@ -424,8 +424,31 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
   return Boolean(effectiveTriggers[eventType]);
 }
 
-function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType): Persona[] {
-  return personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
+  const conditions = persona.triggers?.conditions;
+  if (!conditions || conditions.length === 0) return true;
+  return conditions.every((cond) => {
+    const fieldValue = (task as any)[cond.field];
+    switch (cond.operator) {
+      case 'equals': return fieldValue === cond.value;
+      case 'contains':
+        if (Array.isArray(fieldValue)) return fieldValue.includes(cond.value);
+        return typeof fieldValue === 'string' && fieldValue.includes(cond.value);
+      case 'matches':
+        try { return typeof fieldValue === 'string' && new RegExp(cond.value).test(fieldValue); }
+        catch { return false; }
+      case 'greaterThan': return typeof fieldValue === 'number' && fieldValue > Number(cond.value);
+      case 'lessThan': return typeof fieldValue === 'number' && fieldValue < Number(cond.value);
+      default: return true;
+    }
+  });
+}
+
+function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {
+  return personas.filter((persona) =>
+    getPersonaTriggerValue(persona, eventType) &&
+    (!task || evaluateTriggerConditions(persona, task))
+  );
 }
 
 function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
@@ -514,7 +537,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', fullTask)) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
@@ -539,22 +562,30 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
       const previous = taskState.prs[pr.key];
 
-      // Only fire transitions when we have a prior snapshot — first run just seeds the state
-      if (previous) {
+      if (!previous) {
+        // First observation: only fire onPROpened (PR was just linked to this task)
+        // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
+        if (state === 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+      } else {
+        // Subsequent observations: fire on state transitions only
         if (state === 'open' && previous.state !== 'open') {
-          for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
         if (state === 'merged' && previous.state !== 'merged') {
-          for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
+          for (const persona of getTriggeredPersonas(personas, 'onPRMerged', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
-          for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
+          for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
