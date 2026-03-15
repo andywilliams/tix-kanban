@@ -17,7 +17,7 @@ import {
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
-import { parsePRLinks, getPRStateShared } from './pr-utils.js';
+import { parsePRLinks, getPRStateShared, ParsedPRLink } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -28,6 +28,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
+import { evaluateCondition, TriggerCondition } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -153,8 +154,6 @@ const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
 type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
-
-
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
@@ -350,9 +349,10 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
       const repo = match[1];
       const number = parseInt(match[2]);
       try {
-        const { execSync } = await import('child_process');
-        const branch = execSync(
-          `gh pr view ${number} --repo ${repo} --json headRefName --jq .headRefName`,
+        const { execFileSync } = await import('child_process');
+        const branch = execFileSync(
+          'gh',
+          ['pr', 'view', String(number), '--repo', repo, '--json', 'headRefName', '--jq', '.headRefName'],
           { encoding: 'utf-8', stdio: 'pipe', timeout: 10000 }
         ).trim();
         if (branch) {
@@ -366,17 +366,18 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
   return results;
 }
 
-
-
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
+    // Emit each check's conclusion, or "PENDING" for checks still in progress.
+    // Using select(.conclusion) would exclude pending checks, causing SUCCESS to
+    // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
       [
         'pr', 'view', String(number),
         '--repo', repo,
         '--json', 'statusCheckRollup',
-        '--jq', '.statusCheckRollup[] | select(.conclusion) | .conclusion',
+        '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion',
       ],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
@@ -390,6 +391,12 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return null;
     }
 
+    // If any check is still running, CI hasn't fully completed yet.
+    const hasPending = conclusions.some((value) => value === 'PENDING');
+    if (hasPending) {
+      return null;
+    }
+
     const hasFailure = conclusions.some((value) => {
       return value === 'FAILURE' || value === 'TIMED_OUT' || value === 'CANCELLED' || value === 'ACTION_REQUIRED';
     });
@@ -397,8 +404,9 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return 'FAILURE';
     }
 
-    const hasSuccess = conclusions.some((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
-    return hasSuccess ? 'SUCCESS' : null;
+    // All checks concluded — every check must have passed.
+    const allPassed = conclusions.every((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
+    return allPassed ? 'SUCCESS' : null;
   } catch (error) {
     console.warn(`Failed to fetch CI state for ${repo}#${number}:`, error);
     return null;
@@ -411,8 +419,19 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
   return Boolean(effectiveTriggers[eventType]);
 }
 
-function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType): Persona[] {
-  return personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
+  const conditions = persona.triggers?.conditions;
+  if (!conditions || conditions.length === 0) return true;
+  // Delegate to the shared evaluateCondition from event-triggers.ts — no event
+  // context available in the polling path, so metadata.* fields will be undefined.
+  return conditions.every((cond) => evaluateCondition(cond as TriggerCondition, task));
+}
+
+function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {
+  return personas.filter((persona) =>
+    getPersonaTriggerValue(persona, eventType) &&
+    (!task || evaluateTriggerConditions(persona, task))
+  );
 }
 
 function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
@@ -420,7 +439,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTaskCreated: 'This task was just created and seen for the first time by the trigger system.',
+    onTaskCreated: 'This task just moved from backlog to in-progress.',
   };
 
   return [
@@ -497,24 +516,26 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
   };
 
-  // Trigger onTaskCreated when a task is first discovered (lastStatus === undefined).
-  // The backlog→in-progress transition is unreliable as a creation signal because
-  // processTask runs before this check, so previousStatus is already in-progress by
-  // the time we evaluate. Firing on first observation is the correct semantic.
+  // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if (taskState.lastStatus === undefined) {
-      // First time we've seen this task — treat as "created"
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} created (first seen)`);
+    // Fire onTaskCreated when a task moves from backlog → in-progress,
+    // or when first discovered already in-progress (lastStatus undefined).
+    if (task.status === 'in-progress' && (taskState.lastStatus === 'backlog' || taskState.lastStatus === undefined)) {
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved ${taskState.lastStatus ?? 'unknown'} -> in-progress`);
       }
     }
     taskState.lastStatus = task.status;
     triggerState.tasks[task.id] = taskState;
   }
 
-  const reviewTasks = tasks.filter((task) => task.status === 'review');
-  for (const task of reviewTasks) {
+  // Scan any task that could have linked PRs, not just review-status tasks
+  const tasksWithPRs = tasks.filter((task) =>
+    ['review', 'in-progress', 'auto-review'].includes(task.status as string) ||
+    (task.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+  );
+  for (const task of tasksWithPRs) {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
@@ -523,28 +544,48 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
+      const previous = taskState.prs[pr.key];
       const state = await getPRStateShared(pr.repo, pr.number);
+      if (state === null) {
+        // Preserve the last known snapshot on transient state lookup failures.
+        if (previous) {
+          newSnapshots[pr.key] = previous;
+        }
+        continue;
+      }
       const ciState = await getPRCIState(pr.repo, pr.number);
-      const current: PRSnapshot = { state, ciState };
+      // On transient CI fetch failure, preserve the last known ciState so the snapshot
+      // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
+      const effectiveCiState = ciState ?? previous?.ciState ?? null;
+      const current: PRSnapshot = { state, ciState: effectiveCiState };
       newSnapshots[pr.key] = current;
 
-      const previous = taskState.prs[pr.key];
-
-      if (state === 'open' && (!previous || previous.state !== 'open')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
-          enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      if (!previous) {
+        // First observation: only fire onPROpened (PR was just linked to this task)
+        // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
+        if (state === 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
-
-      if (state === 'merged' && (!previous || previous.state !== 'merged')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
-          enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      } else {
+        // Subsequent observations: fire on state transitions only
+        if (state === 'open' && previous.state !== 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
 
-      if (ciState === 'SUCCESS' && (!previous || previous.ciState !== 'SUCCESS')) {
-        for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
-          enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        if (state === 'merged' && previous.state !== 'merged') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRMerged', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
+          for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
       }
     }
@@ -558,20 +599,19 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
     if (hasAutoReviewNote && prLinks.length > 0) {
+      // Match isPRMerged semantics: any linked PR merged is sufficient to close the task
       const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
       if (anyMerged) {
         console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
-
-        // Clean up review state and update persona stats (mirrors the normal approval path)
-        const reviewState = await getTaskReviewState(task.id);
-        await deleteTaskReviewState(task.id);
-        if (reviewState?.workerId) {
+        // Update persona stats if we know which persona worked this task
+        const workerId = fullTask.persona;
+        if (workerId) {
           const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
-          const completionTimeMinutes = completionTimeMs / (1000 * 60);
-          await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
-          console.log(`📊 Updated stats for persona ${reviewState.workerId} after stranded task resolution`);
+          await updatePersonaStats(workerId, completionTimeMs / 60000, true).catch(() => {});
         }
+        // Clean up review state to avoid re-processing
+        await deleteTaskReviewState(task.id).catch(() => {});
       }
     }
   }

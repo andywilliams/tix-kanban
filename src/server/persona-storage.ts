@@ -22,6 +22,15 @@ interface PersonaIndex {
     skills?: string[];
     budgetCap?: { perTask?: number; perDay?: number };
     model?: string;
+    // Phase 3: Orchestrator fields
+    orchestrator?: boolean;
+    canDelegate?: boolean;
+    specialists?: Array<{ specialty: string; personaIds: string[] }>;
+    delegationRules?: Array<{
+      condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
+      action: 'delegate' | 'parallel' | 'sequential';
+      targetPersonas: string[];
+    }>;
     createdAt: string;
     updatedAt: string;
   };
@@ -149,6 +158,11 @@ export async function getAllPersonas(): Promise<Persona[]> {
         budgetCap: data.budgetCap,
         model: data.model,
         prompt,
+        // Phase 3: Orchestrator fields
+        orchestrator: data.orchestrator,
+        canDelegate: data.canDelegate,
+        specialists: data.specialists,
+        delegationRules: data.delegationRules,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
       });
@@ -186,6 +200,11 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       budgetCap: data.budgetCap,
       model: data.model,
       prompt,
+      // Phase 3: Orchestrator fields
+      orchestrator: data.orchestrator,
+      canDelegate: data.canDelegate,
+      specialists: data.specialists,
+      delegationRules: data.delegationRules,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
     };
@@ -226,6 +245,11 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       skills: persona.skills,
       budgetCap: persona.budgetCap,
       model: persona.model,
+      // Phase 3: Orchestrator fields
+      orchestrator: persona.orchestrator,
+      canDelegate: persona.canDelegate,
+      specialists: persona.specialists,
+      delegationRules: persona.delegationRules,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
     };
@@ -269,6 +293,11 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       budgetCap: updatedPersona.budgetCap,
       model: updatedPersona.model,
       stats: updatedPersona.stats,
+      // Phase 3: Orchestrator fields
+      orchestrator: updatedPersona.orchestrator,
+      canDelegate: updatedPersona.canDelegate,
+      specialists: updatedPersona.specialists,
+      delegationRules: updatedPersona.delegationRules,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),
     };
