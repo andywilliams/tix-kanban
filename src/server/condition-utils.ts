@@ -47,11 +47,17 @@ export function evaluateFieldCondition(condition: FieldCondition, task: any): bo
       }
       return false;
 
-    case 'greaterThan':
-      return fieldValue > condition.value;
+    case 'greaterThan': {
+      const numField = typeof fieldValue === 'number' ? fieldValue : Number(fieldValue);
+      const numVal = Number(condition.value);
+      return !isNaN(numField) && !isNaN(numVal) && numField > numVal;
+    }
 
-    case 'lessThan':
-      return fieldValue < condition.value;
+    case 'lessThan': {
+      const numField = typeof fieldValue === 'number' ? fieldValue : Number(fieldValue);
+      const numVal = Number(condition.value);
+      return !isNaN(numField) && !isNaN(numVal) && numField < numVal;
+    }
 
     default:
       return false;

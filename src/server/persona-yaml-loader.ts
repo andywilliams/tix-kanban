@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
-import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
+import { Persona, PersonaStats, PersonaTriggers, InvocationConfig } from '../client/types/index.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -34,6 +34,8 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
+  /** Invocation permissions – which personas this one can call (optional) */
+  invocations?: InvocationConfig;
   /** Phase 3: Can this persona delegate to others (optional) */
   orchestrator?: boolean;
   /** Alias for orchestrator (optional) */
@@ -165,15 +167,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
         }
-        if (triggerKey === 'conditions') {
-          if (!Array.isArray(triggerValue)) {
-            errors.push(`Field "triggers.conditions" must be an array`);
-          }
-        } else if (triggerKey === 'priority') {
-          if (typeof triggerValue !== 'number') {
-            errors.push(`Field "triggers.priority" must be a number`);
-          }
-        } else if (triggerKey === 'onLinkAdded') {
+        if (triggerKey === 'onLinkAdded') {
           // onLinkAdded accepts both boolean and PersonaTriggerConfig
           const isBoolean = typeof triggerValue === 'boolean';
           const isConfigObject = (
@@ -330,6 +324,7 @@ export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Perso
     canDelegate: yaml.canDelegate,
     specialists: yaml.specialists,
     delegationRules: yaml.delegationRules,
+    invocations: yaml.invocations,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
