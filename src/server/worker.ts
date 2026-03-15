@@ -43,6 +43,8 @@ import {
 
 const exec = promisify(execCallback);
 
+const execFile = promisify(execFileCallback);
+
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
   if (!content) return '';

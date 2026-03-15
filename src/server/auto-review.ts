@@ -7,6 +7,7 @@ import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 import { parsePRLinks, getPRState } from './pr-utils.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -271,6 +272,64 @@ async function spawnReviewSession(
   }
 }
 
+// Extract acceptance criteria from task description
+// Looks for: checkboxes (- [ ]), "Acceptance Criteria" section, or numbered list
+function extractAcceptanceCriteria(description: string): string | null {
+  if (!description) return null;
+  
+  // Try to find "Acceptance Criteria" section
+  // Stop only at same-level (##) or higher headings, not sub-headings (###, ####)
+  const acSectionMatch = description.match(/(?:^|\n)##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
+  if (acSectionMatch) {
+    const section = acSectionMatch[0];
+    // Extract bullet points or checkboxes from this section
+    const criteria = section
+      .split('\n')
+      .filter(line => line.trim().match(/^[-*•]\s+\[[^\]]*\]/) || line.trim().match(/^[-*•]\s+[^\[]/) || line.trim().match(/^\d+\.\s+/))
+      .map(line => line.trim()
+        .replace(/^[-*•]\s+\[[^\]]*\]\s*/, '')  // strip checkbox (checked or unchecked)
+        .replace(/^[-*•]\s+/, '')                // strip plain bullet
+        .replace(/^\d+\.\s+/, '')               // strip numbered item
+        .trim()
+      )
+      .filter(line => line.length > 0);
+    
+    if (criteria.length > 0) {
+      return criteria.join('\n');
+    }
+
+    // AC section found but has no bullet/checkbox items — extract prose lines instead of falling through
+    const proseLines = section
+      .split('\n')
+      .slice(1) // skip the heading line
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+    if (proseLines.length > 0) {
+      return proseLines.join('\n');
+    }
+    return null; // AC section exists but is empty — don't fall through to unrelated content
+  }
+  
+  // Try to find checkboxes anywhere in description (both checked and unchecked)
+  const checkboxMatch = description.match(/^[-*]\s+\[[^\]]*\]\s+.+$/gm);
+  if (checkboxMatch) {
+    return checkboxMatch
+      .map(line => line.replace(/^[-*]\s+\[[^\]]*\]\s+/, '').trim())
+      .join('\n');
+  }
+  
+  // Try numbered criteria like "1. ..." that look like acceptance criteria
+  // Use multiline flag so ^ matches at start of each line — no leading \n in matches
+  const numberedMatch = description.match(/^\d+\.\s+(?:Should|Must|Ensure|Given|When|Then)[^\n]+/gim);
+  if (numberedMatch && numberedMatch.length >= 2) {
+    return numberedMatch
+      .map(line => line.replace(/^\d+\.\s+/i, '').trim())
+      .join('\n');
+  }
+  
+  return null;
+}
+
 // Create specialized review context for the AI reviewer
 async function createReviewContext(
   task: Task, 
@@ -282,6 +341,9 @@ async function createReviewContext(
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
 
+  // Extract acceptance criteria from the task description
+  const acceptanceCriteria = extractAcceptanceCriteria(task.description || '');
+  
   // Build cycle-aware instructions
   let cycleInstructions = '';
   let previousRejectionsSection = '';
@@ -290,7 +352,29 @@ async function createReviewContext(
     cycleInstructions = `## CYCLE 1 REVIEW
 This is the first review cycle. Review against acceptance criteria, raise ALL issues you find.
 Be thorough — this is your opportunity to identify everything that needs fixing.`;
-    reviewFocusSection = `## REVIEW CRITERIA
+    
+    // PRIMARY: Acceptance criteria section (if found)
+    if (acceptanceCriteria) {
+      reviewFocusSection = `## PRIMARY REVIEW CRITERIA - TICKET ACCEPTANCE CRITERIA
+Your job: check whether EACH acceptance criterion below is met. Do NOT invent new criteria.
+
+${acceptanceCriteria}
+
+## SECONDARY GUIDANCE (only if ticket criteria are ambiguous)
+If the ticket's acceptance criteria above don't fully cover the work, use these as supplementary checks:
+1. **Completeness** - Does the work address all requirements in the task?
+2. **Quality** - Is the work well-executed and following best practices?
+3. **Documentation** - Are changes properly documented/commented?
+4. **Security** - Are there any obvious security concerns?
+5. **Readiness** - Is this ready for human review or deployment?
+
+IMPORTANT: 
+- If the ticket did NOT ask for tests, do NOT reject for missing tests
+- If the ticket did NOT ask for documentation, do NOT reject for missing docs
+- Only reject if the acceptance criteria explicitly require something that is missing`;
+    } else {
+      // No explicit acceptance criteria found - fall back to generic checklist
+      reviewFocusSection = `## REVIEW CRITERIA
 Evaluate these aspects:
 1. **Completeness** - Does the work address all requirements in the task?
 2. **Quality** - Is the work well-executed and following best practices?
@@ -298,6 +382,7 @@ Evaluate these aspects:
 4. **Testing** - Are appropriate tests included (if applicable)?
 5. **Security** - Are there any obvious security concerns?
 6. **Readiness** - Is this ready for human review or deployment?`;
+    }
   } else {
     // For cycle 2+, show only previous rejections so reviewer focuses on those
     const previousRejections = reviewState.reviewHistory

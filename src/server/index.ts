@@ -103,6 +103,14 @@ import {
   getDocumentProvider,
   initializeProviders,
 } from './providers/index.js';
+import {
+  startConversationHandler,
+  pauseConversationHandler,
+  resumeConversationHandler,
+  getConversationStateHandler,
+  getBudgetStatusHandler
+} from './conversation-api.js';
+import { runConversationMonitor } from './persona-conversation.js';
 import type { ProviderConfig } from './providers/types.js';
 import { startPRCacheAutoRefresh } from './pr-cache.js';
 import {
@@ -3687,6 +3695,25 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
   }
 });
 
+// ========================================
+// Conversation API (Phase 2)
+// ========================================
+
+// POST /api/conversation/:taskId/start - Start multi-persona conversation
+app.post('/api/conversation/:taskId/start', startConversationHandler);
+
+// POST /api/conversation/:taskId/pause - Pause conversation (kill switch)
+app.post('/api/conversation/:taskId/pause', pauseConversationHandler);
+
+// POST /api/conversation/:taskId/resume - Resume paused conversation
+app.post('/api/conversation/:taskId/resume', resumeConversationHandler);
+
+// GET /api/conversation/budget - Get global budget status
+app.get('/api/conversation/budget', getBudgetStatusHandler);
+
+// GET /api/conversation/:taskId - Get conversation state
+app.get('/api/conversation/:taskId', getConversationStateHandler);
+
 // Catch all handler: send back React's index.html file for SPA routing
 app.get('*', (_req, res) => {
   res.sendFile(path.join(clientBuildPath, 'index.html'));
@@ -3700,6 +3727,9 @@ import { initializeControlStorage } from './collaboration-control.js';
 async function startServer() {
   try {
     await initializeStorage();
+    await initializeBudgetStorage();
+    await initializeAuditStorage();
+    await initializeControlStorage();
     await initializePersonas();
     await initializePipelines();
     await initializeChatStorage();
@@ -3717,6 +3747,11 @@ async function startServer() {
     await startSlxAutoSync();
     await startBackupScheduler();
     await initializeProviders();
+    
+    // Start conversation monitor (Phase 2)
+    setInterval(() => {
+      runConversationMonitor().catch(err => console.error('Conversation monitor error:', err));
+    }, 30000); // Every 30 seconds
 
     app.listen(PORT, () => {
       console.log(`🚀 Tix Kanban server running on port ${PORT}`);
