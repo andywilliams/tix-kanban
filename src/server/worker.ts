@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { exec as execCallback, spawn } from 'child_process';
 import { promisify } from 'util';
+import { parsePRLinks, getPRState, ParsedPRLink } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
@@ -153,12 +154,7 @@ const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.j
 
 type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
 
-interface ParsedPRLink {
-  repo: string;
-  number: number;
-  key: string;
-  url?: string;
-}
+// ParsedPRLink imported from pr-utils
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
@@ -370,45 +366,10 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
   return results;
 }
 
-function parseTaskPRLinks(links: Task['links']): ParsedPRLink[] {
-  const parsed = new Map<string, ParsedPRLink>();
-  for (const link of links || []) {
-    if (link.type !== 'pr' && !link.url?.includes('/pull/')) {
-      continue;
-    }
-    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
-    if (!match) {
-      continue;
-    }
-    const repo = match[1];
-    const number = parseInt(match[2], 10);
-    if (!Number.isFinite(number)) {
-      continue;
-    }
-    const key = `${repo}#${number}`;
-    parsed.set(key, { repo, number, key, url: link.url });
-  }
-  return [...parsed.values()];
-}
+// parsePRLinks and getPRState are imported from pr-utils.ts
 
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
-  try {
-    const { stdout } = await exec(
-      `gh pr view ${number} --repo ${quoteShellArg(repo)} --json state --jq .state`,
-      { timeout: 10000, maxBuffer: 1024 * 1024 }
-    );
-    const state = stdout.trim().toUpperCase();
-    if (state === 'OPEN') return 'open';
-    if (state === 'MERGED') return 'merged';
-    if (state === 'CLOSED') return 'closed';
-  } catch (error) {
-    console.warn(`Failed to fetch PR state for ${repo}#${number}:`, error);
-  }
-  return null;
 }
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
@@ -551,7 +512,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
-    const prLinks = parseTaskPRLinks(fullTask.links);
+    const prLinks = parsePRLinks(fullTask.links);
     const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
     const newSnapshots: Record<string, PRSnapshot> = {};
 

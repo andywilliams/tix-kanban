@@ -5,6 +5,7 @@ import { Task, Comment } from '../client/types/index.js';
 import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
+import { parsePRLinks, getPRState } from './pr-utils.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
@@ -109,80 +110,18 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
-function getLinkedPRReferences(links: Task['links']): Array<{ repo: string; number: number }> {
-  const prLinks = (links || []).filter((link) => link.type === 'pr' || link.url?.includes('/pull/'));
-  const references: Array<{ repo: string; number: number }> = [];
-
-  for (const link of prLinks) {
-    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
-    if (!match) {
-      continue;
-    }
-
-    references.push({
-      repo: match[1],
-      number: parseInt(match[2], 10),
-    });
-  }
-
-  return references;
-}
-
-async function getPullRequestState(repo: string, number: number): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = spawn(
-      'gh',
-      ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
-    );
-
-    let stdout = '';
-    let stderr = '';
-
-    const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
-      console.error(`Timed out checking PR state for ${repo}#${number}`);
-      resolve(null);
-    }, 10000);
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve(stdout.trim());
-        return;
-      }
-
-      if (stderr.trim()) {
-        console.error(`Failed to get PR state for ${repo}#${number}: ${stderr.trim()}`);
-      }
-      resolve(null);
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timeout);
-      console.error(`Failed to run gh pr view for ${repo}#${number}:`, error);
-      resolve(null);
-    });
-  });
-}
+// getLinkedPRReferences and getPullRequestState deduplicated into pr-utils.ts
+// (parsePRLinks and getPRState imported above)
 
 async function isPRMerged(links: Task['links']): Promise<boolean> {
-  const linkedPRs = getLinkedPRReferences(links);
+  const linkedPRs = parsePRLinks(links);
   if (linkedPRs.length === 0) {
     return false;
   }
 
   for (const pr of linkedPRs) {
-    const state = await getPullRequestState(pr.repo, pr.number);
-    if (state === 'MERGED') {
+    const state = await getPRState(pr.repo, pr.number);
+    if (state === 'merged') {
       return true;
     }
   }
@@ -728,7 +667,7 @@ async function handleMaxCyclesReached(
     });
     // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    const hasLinkedPR = getLinkedPRReferences(task.links).length > 0;
+    const hasLinkedPR = parsePRLinks(task.links).length > 0;
     const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
     if (merged) {
