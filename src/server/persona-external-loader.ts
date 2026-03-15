@@ -87,24 +87,8 @@ async function loadFromUrl(
   authToken?: string,
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
-  // Check cache first
-  const cached = getFromCache(url);
-  if (cached) {
-    console.log(`[persona-external-loader] Using cached version of ${url}`);
-    return cached;
-  }
-
-  console.log(`[persona-external-loader] Fetching persona from ${url}`);
-  
-  const headers: Record<string, string> = {
-    'Accept': 'application/x-yaml, text/yaml, text/plain',
-  };
-  
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
-
-  // SSRF protection: only allow https:// URLs; reject private/loopback addresses
+  // SSRF protection: validate URL BEFORE cache lookup to prevent bypass
+  // Only allow https:// URLs; reject private/loopback addresses
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:') {
@@ -133,6 +117,23 @@ async function loadFromUrl(
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('Security violation')) throw e;
     throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
+  }
+
+  // Check cache after SSRF validation
+  const cached = getFromCache(url);
+  if (cached) {
+    console.log(`[persona-external-loader] Using cached version of ${url}`);
+    return cached;
+  }
+
+  console.log(`[persona-external-loader] Fetching persona from ${url}`);
+  
+  const headers: Record<string, string> = {
+    'Accept': 'application/x-yaml, text/yaml, text/plain',
+  };
+  
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
   }
 
   try {

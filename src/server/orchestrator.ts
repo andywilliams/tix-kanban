@@ -369,7 +369,7 @@ export async function evaluateDelegationRules(
     
     if (matches) {
       return {
-        shouldDelegate: rule.action === 'delegate',
+        shouldDelegate: ['delegate', 'parallel', 'sequential'].includes(rule.action),
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };
