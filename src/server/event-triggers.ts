@@ -54,7 +54,7 @@ const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
 
 // Map camelCase PersonaTriggers keys to snake_case event types.
 // onCIPassed maps to 'ci_passed' (distinct from test_success).
-const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPROpened: 'pr_opened',
   onPRMerged: 'pr_merged',
   onPRClosed: 'pr_closed',

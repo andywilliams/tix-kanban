@@ -11,6 +11,7 @@ import {
   emitPROpened, 
   emitTestFailure,
   emitStatusChange,
+  TRIGGER_KEY_TO_EVENT_TYPE,
   type TriggerEvent, 
   type PersonaTrigger,
   type TriggerEventType,
@@ -77,20 +78,15 @@ export async function handleTaskEvent(event: TriggerEvent): Promise<string[]> {
  */
 function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventType[] {
   const eventTypes: TriggerEventType[] = [];
-  
-  if (triggers.onPROpened) eventTypes.push('pr_opened');
-  if (triggers.onPRMerged) eventTypes.push('pr_merged');
-  if (triggers.onPRClosed) eventTypes.push('pr_closed');
-  if (triggers.onPRReviewRequested) eventTypes.push('pr_review_requested');
-  if (triggers.onCIPassed) eventTypes.push('ci_passed');
-  if (triggers.onTestFailure) eventTypes.push('test_failure');
-  if (triggers.onTestSuccess) eventTypes.push('test_success');
-  if (triggers.onStatusChange) eventTypes.push('status_change');
-  if (triggers.onTaskCreated) eventTypes.push('task_created');
-  if (triggers.onAssignmentChanged) eventTypes.push('assignment_changed');
-  if (triggers.onPriorityChanged) eventTypes.push('priority_changed');
-  if (triggers.onCommentAdded) eventTypes.push('comment_added');
-  if (triggers.onDueDateApproaching) eventTypes.push('due_date_approaching');
+
+  for (const [key, value] of Object.entries(triggers)) {
+    if (key === 'conditions' || key === 'priority') continue;
+    if (value !== true) continue;
+    const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
+    if (eventType) {
+      eventTypes.push(eventType);
+    }
+  }
   
   // Deduplicate to guard against future key collisions
   return [...new Set(eventTypes)];

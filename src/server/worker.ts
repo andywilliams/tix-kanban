@@ -582,12 +582,18 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
+      const previous = taskState.prs[pr.key];
       const state = await getPRState(pr.repo, pr.number);
+      if (state === null) {
+        // Preserve the last known snapshot on transient state lookup failures.
+        if (previous) {
+          newSnapshots[pr.key] = previous;
+        }
+        continue;
+      }
       const ciState = await getPRCIState(pr.repo, pr.number);
       const current: PRSnapshot = { state, ciState };
       newSnapshots[pr.key] = current;
-
-      const previous = taskState.prs[pr.key];
 
       if (!previous) {
         // First observation: only fire onPROpened (PR was just linked to this task)
