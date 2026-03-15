@@ -237,13 +237,15 @@ async function finalizeExecution(executionId: string): Promise<void> {
     await writeTask(task);
   });
   
-  execution.status = hasConflicts ? 'conflict' : 'completed';
+  // Conflicts were resolved in the try block - status should be completed
+  // Only set to 'conflict' if resolution actually failed (handled in catch block)
+  execution.status = 'completed';
   execution.completedAt = new Date();
   
   await logActivity(
     execution.taskId,
     'comment_added',
-    `[Parallel Execution] Execution ${executionId} completed with ${changeSets.length} change sets${hasConflicts ? ' (with conflicts resolved)' : ''}`,
+    `[Parallel Execution] Execution ${executionId} completed with ${changeSets.length} change sets${hasConflicts ? ' (conflicts resolved)' : ''}`,
     'system'
   );
   
