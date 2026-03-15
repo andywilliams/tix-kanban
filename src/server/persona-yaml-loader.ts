@@ -69,7 +69,6 @@ const VALID_TRIGGER_KEYS = new Set([
   // PersonaTriggers fields
   'conditions',
   'priority',
-  'enabled',  // For PersonaTriggerConfig
 ]);
 
 const VALID_SKILLS = new Set([
