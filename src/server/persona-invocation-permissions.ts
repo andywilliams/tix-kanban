@@ -41,7 +41,8 @@ export interface InvocationResult {
 const invocationPermissions: Map<string, InvocationPermission> = new Map();
 
 // Track active invocations for concurrent limit enforcement
-const activeInvocations: Map<string, Set<string>> = new Map();
+// Uses Map<invoker, Map<target, count>> to correctly count duplicate concurrent targets
+const activeInvocations: Map<string, Map<string, number>> = new Map();
 
 // ── Permission Management ────────────────────────────────────────────────────
 
@@ -106,6 +107,25 @@ export function checkInvocationPermission(
     };
   }
 
+  // Check concurrent invocation limit FIRST (applies to both wildcard and explicit permissions)
+  if (permissions.maxConcurrentInvocations !== undefined) {
+    const active = getActiveInvocationCount(invoker);
+    if (active >= permissions.maxConcurrentInvocations) {
+      const hasWildcard = permissions.canInvokeAll ?? false;
+      return {
+        allowed: false,
+        reason: `Persona "${invoker}" has reached max concurrent invocations ` +
+                `(${active}/${permissions.maxConcurrentInvocations})`,
+        metadata: {
+          hasExplicitPermission: !hasWildcard && permissions.canInvoke.includes(target),
+          hasWildcardPermission: hasWildcard,
+          concurrentInvocations: active,
+          maxConcurrent: permissions.maxConcurrentInvocations,
+        },
+      };
+    }
+  }
+
   // Check wildcard permission
   if (permissions.canInvokeAll) {
     return {
@@ -130,24 +150,6 @@ export function checkInvocationPermission(
         hasWildcardPermission: false,
       },
     };
-  }
-
-  // Check concurrent invocation limit if set
-  if (permissions.maxConcurrentInvocations !== undefined) {
-    const active = activeInvocations.get(invoker)?.size || 0;
-    if (active >= permissions.maxConcurrentInvocations) {
-      return {
-        allowed: false,
-        reason: `Persona "${invoker}" has reached max concurrent invocations ` +
-                `(${active}/${permissions.maxConcurrentInvocations})`,
-        metadata: {
-          hasExplicitPermission: true,
-          hasWildcardPermission: false,
-          concurrentInvocations: active,
-          maxConcurrent: permissions.maxConcurrentInvocations,
-        },
-      };
-    }
   }
 
   // Permission granted
@@ -175,39 +177,51 @@ export function enforceInvocationPermission(
 }
 
 /**
- * Register an active invocation (for concurrent limit tracking)
+ * Register an active invocation (for concurrent limit tracking).
+ * Uses a Map<target, count> so invoking the same target multiple times
+ * is counted correctly (Set would only count unique targets once).
  */
 export function registerActiveInvocation(
   invoker: string, 
   target: string
 ): void {
   if (!activeInvocations.has(invoker)) {
-    activeInvocations.set(invoker, new Set());
+    activeInvocations.set(invoker, new Map());
   }
-  activeInvocations.get(invoker)!.add(target);
+  const targetMap = activeInvocations.get(invoker)!;
+  targetMap.set(target, (targetMap.get(target) ?? 0) + 1);
 }
 
 /**
- * Unregister an active invocation
+ * Unregister an active invocation (decrements count for the target).
  */
 export function unregisterActiveInvocation(
   invoker: string, 
   target: string
 ): void {
-  const active = activeInvocations.get(invoker);
-  if (active) {
-    active.delete(target);
-    if (active.size === 0) {
+  const targetMap = activeInvocations.get(invoker);
+  if (targetMap) {
+    const count = targetMap.get(target) ?? 0;
+    if (count <= 1) {
+      targetMap.delete(target);
+    } else {
+      targetMap.set(target, count - 1);
+    }
+    if (targetMap.size === 0) {
       activeInvocations.delete(invoker);
     }
   }
 }
 
 /**
- * Get count of active invocations for a persona
+ * Get total count of active invocations for a persona (sum across all targets).
  */
 export function getActiveInvocationCount(personaId: string): number {
-  return activeInvocations.get(personaId)?.size || 0;
+  const targetMap = activeInvocations.get(personaId);
+  if (!targetMap) return 0;
+  let total = 0;
+  for (const count of targetMap.values()) total += count;
+  return total;
 }
 
 /**

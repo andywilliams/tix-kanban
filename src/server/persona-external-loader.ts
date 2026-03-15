@@ -127,6 +127,16 @@ async function loadFromUrl(
 }
 
 /**
+ * Allowed base directories for local persona file loading.
+ * Files must resolve to one of these directories to prevent path traversal attacks.
+ */
+const ALLOWED_PERSONA_DIRS: string[] = [
+  path.resolve(process.cwd()),
+  path.resolve(process.cwd(), 'personas'),
+  path.resolve(process.cwd(), 'config/personas'),
+];
+
+/**
  * Load persona YAML from a local file path
  */
 async function loadFromFile(filePath: string): Promise<string> {
@@ -136,11 +146,27 @@ async function loadFromFile(filePath: string): Promise<string> {
     // Resolve to absolute path
     const absolutePath = path.resolve(filePath);
     
-    // Security check: ensure path is within allowed directories
-    // (This can be configured based on security requirements)
+    // Security check: prevent path traversal attacks (e.g. ../../etc/passwd).
+    // Ensure the resolved path is within one of the allowed base directories.
+    const isAllowed = ALLOWED_PERSONA_DIRS.some(
+      allowedDir =>
+        absolutePath.startsWith(allowedDir + path.sep) ||
+        absolutePath === allowedDir
+    );
+
+    if (!isAllowed) {
+      throw new Error(
+        `Security violation: path "${filePath}" resolves to "${absolutePath}" ` +
+        `which is outside the allowed directories: ${ALLOWED_PERSONA_DIRS.join(', ')}`
+      );
+    }
+
     const content = await fs.readFile(absolutePath, 'utf8');
     return content;
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Security violation')) {
+      throw error;
+    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new Error(`Persona file not found: ${filePath}`);
     }
@@ -209,7 +235,7 @@ function schemaToPersona(
   }
 
   const now = new Date();
-  return {
+  const persona: any = {
     id,
     name: schema.name,
     emoji: schema.emoji,
@@ -235,7 +261,14 @@ function schemaToPersona(
     },
     createdAt: now,
     updatedAt: now,
-  } as Persona;
+  };
+
+  // Include invocations if present (mirrors yamlToPersona behaviour)
+  if (schema.invocations) {
+    persona.invocations = schema.invocations;
+  }
+
+  return persona as Persona;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
