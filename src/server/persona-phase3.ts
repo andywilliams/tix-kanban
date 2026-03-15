@@ -39,33 +39,7 @@ import {
   type OrchestratedTask,
 } from './orchestrator.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
-import type { Persona, PersonaTriggers } from '../client/types/index.js';
-
-/**
- * Initialize Phase 3 systems
- */
-
-/**
- * Handle a task event - emit to trigger system and get responding personas
- */
-
-/**
- * Convert PersonaTriggers to event types list
- */
-function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventType[] {
-  const eventTypes = Object.entries(TRIGGER_KEY_TO_EVENT_TYPE)
-    .filter(([key]) => {
-      const val = triggers[key as keyof PersonaTriggers];
-      return val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
-    })
-    .map(([, eventType]) => eventType as TriggerEventType);
-
-  return [...new Set(eventTypes)];
-}
-
-/**
- * Register a persona's triggers
- */
+import type { Persona } from '../client/types/index.js';
 
 /**
  * Composable addressing priority order:
