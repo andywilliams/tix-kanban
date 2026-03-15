@@ -77,18 +77,10 @@ export async function handleTaskEvent(event: TriggerEvent): Promise<string[]> {
  * Convert PersonaTriggers to event types list
  */
 function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventType[] {
-  const eventTypes: TriggerEventType[] = [];
+  const eventTypes = Object.entries(TRIGGER_KEY_TO_EVENT_TYPE)
+    .filter(([key]) => triggers[key as keyof PersonaTriggers] === true)
+    .map(([, eventType]) => eventType);
 
-  for (const [key, value] of Object.entries(triggers)) {
-    if (key === 'conditions' || key === 'priority') continue;
-    if (value !== true) continue;
-    const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
-    if (eventType) {
-      eventTypes.push(eventType);
-    }
-  }
-  
-  // Deduplicate to guard against future key collisions
   return [...new Set(eventTypes)];
 }
 
@@ -105,7 +97,7 @@ export async function registerPersonaTriggers(persona: Persona): Promise<void> {
     personaId: persona.id,
     eventTypes,
     conditions: persona.triggers.conditions,
-    priority: persona.triggers.priority || 100,
+    priority: persona.triggers.priority ?? 100,
   };
   
   await registerTrigger(trigger);
