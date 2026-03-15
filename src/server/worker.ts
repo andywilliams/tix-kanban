@@ -424,7 +424,7 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
   const val = effectiveTriggers[eventType];
   if (val === null || val === undefined || val === false) return false;
   if (val === true) return true;
-  // PersonaTriggerConfig object — treat absent `enabled` as true, explicit `false` as disabled
+  // PersonaTriggerConfig object — require explicit enabled: true to activate
   if (typeof val === 'object') return (val as any).enabled === true;
   return Boolean(val);
 }

@@ -66,10 +66,10 @@ const VALID_TRIGGER_KEYS = new Set([
   'onCommentAdded',
   'onLinkAdded',
   'onDueDateApproaching',
-  // PersonaTriggers fields
-  'conditions',
-  'priority',
 ]);
+
+// PersonaTriggers metadata fields (not event triggers)
+const VALID_TRIGGER_METADATA_KEYS = new Set(['conditions', 'priority']);
 
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
@@ -151,16 +151,16 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     } else {
       const triggers = d.triggers as Record<string, unknown>;
       for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
-        // 'conditions' and 'priority' are valid non-boolean fields
-        if (triggerKey === 'conditions') {
-          if (!Array.isArray(triggerValue)) {
-            errors.push('Field "triggers.conditions" must be an array');
-          }
-          continue;
-        }
-        if (triggerKey === 'priority') {
-          if (typeof triggerValue !== 'number') {
-            errors.push('Field "triggers.priority" must be a number');
+        // Handle metadata fields separately from event triggers
+        if (VALID_TRIGGER_METADATA_KEYS.has(triggerKey)) {
+          if (triggerKey === 'conditions') {
+            if (!Array.isArray(triggerValue)) {
+              errors.push('Field "triggers.conditions" must be an array');
+            }
+          } else if (triggerKey === 'priority') {
+            if (typeof triggerValue !== 'number') {
+              errors.push('Field "triggers.priority" must be a number');
+            }
           }
           continue;
         }
@@ -251,6 +251,61 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
       if (inv.maxConcurrent !== undefined && typeof inv.maxConcurrent !== 'number') {
         errors.push('Field "invocations.maxConcurrent" must be a number');
       }
+    }
+  }
+
+  if (d.orchestrator !== undefined && typeof d.orchestrator !== 'boolean') {
+    errors.push('Field "orchestrator" must be a boolean');
+  }
+
+  if (d.canDelegate !== undefined && typeof d.canDelegate !== 'boolean') {
+    errors.push('Field "canDelegate" must be a boolean');
+  }
+
+  if (d.specialists !== undefined) {
+    if (!Array.isArray(d.specialists)) {
+      errors.push('Field "specialists" must be an array');
+    } else {
+      d.specialists.forEach((spec, idx) => {
+        if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+          errors.push(`Field "specialists[${idx}]" must be an object`);
+        } else {
+          const s = spec as Record<string, unknown>;
+          if (!s.specialty || typeof s.specialty !== 'string') {
+            errors.push(`Field "specialists[${idx}].specialty" must be a string`);
+          }
+          if (!s.personaIds || !Array.isArray(s.personaIds)) {
+            errors.push(`Field "specialists[${idx}].personaIds" must be an array`);
+          } else if (!s.personaIds.every((p: unknown) => typeof p === 'string')) {
+            errors.push(`Field "specialists[${idx}].personaIds" must be an array of strings`);
+          }
+        }
+      });
+    }
+  }
+
+  if (d.delegationRules !== undefined) {
+    if (!Array.isArray(d.delegationRules)) {
+      errors.push('Field "delegationRules" must be an array');
+    } else {
+      d.delegationRules.forEach((rule, idx) => {
+        if (typeof rule !== 'object' || rule === null || Array.isArray(rule)) {
+          errors.push(`Field "delegationRules[${idx}]" must be an object`);
+        } else {
+          const r = rule as Record<string, unknown>;
+          if (!r.condition || typeof r.condition !== 'object') {
+            errors.push(`Field "delegationRules[${idx}].condition" must be an object`);
+          }
+          if (!r.action || !['delegate', 'parallel', 'sequential'].includes(r.action as string)) {
+            errors.push(`Field "delegationRules[${idx}].action" must be one of: delegate, parallel, sequential`);
+          }
+          if (!r.targetPersonas || !Array.isArray(r.targetPersonas)) {
+            errors.push(`Field "delegationRules[${idx}].targetPersonas" must be an array`);
+          } else if (!r.targetPersonas.every((p: unknown) => typeof p === 'string')) {
+            errors.push(`Field "delegationRules[${idx}].targetPersonas" must be an array of strings`);
+          }
+        }
+      });
     }
   }
 

@@ -57,12 +57,21 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 /**
  * Generate a consistent cache key for URL + auth token combination
+ * Normalizes URLs to ensure consistent caching across different input formats
  */
 function getCacheKey(url: string, authToken?: string): string {
+  // Normalize URL to ensure consistent cache keys
+  let normalizedUrl = url;
+  try {
+    normalizedUrl = new URL(url).toString();
+  } catch {
+    // Not a URL (e.g. file path) — use as-is
+  }
+  
   const tokenHash = authToken
     ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
     : 'anon';
-  return `${url}::${tokenHash}`;
+  return `${normalizedUrl}::${tokenHash}`;
 }
 
 function isCacheValid(location: string): boolean {
@@ -466,16 +475,24 @@ export async function loadExternalPersonas(
  */
 export function clearPersonaCache(location?: string, authToken?: string): void {
   if (location) {
+    // Use getCacheKey for consistent URL normalization
     let normalizedLocation: string;
     try {
       normalizedLocation = new URL(location).toString();
     } catch {
-      // Not a valid URL (e.g. file path) — check if the raw string is a cache key, else no-op.
-      if (Object.prototype.hasOwnProperty.call(personaCache, location)) {
-        delete personaCache[location];
-        console.log(`[persona-external-loader] Cleared cache for ${location}`);
+      // Not a valid URL (e.g. file path) — try to match cache keys by prefix
+      const potentialPrefix = `${location}::`;
+      let cleared = 0;
+      for (const key of Object.keys(personaCache)) {
+        if (key.startsWith(potentialPrefix)) {
+          delete personaCache[key];
+          cleared++;
+        }
+      }
+      if (cleared > 0) {
+        console.log(`[persona-external-loader] Cleared ${cleared} cache entries for ${location}`);
       } else {
-        console.warn(`[persona-external-loader] clearPersonaCache: "${location}" is not a valid URL or known cache key — skipping`);
+        console.warn(`[persona-external-loader] clearPersonaCache: no cache entries found for "${location}"`);
       }
       return;
     }
@@ -489,7 +506,7 @@ export function clearPersonaCache(location?: string, authToken?: string): void {
       const prefix = `${normalizedLocation}::`;
       let cleared = 0;
       for (const key of Object.keys(personaCache)) {
-        if (key === normalizedLocation || key.startsWith(prefix)) {
+        if (key.startsWith(prefix)) {
           delete personaCache[key];
           cleared++;
         }
