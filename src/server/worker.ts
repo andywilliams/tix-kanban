@@ -16,7 +16,8 @@ import {
 } from './pipeline-storage.js';
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
-import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
+import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -262,6 +263,30 @@ async function saveWorkerState(): Promise<void> {
     await fs.writeFile(WORKER_STATE_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to save worker state:', error);
+  }
+}
+
+async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
+  try {
+    const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && parsed.tasks && typeof parsed.tasks === 'object') {
+      return parsed as WorkerTriggerState;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('Failed to load worker trigger state:', error);
+    }
+  }
+  return { tasks: {} };
+}
+
+async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
+  try {
+    await ensureWorkerDirectories();
+    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Failed to save worker trigger state:', error);
   }
 }
 

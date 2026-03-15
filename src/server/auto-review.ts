@@ -6,6 +6,7 @@ import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -109,6 +110,28 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
+async function getPullRequestState(repo: string, number: number): Promise<string | null> {
+  const state = await getPRStateShared(repo, number);
+  // Callers in this file expect uppercase state strings (e.g. 'MERGED')
+  return state ? state.toUpperCase() : null;
+}
+
+async function isPRMerged(links: Task['links']): Promise<boolean> {
+  const linkedPRs = parsePRLinks(links);
+  if (linkedPRs.length === 0) {
+    return false;
+  }
+
+  for (const pr of linkedPRs) {
+    const state = await getPullRequestState(pr.repo, pr.number);
+    if (state === 'MERGED') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Load auto-review configuration
 async function loadAutoReviewConfig(): Promise<AutoReviewConfig> {
   try {
@@ -183,7 +206,7 @@ async function saveTaskReviewState(state: TaskReviewState): Promise<void> {
 }
 
 // Delete task review state
-async function deleteTaskReviewState(taskId: string): Promise<void> {
+export async function deleteTaskReviewState(taskId: string): Promise<void> {
   try {
     const filePath = getReviewStateFilePath(taskId);
     await fs.unlink(filePath);
@@ -252,6 +275,64 @@ async function spawnReviewSession(
   }
 }
 
+// Extract acceptance criteria from task description
+// Looks for: checkboxes (- [ ]), "Acceptance Criteria" section, or numbered list
+function extractAcceptanceCriteria(description: string): string | null {
+  if (!description) return null;
+  
+  // Try to find "Acceptance Criteria" section
+  // Stop only at same-level (##) or higher headings, not sub-headings (###, ####)
+  const acSectionMatch = description.match(/(?:^|\n)##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
+  if (acSectionMatch) {
+    const section = acSectionMatch[0];
+    // Extract bullet points or checkboxes from this section
+    const criteria = section
+      .split('\n')
+      .filter(line => line.trim().match(/^[-*•]\s+\[[^\]]*\]/) || line.trim().match(/^[-*•]\s+[^\[]/) || line.trim().match(/^\d+\.\s+/))
+      .map(line => line.trim()
+        .replace(/^[-*•]\s+\[[^\]]*\]\s*/, '')  // strip checkbox (checked or unchecked)
+        .replace(/^[-*•]\s+/, '')                // strip plain bullet
+        .replace(/^\d+\.\s+/, '')               // strip numbered item
+        .trim()
+      )
+      .filter(line => line.length > 0);
+    
+    if (criteria.length > 0) {
+      return criteria.join('\n');
+    }
+
+    // AC section found but has no bullet/checkbox items — extract prose lines instead of falling through
+    const proseLines = section
+      .split('\n')
+      .slice(1) // skip the heading line
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+    if (proseLines.length > 0) {
+      return proseLines.join('\n');
+    }
+    return null; // AC section exists but is empty — don't fall through to unrelated content
+  }
+  
+  // Try to find checkboxes anywhere in description (both checked and unchecked)
+  const checkboxMatch = description.match(/^[-*]\s+\[[^\]]*\]\s+.+$/gm);
+  if (checkboxMatch) {
+    return checkboxMatch
+      .map(line => line.replace(/^[-*]\s+\[[^\]]*\]\s+/, '').trim())
+      .join('\n');
+  }
+  
+  // Try numbered criteria like "1. ..." that look like acceptance criteria
+  // Use multiline flag so ^ matches at start of each line — no leading \n in matches
+  const numberedMatch = description.match(/^\d+\.\s+(?:Should|Must|Ensure|Given|When|Then)[^\n]+/gim);
+  if (numberedMatch && numberedMatch.length >= 2) {
+    return numberedMatch
+      .map(line => line.replace(/^\d+\.\s+/i, '').trim())
+      .join('\n');
+  }
+  
+  return null;
+}
+
 // Create specialized review context for the AI reviewer
 async function createReviewContext(
   task: Task, 
@@ -263,6 +344,9 @@ async function createReviewContext(
     .map(attempt => `Cycle ${attempt.cycle}: ${attempt.decision.toUpperCase()} - ${attempt.feedback}`)
     .join('\n');
 
+  // Extract acceptance criteria from the task description
+  const acceptanceCriteria = extractAcceptanceCriteria(task.description || '');
+  
   // Build cycle-aware instructions
   let cycleInstructions = '';
   let previousRejectionsSection = '';
@@ -271,7 +355,29 @@ async function createReviewContext(
     cycleInstructions = `## CYCLE 1 REVIEW
 This is the first review cycle. Review against acceptance criteria, raise ALL issues you find.
 Be thorough — this is your opportunity to identify everything that needs fixing.`;
-    reviewFocusSection = `## REVIEW CRITERIA
+    
+    // PRIMARY: Acceptance criteria section (if found)
+    if (acceptanceCriteria) {
+      reviewFocusSection = `## PRIMARY REVIEW CRITERIA - TICKET ACCEPTANCE CRITERIA
+Your job: check whether EACH acceptance criterion below is met. Do NOT invent new criteria.
+
+${acceptanceCriteria}
+
+## SECONDARY GUIDANCE (only if ticket criteria are ambiguous)
+If the ticket's acceptance criteria above don't fully cover the work, use these as supplementary checks:
+1. **Completeness** - Does the work address all requirements in the task?
+2. **Quality** - Is the work well-executed and following best practices?
+3. **Documentation** - Are changes properly documented/commented?
+4. **Security** - Are there any obvious security concerns?
+5. **Readiness** - Is this ready for human review or deployment?
+
+IMPORTANT: 
+- If the ticket did NOT ask for tests, do NOT reject for missing tests
+- If the ticket did NOT ask for documentation, do NOT reject for missing docs
+- Only reject if the acceptance criteria explicitly require something that is missing`;
+    } else {
+      // No explicit acceptance criteria found - fall back to generic checklist
+      reviewFocusSection = `## REVIEW CRITERIA
 Evaluate these aspects:
 1. **Completeness** - Does the work address all requirements in the task?
 2. **Quality** - Is the work well-executed and following best practices?
@@ -279,10 +385,11 @@ Evaluate these aspects:
 4. **Testing** - Are appropriate tests included (if applicable)?
 5. **Security** - Are there any obvious security concerns?
 6. **Readiness** - Is this ready for human review or deployment?`;
+    }
   } else {
     // For cycle 2+, show only previous rejections so reviewer focuses on those
     const previousRejections = reviewState.reviewHistory
-      .filter(attempt => attempt.decision === 'reject' || attempt.decision === 'rejected')
+      .filter(attempt => attempt.decision === 'reject')
       .map(attempt => `Cycle ${attempt.cycle} rejection: ${attempt.feedback}`)
       .join('\n\n');
     
@@ -645,24 +752,49 @@ async function handleMaxCyclesReached(
       status: 'review',
       comments: updatedComments 
     });
+    // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    // Auto-approve
-    await updateTask(task.id, {
-      status: 'done',
-      comments: updatedComments
-    });
+    const hasLinkedPR = parsePRLinks(task.links).length > 0;
+    const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
-    // Update persona stats for successful completion
-    if (reviewState.workerId) {
-      const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
-      const completionTimeMinutes = completionTimeMs / (1000 * 60);
-      await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
-      console.log(`📊 Updated stats for persona after auto-approval`);
+    if (merged) {
+      // Auto-approve to done only when linked PR is merged (or there is no linked PR)
+      await updateTask(task.id, {
+        status: 'done',
+        comments: updatedComments
+      });
+
+      // Update persona stats for successful completion
+      if (reviewState.workerId) {
+        const completionTimeMs = Date.now() - new Date(task.createdAt).getTime();
+        const completionTimeMinutes = completionTimeMs / (1000 * 60);
+        await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
+        console.log(`📊 Updated stats for persona after auto-approval`);
+      }
+
+      // Clean up review state — task is done, no further auto-review needed
+      await deleteTaskReviewState(task.id);
+    } else {
+      const mergeRequiredComment: Comment = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId: task.id,
+        body: '**AUTO-REVIEW NOTE**\n\nAuto-approval reached max cycles, but linked PR is not merged yet. Keeping this task in review until at least one linked PR is merged.',
+        author: 'Auto-Review System',
+        createdAt: new Date(),
+      };
+
+      await updateTask(task.id, {
+        status: 'review',
+        comments: [...updatedComments, mergeRequiredComment]
+      });
+
+      await postReviewUpdate(task, reviewerName, 'Auto-approval was reached, but a linked PR is still not merged. Moving to review until the PR is merged.');
+
+      // Preserve review state — processEventBasedPersonaTriggers in worker.ts will detect
+      // the "Keeping this task in review" note and auto-close once the PR merges.
+      // Deleting review state here would remove the only recovery path for this task.
     }
   }
-  
-  // Clean up review state
-  await deleteTaskReviewState(task.id);
 }
 
 // Public API for configuration management
