@@ -15,7 +15,7 @@ import { Persona } from '../client/types/index.js';
 import { evaluateTriggerCondition } from './condition-utils.js';
 
 // Shared mapping from worker.ts style trigger keys to internal TriggerEventType
-const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPROpened: 'pr_opened',
   onPRMerged: 'pr_merged',
   onPRClosed: 'pr_closed',
