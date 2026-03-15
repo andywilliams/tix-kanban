@@ -131,10 +131,19 @@ async function validateExternalUrl(url: string): Promise<void> {
   }
 
   if (isIP(hostname) !== 0) {
-    if (isPrivateOrLoopbackIp(hostname)) {
-      throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+    try {
+      // Check if it's a private/loopback IP - throw if so
+      if (isPrivateOrLoopbackIp(hostname)) {
+        throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+      }
+    } catch (err) {
+      // Re-throw security errors with proper context
+      if (err instanceof Error && err.message.startsWith('Security violation')) {
+        throw err;
+      }
+      throw new Error(`Security violation: failed to validate IP address ${hostname}: ${(err as Error).message}`);
     }
-    return;
+    // Allow public IP addresses - continue to validation pass
   }
 
   let resolvedAddresses: Array<{ address: string }>;
@@ -149,10 +158,18 @@ async function validateExternalUrl(url: string): Promise<void> {
   }
 
   for (const resolved of resolvedAddresses) {
-    if (isPrivateOrLoopbackIp(resolved.address)) {
-      throw new Error(
-        `Security violation: hostname "${hostname}" resolves to internal address "${resolved.address}"`
-      );
+    try {
+      if (isPrivateOrLoopbackIp(resolved.address)) {
+        throw new Error(
+          `Security violation: hostname "${hostname}" resolves to internal address "${resolved.address}"`
+        );
+      }
+    } catch (err) {
+      // Re-throw security errors with proper context
+      if (err instanceof Error && err.message.startsWith('Security violation')) {
+        throw err;
+      }
+      throw new Error(`Security violation: failed to validate resolved address ${resolved.address}: ${(err as Error).message}`);
     }
   }
 }
