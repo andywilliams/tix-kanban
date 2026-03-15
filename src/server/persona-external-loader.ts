@@ -203,7 +203,7 @@ async function loadFromFile(filePath: string): Promise<string> {
   
   try {
     // Resolve to absolute path
-    const absolutePath = path.resolve(filePath);
+    const absolutePath = await fs.realpath(path.resolve(filePath)).catch(() => path.resolve(filePath));
     
     // Security check: prevent path traversal attacks (e.g. ../../etc/passwd).
     // Ensure the resolved path is within one of the allowed base directories.

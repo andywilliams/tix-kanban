@@ -519,14 +519,13 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status === 'in-progress') {
+    if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
+      // Known transition: backlog → in-progress
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
-    }
-    // Fire onTaskStarted for tasks first observed in in-progress status (e.g. tasks
-    // that were already in-progress before the worker started watching them).
-    if (taskState.lastStatus === undefined && task.status === 'in-progress') {
+    } else if (taskState.lastStatus === undefined && task.status === 'in-progress') {
+      // First observation: task already in-progress, no prior state — use onTaskStarted only
       for (const persona of getTriggeredPersonas(personas, 'onTaskStarted', task)) {
         enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} first observed in-progress`);
       }

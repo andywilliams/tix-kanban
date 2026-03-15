@@ -20,7 +20,7 @@ export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPRMerged: 'pr_merged',
   onPRClosed: 'pr_closed',
   onPRReviewRequested: 'pr_review_requested',
-  onCIPassed: 'test_success',
+  onCIPassed: 'ci_passed',
   onTestSuccess: 'test_success',
   onTestFailure: 'test_failure',
   onStatusChange: 'status_change',
@@ -38,6 +38,7 @@ export type TriggerEventType =
   | 'pr_merged'
   | 'pr_closed'
   | 'pr_review_requested'
+  | 'ci_passed'
   | 'test_failure'
   | 'test_success'
   | 'status_change'
