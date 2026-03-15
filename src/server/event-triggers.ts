@@ -306,6 +306,15 @@ export async function emitTestFailure(taskId: string, testPath: string, errorMes
   });
 }
 
+export async function emitCIPassed(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
+  return emitEvent({
+    type: 'ci_passed',
+    taskId,
+    metadata: { url: prUrl, prNumber },
+    timestamp: new Date(),
+  });
+}
+
 export async function emitStatusChange(taskId: string, from: string, to: string): Promise<string[]> {
   return emitEvent({
     type: 'status_change',
