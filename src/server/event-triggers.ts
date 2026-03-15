@@ -9,6 +9,25 @@ import { readTask, logActivity } from './storage.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { Persona } from '../client/types/index.js';
 
+// Shared mapping from worker.ts style trigger keys to internal TriggerEventType
+const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+  onPROpened: 'pr_opened',
+  onPRMerged: 'pr_merged',
+  onPRClosed: 'pr_closed',
+  onPRReviewRequested: 'pr_review_requested',
+  onCIPassed: 'test_success',
+  onTestSuccess: 'test_success',
+  onTestFailure: 'test_failure',
+  onStatusChange: 'status_change',
+  onTaskCreated: 'task_created',
+  onTaskStarted: 'task_started',
+  onAssignmentChanged: 'assignment_changed',
+  onPriorityChanged: 'priority_changed',
+  onCommentAdded: 'comment_added',
+  onLinkAdded: 'link_added',
+  onDueDateApproaching: 'due_date_approaching',
+};
+
 export type TriggerEventType =
   | 'pr_opened'
   | 'pr_merged'
@@ -23,7 +42,6 @@ export type TriggerEventType =
   | 'priority_changed'
   | 'comment_added'
   | 'link_added'
-  | 'task_created'
   | 'due_date_approaching';
 
 export interface TriggerEvent {
@@ -63,29 +81,12 @@ export async function initializeTriggerSystem(): Promise<void> {
 
   const personas = await getAllPersonas();
 
-  const triggerKeyToEventType: Record<string, TriggerEventType> = {
-    onPROpened: 'pr_opened',
-    onPRMerged: 'pr_merged',
-    onPRClosed: 'pr_closed',
-    onPRReviewRequested: 'pr_review_requested',
-    onCIPassed: 'test_success',
-    onTestSuccess: 'test_success',
-    onTestFailure: 'test_failure',
-    onStatusChange: 'status_change',
-    onTaskCreated: 'task_created',
-    onTaskStarted: 'task_started',
-    onAssignmentChanged: 'assignment_changed',
-    onPriorityChanged: 'priority_changed',
-    onCommentAdded: 'comment_added',
-    onDueDateApproaching: 'due_date_approaching',
-  };
-
   for (const persona of personas) {
     if (persona.triggers) {
       const eventTypes = [...new Set(
         Object.entries(persona.triggers)
-          .filter(([key, val]) => val === true && triggerKeyToEventType[key])
-          .map(([key]) => triggerKeyToEventType[key])
+          .filter(([key, val]) => val === true && TRIGGER_KEY_TO_EVENT_TYPE[key])
+          .map(([key]) => TRIGGER_KEY_TO_EVENT_TYPE[key])
       )];
 
       if (eventTypes.length > 0) {
@@ -154,30 +155,12 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
   return triggerSubscriptions.get(eventType) || [];
 }
 
-// Mapping from worker.ts style trigger keys to internal TriggerEventType
-const WORKER_TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
-  onPROpened: 'pr_opened',
-  onPRMerged: 'pr_merged',
-  onPRClosed: 'pr_closed',
-  onPRReviewRequested: 'pr_review_requested',
-  onCIPassed: 'test_success',
-  onTestSuccess: 'test_success',
-  onTestFailure: 'test_failure',
-  onStatusChange: 'status_change',
-  onTaskCreated: 'task_created',
-  onTaskStarted: 'task_started',
-  onAssignmentChanged: 'assignment_changed',
-  onPriorityChanged: 'priority_changed',
-  onCommentAdded: 'comment_added',
-  onDueDateApproaching: 'due_date_approaching',
-};
-
 /**
  * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
  * Returns Persona objects sorted by priority (highest first)
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
-  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
   if (!eventType) {
     return [];
   }
