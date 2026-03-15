@@ -9,7 +9,8 @@ import {
   PersonaYamlSchema, 
   validatePersonaYaml, 
   ValidationResult,
-  idFromFilename
+  idFromFilename,
+  yamlToPersona
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
 
@@ -314,57 +315,7 @@ function parseAndValidate(
   };
 }
 
-/**
- * Convert PersonaYamlSchema to Persona object
- */
-function schemaToPersona(
-  schema: PersonaYamlSchema, 
-  sourceLocation: string
-): Persona {
-  // Derive ID from filename or use provided ID
-  let id = schema.id;
-  if (!id) {
-    // Use shared idFromFilename helper — strip query/fragment for URLs so
-    // "my-persona.yaml?v=2" doesn't produce "my-persona-v-2".
-    let locationForId = sourceLocation;
-    try { locationForId = new URL(sourceLocation).pathname; } catch { /* not a URL, use as-is */ }
-    id = idFromFilename(locationForId);
-  }
 
-  const now = new Date();
-  return {
-    id,
-    name: schema.name,
-    emoji: schema.emoji,
-    description: schema.description,
-    prompt: schema.prompt,
-    specialties: schema.specialties,
-    model: schema.model,
-    triggers: schema.triggers,
-    providers: schema.providers,
-    skills: schema.skills,
-    budgetCap: schema.budgetCap,
-    invocations: schema.invocations,
-    orchestrator: schema.orchestrator,
-    canDelegate: schema.canDelegate,
-    specialists: schema.specialists,
-    delegationRules: schema.delegationRules,
-    stats: {
-      tasksCompleted: 0,
-      averageCompletionTime: 0,
-      successRate: 0,
-      ratings: {
-        total: 0,
-        good: 0,
-        needsImprovement: 0,
-        redo: 0,
-        averageRating: 0,
-      },
-    },
-    createdAt: now,
-    updatedAt: now,
-  } as Persona;
-}
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -412,7 +363,10 @@ export async function loadExternalPersona(
   const { schema } = parseAndValidate(yamlContent, source.location);
 
   // Convert to Persona object
-  const persona = schemaToPersona(schema, source.location);
+  // Strip URL query/fragment before passing as filename so ID derivation is clean
+  let locationForId = source.location;
+  try { locationForId = new URL(source.location).pathname; } catch { /* not a URL, use as-is */ }
+  const persona = yamlToPersona(schema, locationForId);
 
   const loadedAt = new Date();
   const result: LoadedExternalPersona = {
