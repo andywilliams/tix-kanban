@@ -539,6 +539,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
+      const previous = taskState.prs[pr.key];
       const state = await getPRState(pr.repo, pr.number);
       const ciState = await getPRCIState(pr.repo, pr.number);
       // On transient CI fetch failure, preserve the last known ciState so the snapshot
