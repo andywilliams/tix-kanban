@@ -16,7 +16,7 @@ import {
 } from './pipeline-storage.js';
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
-import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
+import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -593,10 +593,19 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
     if (hasAutoReviewNote && prLinks.length > 0) {
-      const allMerged = prLinks.every((pr) => newSnapshots[pr.key]?.state === 'merged');
-      if (allMerged) {
-        console.log(`✅ All PRs merged for stranded review task ${task.id} — marking done`);
+      // Match isPRMerged semantics: any linked PR merged is sufficient to close the task
+      const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
+      if (anyMerged) {
+        console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
+        // Update persona stats if we know which persona worked this task
+        const workerId = fullTask.comments?.find(c => c.author && c.author !== 'Auto-Review System')?.author;
+        if (workerId) {
+          const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
+          await updatePersonaStats(workerId, completionTimeMs / 60000, true).catch(() => {});
+        }
+        // Clean up review state to avoid re-processing
+        await deleteTaskReviewState(task.id).catch(() => {});
       }
     }
   }

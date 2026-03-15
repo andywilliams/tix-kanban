@@ -264,7 +264,7 @@ async function saveTaskReviewState(state: TaskReviewState): Promise<void> {
 }
 
 // Delete task review state
-async function deleteTaskReviewState(taskId: string): Promise<void> {
+export async function deleteTaskReviewState(taskId: string): Promise<void> {
   try {
     const filePath = getReviewStateFilePath(taskId);
     await fs.unlink(filePath);
