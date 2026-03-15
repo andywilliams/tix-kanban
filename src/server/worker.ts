@@ -17,7 +17,7 @@ import {
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
-import { parsePRLinks, getPRStateShared, ParsedPRLink } from './pr-utils.js';
+import { parsePRLinks, getPRState, ParsedPRLink } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -547,7 +547,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
     for (const pr of prLinks) {
       const previous = taskState.prs[pr.key];
-      const state = await getPRStateShared(pr.repo, pr.number);
+      const state = await getPRState(pr.repo, pr.number);
       if (state === null) {
         // Preserve the last known snapshot on transient state lookup failures.
         if (previous) {

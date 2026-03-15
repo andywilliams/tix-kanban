@@ -437,23 +437,24 @@ export async function loadExternalPersona(
  */
 export async function loadExternalPersonas(
   sources: ExternalPersonaSource[]
-): Promise<LoadedExternalPersona[]> {
-  const results: LoadedExternalPersona[] = [];
+): Promise<{ loaded: LoadedExternalPersona[]; failed: Array<{ source: ExternalPersonaSource; error: string }> }> {
+  const loaded: LoadedExternalPersona[] = [];
+  const failed: Array<{ source: ExternalPersonaSource; error: string }> = [];
 
   for (const source of sources) {
     try {
       const result = await loadExternalPersona(source);
-      results.push(result);
+      loaded.push(result);
     } catch (error) {
       console.error(
         `[persona-external-loader] Failed to load persona from ${source.location}:`,
         error
       );
-      // Continue with other sources instead of failing completely
+      failed.push({ source, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  return results;
+  return { loaded, failed };
 }
 
 /**
