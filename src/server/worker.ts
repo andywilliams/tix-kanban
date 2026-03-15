@@ -497,15 +497,16 @@ async function processEventBasedPersonaTriggers(tasks: Task[], preProcessStatuse
     pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
   };
 
-  // Trigger when a task moves from backlog to in-progress.
-  // Use undefined lastStatus as sentinel for "never seen" — don't fire on first observation.
+  // Trigger onTaskCreated when a task is first discovered (lastStatus === undefined).
+  // The backlog→in-progress transition is unreliable as a creation signal because
+  // processTask runs before this check, so previousStatus is already in-progress by
+  // the time we evaluate. Firing on first observation is the correct semantic.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    // Use pre-processing snapshot if available (catches same-cycle backlog→in-progress transitions)
-    const previousStatus = preProcessStatuses?.get(task.id) ?? taskState.lastStatus;
-    if (previousStatus === 'backlog' && task.status === 'in-progress') {
+    if (taskState.lastStatus === undefined) {
+      // First time we've seen this task — treat as "created"
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} created (first seen)`);
       }
     }
     taskState.lastStatus = task.status;
