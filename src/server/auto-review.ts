@@ -278,11 +278,11 @@ function extractAcceptanceCriteria(description: string): string | null {
     }
   }
   
-  // Try to find checkboxes anywhere in description
-  const checkboxMatch = description.match(/^[-*]\s+\[\s*\]\s+.+$/gm);
+  // Try to find checkboxes anywhere in description (both checked and unchecked)
+  const checkboxMatch = description.match(/^[-*]\s+\[[^\]]*\]\s+.+$/gm);
   if (checkboxMatch) {
     return checkboxMatch
-      .map(line => line.replace(/^[-*]\s+\[\s*\]\s+/, '').trim())
+      .map(line => line.replace(/^[-*]\s+\[[^\]]*\]\s+/, '').trim())
       .join('\n');
   }
   
