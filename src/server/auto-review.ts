@@ -809,6 +809,7 @@ async function handleMaxCyclesReached(
       status: 'review',
       comments: updatedComments 
     });
+    // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
     const hasLinkedPR = getLinkedPRReferences(task.links).length > 0;
     const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
@@ -827,6 +828,9 @@ async function handleMaxCyclesReached(
         await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
         console.log(`📊 Updated stats for persona after auto-approval`);
       }
+
+      // Clean up review state — task is done, no further auto-review needed
+      await deleteTaskReviewState(task.id);
     } else {
       const mergeRequiredComment: Comment = {
         id: Math.random().toString(36).substr(2, 9),
@@ -842,11 +846,12 @@ async function handleMaxCyclesReached(
       });
 
       await postReviewUpdate(task, reviewerName, 'Auto-approval was reached, but a linked PR is still not merged. Moving to review until the PR is merged.');
+
+      // Preserve review state — processEventBasedPersonaTriggers in worker.ts will detect
+      // the "Keeping this task in review" note and auto-close once the PR merges.
+      // Deleting review state here would remove the only recovery path for this task.
     }
   }
-  
-  // Clean up review state
-  await deleteTaskReviewState(task.id);
 }
 
 // Public API for configuration management
