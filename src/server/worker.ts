@@ -598,7 +598,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       }
     }
 
-    taskState.prs = { ...taskState.prs, ...newSnapshots };
+    taskState.prs = newSnapshots;
     triggerState.tasks[task.id] = taskState;
     pendingStatusUpdates[task.id] = fullTask.status;
 
