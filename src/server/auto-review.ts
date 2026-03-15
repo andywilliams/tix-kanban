@@ -5,8 +5,8 @@ import { Task, Comment } from '../client/types/index.js';
 import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
+import { parsePRLinks, getPRState } from './pr-utils.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
-import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -110,21 +110,17 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
-async function getPullRequestState(repo: string, number: number): Promise<string | null> {
-  const state = await getPRStateShared(repo, number);
-  // Callers in this file expect uppercase state strings (e.g. 'MERGED')
-  return state ? state.toUpperCase() : null;
-}
+// getLinkedPRReferences and getPullRequestState deduplicated into pr-utils.ts
+// (parsePRLinks and getPRState imported above)
 
-async function isPRMerged(links: Task['links']): Promise<boolean> {
-  const linkedPRs = parsePRLinks(links);
+async function isPRMerged(linkedPRs: ReturnType<typeof parsePRLinks>): Promise<boolean> {
   if (linkedPRs.length === 0) {
     return false;
   }
 
   for (const pr of linkedPRs) {
-    const state = await getPullRequestState(pr.repo, pr.number);
-    if (state === 'MERGED') {
+    const state = await getPRState(pr.repo, pr.number);
+    if (state === 'merged') {
       return true;
     }
   }
@@ -754,8 +750,8 @@ async function handleMaxCyclesReached(
     });
     // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    const hasLinkedPR = parsePRLinks(task.links).length > 0;
-    const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
+    const linkedPRs = parsePRLinks(task.links);
+    const merged = linkedPRs.length > 0 ? await isPRMerged(linkedPRs) : true;
 
     if (merged) {
       // Auto-approve to done only when linked PR is merged (or there is no linked PR)

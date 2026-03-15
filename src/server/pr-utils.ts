@@ -1,24 +1,18 @@
-/**
- * Shared PR utilities — used by both auto-review.ts and worker.ts.
- * Extracted here to avoid circular imports and keep both files in sync.
- */
-import { execFile } from 'child_process';
+import { execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 
-const execFileAsync = promisify(execFile);
+const execFile = promisify(execFileCallback);
 
 export interface ParsedPRLink {
   repo: string;
   number: number;
-  /** Unique key in the form `owner/repo#123` */
   key: string;
   url?: string;
 }
 
 /**
- * Parse task links and return unique PR references from github.com pull URLs.
- * Deduplicates by repo+number so the same PR linked twice isn't processed twice.
+ * Parse GitHub PR links from task links, deduplicating by repo+number.
  */
 export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
   const parsed = new Map<string, ParsedPRLink>();
@@ -36,20 +30,17 @@ export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
       continue;
     }
     const key = `${repo}#${number}`;
-    if (!parsed.has(key)) {
-      parsed.set(key, { repo, number, key, url: link.url });
-    }
+    parsed.set(key, { repo, number, key, url: link.url });
   }
   return [...parsed.values()];
 }
 
 /**
- * Fetch the current state of a GitHub PR via the `gh` CLI.
- * Returns 'open' | 'merged' | 'closed' | null (on error or unknown state).
+ * Fetch the current state of a GitHub PR.
  */
-export async function getPRStateShared(repo: string, number: number): Promise<'open' | 'merged' | 'closed' | null> {
+export async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await execFile(
       'gh',
       ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }

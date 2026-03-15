@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
+import { parsePRLinks, getPRState } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
@@ -16,8 +17,7 @@ import {
 } from './pipeline-storage.js';
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
-import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
-import { parsePRLinks, getPRStateShared, ParsedPRLink } from './pr-utils.js';
+import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from './auto-review.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -35,6 +35,7 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
+
 
 const execFile = promisify(execFileCallback);
 
@@ -154,6 +155,8 @@ const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
 type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
+
+// ParsedPRLink imported from pr-utils
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
@@ -366,6 +369,8 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
   return results;
 }
 
+// parsePRLinks and getPRState are imported from pr-utils.ts
+
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
     // Emit each check's conclusion, or "PENDING" for checks still in progress.
@@ -373,12 +378,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
     // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
-      [
-        'pr', 'view', String(number),
-        '--repo', repo,
-        '--json', 'statusCheckRollup',
-        '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion',
-      ],
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
 
@@ -500,9 +500,6 @@ async function invokeTriggerPersona(
 async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
-  if (personas.length === 0) {
-    return;
-  }
 
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[] }>();
 
@@ -519,11 +516,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    // Fire onTaskCreated when a task moves from backlog → in-progress,
-    // or when first discovered already in-progress (lastStatus undefined).
-    if (task.status === 'in-progress' && (taskState.lastStatus === 'backlog' || taskState.lastStatus === undefined)) {
+    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status === 'in-progress') {
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved ${taskState.lastStatus ?? 'unknown'} -> in-progress`);
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
     taskState.lastStatus = task.status;
@@ -545,7 +540,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
     for (const pr of prLinks) {
       const previous = taskState.prs[pr.key];
-      const state = await getPRStateShared(pr.repo, pr.number);
+      const state = await getPRState(pr.repo, pr.number);
       if (state === null) {
         // Preserve the last known snapshot on transient state lookup failures.
         if (previous) {
