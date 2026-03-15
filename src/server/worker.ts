@@ -1467,6 +1467,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
 async function runWorkerCycle(): Promise<void> {
   console.log('🔄 Worker cycle starting...');
 
+  // Ensure trigger system is initialized before processing
+  await initializeTriggerSystem();
+
   // Clean up expired cache entries periodically
   try {
     await clearExpiredCache();
