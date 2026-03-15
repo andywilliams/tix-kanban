@@ -5,7 +5,8 @@ import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
   validatePersonaYaml, 
-  ValidationResult 
+  ValidationResult,
+  BUILTIN_TRIGGER_DEFAULTS
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
 
@@ -217,7 +218,11 @@ function schemaToPersona(
     prompt: schema.prompt,
     specialties: schema.specialties,
     model: schema.model,
-    triggers: schema.triggers,
+    triggers: (() => {
+      const builtins = BUILTIN_TRIGGER_DEFAULTS[id] || {};
+      const merged = { ...builtins, ...(schema.triggers || {}) };
+      return Object.keys(merged).length > 0 ? merged : undefined;
+    })(),
     providers: schema.providers,
     skills: schema.skills,
     budgetCap: schema.budgetCap,

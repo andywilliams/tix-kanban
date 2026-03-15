@@ -479,9 +479,6 @@ async function invokeTriggerPersona(
 async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
-  if (personas.length === 0) {
-    return;
-  }
 
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[] }>();
 
