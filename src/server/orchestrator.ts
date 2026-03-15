@@ -345,8 +345,18 @@ export async function evaluateDelegationRules(
         }
         break;
       case 'matches':
-        if (typeof fieldValue === 'string') {
-          matches = new RegExp(rule.condition.value).test(fieldValue);
+        if (typeof fieldValue === 'string' && typeof rule.condition.value === 'string') {
+          // Sanitize user-supplied regex to prevent ReDoS: limit pattern length and wrap in try-catch
+          const rawPattern = rule.condition.value;
+          if (rawPattern.length > 200) {
+            matches = false;
+          } else {
+            try {
+              matches = new RegExp(rawPattern).test(fieldValue);
+            } catch {
+              matches = false;
+            }
+          }
         }
         break;
       case 'greaterThan':

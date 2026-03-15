@@ -66,6 +66,7 @@ export async function initializeTriggerSystem(): Promise<void> {
     onPRClosed: 'pr_closed',
     onPRReviewRequested: 'pr_review_requested',
     onCIPassed: 'test_success',
+    onTestSuccess: 'test_success',
     onTestFailure: 'test_failure',
     onStatusChange: 'status_change',
     onTaskCreated: 'task_created',
