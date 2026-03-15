@@ -36,13 +36,13 @@ export interface PersonaYamlSchema {
   skills?: string[];
   /** Invocation permissions – which personas this one can call (optional) */
   invocations?: InvocationConfig;
-  /** Phase 3: Can this persona delegate to others (optional) */
+  /** Whether this persona can orchestrate/delegate to others (optional) */
   orchestrator?: boolean;
   /** Alias for orchestrator (optional) */
   canDelegate?: boolean;
-  /** Specialist mappings for orchestrator (optional) */
+  /** Specialist mappings for delegation (optional) */
   specialists?: Array<{ specialty: string; personaIds: string[] }>;
-  /** Delegation rules for orchestrator (optional) */
+  /** Rules for automatic delegation (optional) */
   delegationRules?: Array<{
     condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
     action: 'delegate' | 'parallel' | 'sequential';
@@ -66,8 +66,10 @@ const VALID_TRIGGER_KEYS = new Set([
   'onCommentAdded',
   'onLinkAdded',
   'onDueDateApproaching',
+  // PersonaTriggers fields
   'conditions',
   'priority',
+  'enabled',  // For PersonaTriggerConfig
 ]);
 
 const VALID_SKILLS = new Set([

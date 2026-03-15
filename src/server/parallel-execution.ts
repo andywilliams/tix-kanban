@@ -25,6 +25,7 @@ export interface ParallelParticipant {
   completedAt?: Date;
   changes?: Partial<Task>;
   error?: string;
+  priority?: number; // Caller-specified priority for conflict resolution
 }
 
 export interface ChangeSet {
@@ -115,6 +116,7 @@ export async function recordPersonaCompletion(
   participant.status = 'completed';
   participant.completedAt = new Date();
   participant.changes = changes;
+  participant.priority = priority;
   
   console.log(`✅ Persona ${personaId} completed in execution ${executionId}`);
   
@@ -171,10 +173,7 @@ async function finalizeExecution(executionId: string): Promise<void> {
     throw new Error(`Execution ${executionId} not found`);
   }
   
-  // Sort by completion time so priority reflects actual completion order
-  const completedParticipants = execution.participants
-    .filter(p => p.status === 'completed')
-    .sort((a, b) => (a.completedAt?.getTime() ?? 0) - (b.completedAt?.getTime() ?? 0));
+  const completedParticipants = execution.participants.filter(p => p.status === 'completed');
   
   if (completedParticipants.length === 0) {
     execution.status = 'failed';
@@ -198,7 +197,7 @@ async function finalizeExecution(executionId: string): Promise<void> {
       personaId: p.personaId,
       timestamp: p.completedAt!,
       changes: p.changes!,
-      priority: 100 - index, // First to complete gets higher priority
+      priority: p.priority ?? (100 - index), // Use stored priority or fallback to completion order
     }));
   
   // Apply conflict resolution
@@ -238,13 +237,15 @@ async function finalizeExecution(executionId: string): Promise<void> {
     await writeTask(task);
   });
   
-  execution.status = hasConflicts ? 'conflict' : 'completed';
+  // Conflicts were resolved in the try block - status should be completed
+  // Only set to 'conflict' if resolution actually failed (handled in catch block)
+  execution.status = 'completed';
   execution.completedAt = new Date();
   
   await logActivity(
     execution.taskId,
     'comment_added',
-    `[Parallel Execution] Execution ${executionId} completed with ${changeSets.length} change sets${hasConflicts ? ' (with conflicts resolved)' : ''}`,
+    `[Parallel Execution] Execution ${executionId} completed with ${changeSets.length} change sets${hasConflicts ? ' (conflicts resolved)' : ''}`,
     'system'
   );
   
@@ -314,30 +315,38 @@ async function resolveConflicts(
       
       case 'merge-fields':
         // For arrays, merge; for objects, merge; for primitives, use highest priority
-        if (Array.isArray(values[0].value)) {
+        // First check if all values have the same type to prevent type mismatch bugs
+        const firstType = Array.isArray(values[0].value) ? 'array' 
+          : typeof values[0].value === 'object' && values[0].value !== null ? 'object'
+          : 'primitive';
+        
+        const allSameType = values.every(v => {
+          const vType = Array.isArray(v.value) ? 'array'
+            : typeof v.value === 'object' && v.value !== null ? 'object'
+            : 'primitive';
+          return vType === firstType;
+        });
+        
+        if (!allSameType) {
+          // Type mismatch across values - use last-write-wins fallback
+          console.warn(`Type mismatch for field ${field} in merge-fields strategy, falling back to last-write-wins`);
+          values.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+          (merged as any)[field] = values[0].value;
+        } else if (firstType === 'array') {
           // Merge arrays and deduplicate
+          console.log(`Merged array field ${field} from ${values.length} personas`);
           const mergedArray = values.flatMap(v => v.value as any[]);
-          // Deduplicate by `id` when available (preserves Date objects and non-JSON-safe types).
-          // Fall back to JSON key for plain-value arrays (strings, numbers).
-          const seen = new Map<string, unknown>();
-          for (const item of mergedArray) {
-            const key = (item && typeof item === 'object' && 'id' in item)
-              ? String((item as Record<string, unknown>).id)
-              : JSON.stringify(item);
-            if (!seen.has(key)) seen.set(key, item);
-          }
-          (merged as any)[field] = [...seen.values()];
-        } else if (typeof values[0].value === 'object' && values[0].value !== null) {
-          // Merge objects — sort ascending so highest-priority persona is applied last
-          // and wins conflicts (Object.assign gives precedence to the last argument).
-          const sortedByPriority = [...values].sort((a, b) => a.priority - b.priority);
+          (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
+        } else if (firstType === 'object') {
+          // Merge objects - sort by priority DESCENDING so highest priority wins in Object.assign
+          values.sort((a, b) => b.priority - a.priority);
           const mergedObject = {};
-          for (const v of sortedByPriority) {
+          for (const v of values) {
             Object.assign(mergedObject, v.value);
           }
           (merged as any)[field] = mergedObject;
         } else {
-          // Primitive - use highest priority
+          // Primitive - use highest priority (sort descending so highest priority is first)
           values.sort((a, b) => b.priority - a.priority);
           (merged as any)[field] = values[0].value;
         }

@@ -277,7 +277,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   if (!description) return null;
   
   // Try to find "Acceptance Criteria" section
-  const acSectionMatch = description.match(/(?:^|\n)##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n##[^#]|\n\n##[^#]|$)/i);
+  const acSectionMatch = description.match(/(?:^|\n)##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
   if (acSectionMatch) {
     const section = acSectionMatch[0];
     // Extract bullet points or checkboxes from this section
@@ -296,16 +296,20 @@ function extractAcceptanceCriteria(description: string): string | null {
       return criteria.join('\n');
     }
 
-    // AC section found but has no bullet/checkbox items — extract prose lines instead of falling through
+    // Fallback: extract prose lines from the section (skip the heading line itself)
     const proseLines = section
       .split('\n')
-      .slice(1) // skip the heading line
-      .map(l => l.trim())
-      .filter(l => l.length > 0 && !l.startsWith('#'));
+      .slice(1) // skip the "## Acceptance Criteria" heading line
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'));
+
     if (proseLines.length > 0) {
       return proseLines.join('\n');
     }
-    return null; // AC section exists but is empty — don't fall through to unrelated content
+
+    // AC section found but empty — return null rather than falling through to
+    // search the entire description (which could pick up unrelated content)
+    return null;
   }
   
   // Try to find checkboxes anywhere in description (both checked and unchecked)
@@ -317,7 +321,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   }
   
   // Try numbered criteria like "1. ..." that look like acceptance criteria
-  const numberedMatch = description.match(/(?:^|\n)\d+\.\s+(?:Should|Must|Ensure|Given|When|Then)[^\n]+/gi);
+  const numberedMatch = description.match(/(?:^|\n)\d+\.\s+(?:The|Should|Must|Will|To|Ensure|Given|When|Then)[^\n]+/gi);
   if (numberedMatch && numberedMatch.length >= 2) {
     return numberedMatch
       .map(line => line.replace(/^\n/, '').replace(/^\d+\.\s+/i, '').trim())

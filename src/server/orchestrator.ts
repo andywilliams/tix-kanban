@@ -259,12 +259,12 @@ export async function failSubtask(
       console.log(`➡️ Advanced sequential subtask ${next.id} after failure of ${subtaskId}`);
       return;
     } else {
-      // No subtask can make progress — remaining are all blocked by the failed dependency.
-      // Mark them failed so allDone checks reflect the real state, then finalize.
+      // No runnable subtask — remaining subtasks are all blocked by the failed dependency.
+      // Mark them failed and finalize to avoid a permanent deadlock.
       for (const st of orchestration.subtasks) {
         if (st.status === 'waiting') {
           st.status = 'failed';
-          st.error = `Skipped: a dependency subtask failed`;
+          st.error = `Skipped: dependency subtask ${subtaskId} failed`;
         }
       }
       await finalizeOrchestration(orchestrationId);
@@ -366,7 +366,7 @@ export async function evaluateDelegationRules(
 
     if (matches) {
       return {
-        shouldDelegate: ['delegate', 'parallel', 'sequential'].includes(rule.action),
+        shouldDelegate: rule.action === 'delegate' || rule.action === 'parallel' || rule.action === 'sequential',
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };
