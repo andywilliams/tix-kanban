@@ -114,6 +114,11 @@ export async function initializeTriggerSystem(): Promise<void> {
     }
   }
   
+  // Sort all trigger arrays by priority (descending)
+  for (const triggers of triggerSubscriptions.values()) {
+    triggers.sort((a, b) => b.priority - a.priority);
+  }
+  
   console.log(`🎯 Initialized ${triggerSubscriptions.size} event trigger types with ${personas.length} persona subscriptions`);
 }
 

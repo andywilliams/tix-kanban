@@ -181,6 +181,9 @@ export function checkInvocationPermission(
 
 /**
  * Enforce invocation permission (throws on denial)
+ * 
+ * NOTE: This is a Phase 4 API entry point - currently unused but reserved for
+ * future wiring into the invocation permission enforcement pipeline.
  */
 export function enforceInvocationPermission(
   attempt: InvocationAttempt

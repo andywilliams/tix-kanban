@@ -115,10 +115,10 @@ async function loadFromUrl(
     const isIPv6 = hostname.includes(':');
     if (isIPv6) {
       if (hostname.startsWith('fc') || hostname.startsWith('fd')) {
-        throw new Error('IPv6 unique-local addresses blocked');
+        throw new Error('Security violation: IPv6 unique-local addresses blocked');
       }
       if (hostname.startsWith('fe80')) {
-        throw new Error('IPv6 link-local addresses blocked');
+        throw new Error('Security violation: IPv6 link-local addresses blocked');
       }
     }
   } catch (e) {
@@ -329,6 +329,9 @@ export async function loadExternalPersona(
 
 /**
  * Load multiple personas from external sources
+ * 
+ * NOTE: This is a Phase 4 API entry point - currently unused but reserved for
+ * future wiring into startup/worker flows for bulk loading external personas.
  */
 export async function loadExternalPersonas(
   sources: ExternalPersonaSource[]
