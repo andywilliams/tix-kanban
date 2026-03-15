@@ -251,6 +251,30 @@ async function saveWorkerState(): Promise<void> {
   }
 }
 
+// Load worker trigger state from file
+async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
+  try {
+    const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
+    return JSON.parse(content) as WorkerTriggerState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('Failed to load worker trigger state:', error);
+    }
+    return { tasks: {} };
+  }
+}
+
+// Save worker trigger state to file
+async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
+  try {
+    await ensureWorkerDirectories();
+    const content = JSON.stringify(state, null, 2);
+    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, content, 'utf8');
+  } catch (error) {
+    console.error('Failed to save worker trigger state:', error);
+  }
+}
+
 // Generate API reference for Claude sessions
 // @ts-ignore TS6133
 function generateAPIReference(): string {
