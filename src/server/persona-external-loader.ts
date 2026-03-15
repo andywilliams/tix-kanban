@@ -145,14 +145,26 @@ async function loadFromFile(filePath: string): Promise<string> {
   console.log(`[persona-external-loader] Loading persona from ${filePath}`);
   
   try {
-    // Resolve to absolute path (handles relative paths and symlink-free traversal)
+    // Resolve to absolute path (handles relative paths)
     const absolutePath = path.resolve(filePath);
+
+    // Resolve symlinks to prevent symlink bypass attacks — a symlink inside an
+    // allowed directory could otherwise point outside it and bypass the check.
+    let resolvedPath: string;
+    try {
+      resolvedPath = await fs.realpath(absolutePath);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Persona file not found: ${filePath}`);
+      }
+      throw e;
+    }
 
     // Security check: reject paths that fall outside the allowed directories.
     // This prevents an external-source configuration from being used to read
     // arbitrary files (e.g. /etc/passwd or private keys) from the host.
     const isAllowed = ALLOWED_PERSONA_DIRS.some(
-      (dir) => absolutePath === dir || absolutePath.startsWith(dir + path.sep)
+      (dir) => resolvedPath === dir || resolvedPath.startsWith(dir + path.sep)
     );
     if (!isAllowed) {
       throw new Error(
@@ -161,7 +173,7 @@ async function loadFromFile(filePath: string): Promise<string> {
       );
     }
 
-    const content = await fs.readFile(absolutePath, 'utf8');
+    const content = await fs.readFile(resolvedPath, 'utf8');
     return content;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
