@@ -34,6 +34,12 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
+import {
+  loadPermissionsFromPersonas,
+  checkInvocationPermission,
+  registerActiveInvocation,
+  unregisterActiveInvocation,
+} from './persona-invocation-permissions.js';
 
 const exec = promisify(execCallback);
 
@@ -436,9 +442,27 @@ async function invokeTriggerPersona(
   task: Task,
   persona: Persona,
   eventType: TriggerEventType,
-  details?: string
+  details?: string,
+  invokingPersonaId?: string
 ): Promise<void> {
   try {
+    // If this invocation is initiated by another persona, check permissions.
+    if (invokingPersonaId) {
+      const permResult = checkInvocationPermission({
+        invoker: invokingPersonaId,
+        target: persona.id,
+        context: { taskId: task.id, eventType },
+      });
+      if (!permResult.allowed) {
+        console.warn(
+          `[invocation-permissions] Blocked: ${invokingPersonaId} → ${persona.id} ` +
+          `(${eventType}): ${permResult.reason}`
+        );
+        return;
+      }
+      registerActiveInvocation(invokingPersonaId, persona.id);
+    }
+
     const requiredProviders = getRequiredProviders(task);
     for (const provider of requiredProviders) {
       enforceProviderAccess(persona, provider);
@@ -473,12 +497,20 @@ async function invokeTriggerPersona(
     );
   } catch (error) {
     console.error(`Failed to invoke trigger persona ${persona.id} for task ${task.id}:`, error);
+  } finally {
+    if (invokingPersonaId) {
+      unregisterActiveInvocation(invokingPersonaId, persona.id);
+    }
   }
 }
 
 async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
+
+  // Load invocation permissions from persona definitions so that
+  // checkInvocationPermission() can enforce them during trigger dispatch.
+  loadPermissionsFromPersonas(personas);
 
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[] }>();
 
