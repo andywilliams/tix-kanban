@@ -152,7 +152,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskStarted';
 
 interface ParsedPRLink {
   repo: string;
@@ -458,7 +458,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTaskCreated: 'This task just moved from backlog to in-progress.',
+    onTaskStarted: 'This task just moved from backlog to in-progress.',
   };
 
   return [
@@ -541,15 +541,15 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
+      for (const persona of getTriggeredPersonas(personas, 'onTaskStarted')) {
+        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
     taskState.lastStatus = task.status;
     triggerState.tasks[task.id] = taskState;
   }
 
-  const reviewTasks = tasks.filter((task) => task.status === 'review');
+  const reviewTasks = tasks.filter((task) => task.status === 'in-progress' || task.status === 'review');
   for (const task of reviewTasks) {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
