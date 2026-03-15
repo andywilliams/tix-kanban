@@ -49,6 +49,7 @@ interface PersonaCache {
 }
 
 const personaCache: PersonaCache = {};
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 function isCacheValid(location: string): boolean {
   const cached = personaCache[location];
@@ -78,6 +79,49 @@ function addToCache(
   };
 }
 
+function isBlockedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (normalized === 'localhost' || normalized === '::1') {
+    return true;
+  }
+
+  // Block private/internal IPv4 ranges.
+  const ipv4Match = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4Match) {
+    return false;
+  }
+
+  const octets = ipv4Match.slice(1).map((octet) => Number.parseInt(octet, 10));
+  if (octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  if (a === 127 || a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function validateExternalUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Security: URL must use http or https: ${rawUrl}`);
+  }
+
+  if (isBlockedHostname(parsed.hostname)) {
+    throw new Error(`Security: URL points to a blocked internal address: ${rawUrl}`);
+  }
+
+  return parsed;
+}
+
 // ── Loaders ──────────────────────────────────────────────────────────────────
 
 /**
@@ -88,14 +132,17 @@ async function loadFromUrl(
   authToken?: string,
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
+  const parsedUrl = validateExternalUrl(url);
+  const cacheKey = parsedUrl.toString();
+
   // Check cache first
-  const cached = getFromCache(url);
+  const cached = getFromCache(cacheKey);
   if (cached) {
-    console.log(`[persona-external-loader] Using cached version of ${url}`);
+    console.log(`[persona-external-loader] Using cached version of ${cacheKey}`);
     return cached;
   }
 
-  console.log(`[persona-external-loader] Fetching persona from ${url}`);
+  console.log(`[persona-external-loader] Fetching persona from ${cacheKey}`);
   
   const headers: Record<string, string> = {
     'Accept': 'application/x-yaml, text/yaml, text/plain',
@@ -110,7 +157,7 @@ async function loadFromUrl(
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     let response: Response;
     try {
-      response = await fetch(url, { headers, signal: controller.signal });
+      response = await fetch(parsedUrl, { headers, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -119,13 +166,40 @@ async function loadFromUrl(
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const text = await response.text();
-    if (text.length > 1024 * 1024) {
-      throw new Error(`Response from ${url} exceeds 1MB limit`);
+    const contentLengthHeader = response.headers.get('content-length');
+    if (contentLengthHeader) {
+      const contentLength = Number.parseInt(contentLengthHeader, 10);
+      if (!Number.isNaN(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+        throw new Error(`Response from ${cacheKey} exceeds 1MB limit`);
+      }
     }
 
+    const reader = response.body?.getReader();
+    if (!reader) {
+      addToCache(cacheKey, '', cacheDurationSeconds);
+      return '';
+    }
+
+    const decoder = new TextDecoder();
+    let totalBytes = 0;
+    let text = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        controller.abort();
+        throw new Error(`Response from ${cacheKey} exceeds 1MB limit`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+
     // Cache the result
-    addToCache(url, text, cacheDurationSeconds);
+    addToCache(cacheKey, text, cacheDurationSeconds);
 
     return text;
   } catch (error) {
@@ -393,5 +467,4 @@ export function clearPersonaCache(location?: string): void {
     console.log('[persona-external-loader] Cleared all persona cache');
   }
 }
-
 
