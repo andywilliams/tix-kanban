@@ -62,3 +62,6 @@ product-manager-*.md
 *-implementation-report.md
 *-audit.md
 *-analysis.md
+# Build artifacts
+vite.config.js
+tsconfig.tsbuildinfo

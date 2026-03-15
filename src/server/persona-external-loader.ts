@@ -196,7 +196,7 @@ async function loadFromUrl(
   }
 
   try {
-    const response = await axios.get(url, {
+    const response = await axios.get(parsedUrl.toString(), {
       headers,
       timeout: 10000, // 10 second timeout
       maxContentLength: MAX_RESPONSE_BYTES, // 1MB max
