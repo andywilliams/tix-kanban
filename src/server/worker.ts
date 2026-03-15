@@ -153,7 +153,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted' | 'onTaskCreated';
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
@@ -414,6 +414,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
     onTestFailure: 'A linked pull request just reported failing CI checks for this task.',
     onTaskStarted: 'This task just transitioned into in-progress.',
+    onTaskCreated: 'This task just moved from backlog to in-progress.',
   };
 
   const detailLine = details && details.trim().length > 0 ? `Details: ${details}` : undefined;
@@ -508,6 +509,15 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       });
       for (const persona of triggeredPersonas) {
         enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved ${taskState.lastStatus} -> ${task.status}`);
+      }
+    }
+
+    // Also fire onTaskCreated for the backlog→in-progress transition so personas
+    // using the YAML key `onTaskCreated: true` (as documented in tech-lead.yaml) are invoked.
+    if ((taskState.lastStatus === 'backlog' || taskState.lastStatus === undefined) && task.status === 'in-progress') {
+      const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onTaskCreated', { task });
+      for (const persona of triggeredPersonas) {
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved ${taskState.lastStatus ?? 'unknown'} -> in-progress`);
       }
     }
 
