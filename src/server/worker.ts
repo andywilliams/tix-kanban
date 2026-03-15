@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec as execCallback, execFile as execFileCallback, spawn } from 'child_process';
+import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
@@ -36,7 +36,6 @@ import {
   cleanupOldReminders,
 } from './personal-reminders.js';
 
-const exec = promisify(execCallback);
 const execFile = promisify(execFileCallback);
 
 // Sanitize user content to prevent prompt injection attacks
@@ -246,7 +245,12 @@ async function saveWorkerState(): Promise<void> {
 async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
   try {
     const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
-    return JSON.parse(content) as WorkerTriggerState;
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.tasks !== 'object' || Array.isArray(parsed.tasks)) {
+      console.warn('[worker] Trigger state file has unexpected shape — resetting');
+      return { tasks: {} };
+    }
+    return parsed as WorkerTriggerState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker trigger state:', error);
