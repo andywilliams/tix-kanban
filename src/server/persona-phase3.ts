@@ -79,7 +79,10 @@ export async function handleTaskEvent(event: TriggerEvent): Promise<string[]> {
  */
 function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventType[] {
   const eventTypes = Object.entries(TRIGGER_KEY_TO_EVENT_TYPE)
-    .filter(([key]) => triggers[key as keyof PersonaTriggers] === true)
+    .filter(([key]) => {
+      const val = triggers[key as keyof PersonaTriggers];
+      return val === true || (typeof val === 'object' && val !== null && (val as any).enabled !== false);
+    })
     .map(([, eventType]) => eventType as TriggerEventType);
 
   return [...new Set(eventTypes)];
