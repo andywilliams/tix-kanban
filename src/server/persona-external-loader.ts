@@ -145,11 +145,11 @@ async function validateExternalUrl(rawUrl: string): Promise<URL> {
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Security: URL must use http or https: ${rawUrl}`);
+    throw new Error(`Security violation: URL must use http or https: ${rawUrl}`);
   }
 
   if (isBlockedHostname(parsed.hostname)) {
-    throw new Error(`Security: URL points to a blocked internal address: ${rawUrl}`);
+    throw new Error(`Security violation: URL points to a blocked internal address: ${rawUrl}`);
   }
 
   // Resolve the hostname and re-check the resolved IP to prevent SSRF via
@@ -157,11 +157,11 @@ async function validateExternalUrl(rawUrl: string): Promise<URL> {
   try {
     const { address } = await dns.lookup(parsed.hostname);
     if (isBlockedHostname(address)) {
-      throw new Error(`Security: URL hostname resolves to a blocked internal address: ${rawUrl}`);
+      throw new Error(`Security violation: URL hostname resolves to a blocked internal address: ${rawUrl}`);
     }
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith('Security:')) throw err;
-    throw new Error(`Security: Unable to resolve hostname for ${rawUrl}`);
+    if (err instanceof Error && err.message.startsWith('Security violation:')) throw err;
+    throw new Error(`Security violation: Unable to resolve hostname for ${rawUrl}`);
   }
 
   return parsed;

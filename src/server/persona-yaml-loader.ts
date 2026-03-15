@@ -169,15 +169,9 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
           continue;
         }
         if (triggerKey === 'onLinkAdded') {
-          // onLinkAdded accepts both boolean and PersonaTriggerConfig
-          const isBoolean = typeof triggerValue === 'boolean';
-          const isConfigObject = (
-            typeof triggerValue === 'object' &&
-            triggerValue !== null &&
-            (('enabled' in triggerValue) || ('priority' in triggerValue))
-          );
-          if (!isBoolean && !isConfigObject) {
-            errors.push(`Field "triggers.${triggerKey}" must be a boolean or PersonaTriggerConfig object`);
+          // onLinkAdded only accepts boolean (config object not supported)
+          if (typeof triggerValue !== 'boolean') {
+            errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
           }
         } else if (typeof triggerValue !== 'boolean') {
           errors.push(`Field "triggers.${triggerKey}" must be a boolean`);

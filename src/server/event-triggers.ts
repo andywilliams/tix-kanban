@@ -92,6 +92,10 @@ export async function initializeTriggerSystem(): Promise<void> {
       const eventTypes = [...new Set(
         Object.entries(persona.triggers)
           .filter(([key, val]) => {
+            // onLinkAdded only supports boolean, other triggers support config objects
+            if (key === 'onLinkAdded') {
+              return val === true && TRIGGER_KEY_TO_EVENT_TYPE[key];
+            }
             const isEnabled = val === true || (typeof val === 'object' && val !== null && (val as any).enabled !== false);
             return isEnabled && TRIGGER_KEY_TO_EVENT_TYPE[key];
           })
