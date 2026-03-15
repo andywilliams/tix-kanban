@@ -327,7 +327,7 @@ async function resolveConflicts(
         
         if (!allSameType) {
           // Type mismatch across values - use last-write-wins fallback
-          console.warn(`Type mismatch for field  in merge-fields strategy, falling back to last-write-wins`);
+          console.warn(`Type mismatch for field ${field} in merge-fields strategy, falling back to last-write-wins`);
           values.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
           (merged as any)[field] = values[0].value;
         } else if (firstType === 'array') {
@@ -335,7 +335,8 @@ async function resolveConflicts(
           const mergedArray = values.flatMap(v => v.value as any[]);
           (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
         } else if (firstType === 'object') {
-          // Merge objects
+          // Merge objects - sort by priority first so highest priority wins in Object.assign
+          values.sort((a, b) => b.priority - a.priority);
           const mergedObject = {};
           for (const v of values) {
             Object.assign(mergedObject, v.value);

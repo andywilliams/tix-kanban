@@ -165,6 +165,7 @@ export interface PersonaTriggers {
   onTestSuccess?: boolean;
   onStatusChange?: boolean;
   onTaskCreated?: boolean;
+  onTaskStarted?: boolean;
   onAssignmentChanged?: boolean;
   onPriorityChanged?: boolean;
   onCommentAdded?: boolean;
