@@ -281,7 +281,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   if (!description) return null;
   
   // Try to find "Acceptance Criteria" section
-  const acSectionMatch = description.match(/##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n##|\n\n##|$)/i);
+  const acSectionMatch = description.match(/##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
   if (acSectionMatch) {
     const section = acSectionMatch[0];
     // Extract bullet points or checkboxes from this section
@@ -299,6 +299,21 @@ function extractAcceptanceCriteria(description: string): string | null {
     if (criteria.length > 0) {
       return criteria.join('\n');
     }
+
+    // Fallback: extract prose lines from the section (skip the heading line itself)
+    const proseLines = section
+      .split('\n')
+      .slice(1) // skip the "## Acceptance Criteria" heading line
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+
+    if (proseLines.length > 0) {
+      return proseLines.join('\n');
+    }
+
+    // AC section found but empty — return null rather than falling through to
+    // search the entire description (which could pick up unrelated content)
+    return null;
   }
   
   // Try to find checkboxes anywhere in description (both checked and unchecked)
