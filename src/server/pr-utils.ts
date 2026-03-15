@@ -1,8 +1,8 @@
-import { exec as execCallback } from 'child_process';
+import { execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 
-const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 
 export interface ParsedPRLink {
   repo: string;
@@ -40,8 +40,9 @@ export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
  */
 export async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
   try {
-    const { stdout } = await exec(
-      `gh pr view ${number} --repo '${repo.replace(/'/g, `'\\''`)}' --json state --jq .state`,
+    const { stdout } = await execFile(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     const state = stdout.trim().toUpperCase();

@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec as execCallback, spawn } from 'child_process';
+import { exec as execCallback, execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { parsePRLinks, getPRState } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
