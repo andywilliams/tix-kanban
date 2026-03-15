@@ -81,8 +81,20 @@ function addToCache(
 
 function isBlockedHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (normalized === 'localhost' || normalized === '::1') {
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '::') {
     return true;
+  }
+
+  // Block IPv6 private/special ranges.
+  if (normalized.includes(':')) {
+    if (normalized.startsWith('fe80')) return true;           // link-local
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // unique-local
+    if (normalized.startsWith('::ffff:')) {
+      // IPv4-mapped IPv6 — extract embedded IPv4 and re-check
+      const embedded = normalized.slice(7);
+      return isBlockedHostname(embedded);
+    }
+    return false;
   }
 
   // Block private/internal IPv4 ranges.
@@ -97,9 +109,12 @@ function isBlockedHostname(hostname: string): boolean {
   }
 
   const [a, b] = octets;
-  if (a === 127 || a === 10) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 0) return true;                          // 0.0.0.0/8 — unspecified
+  if (a === 127 || a === 10) return true;            // loopback + RFC-1918
+  if (a === 169 && b === 254) return true;           // 169.254.0.0/16 — link-local / cloud metadata (AWS IMDS, GCP, Azure)
+  if (a === 192 && b === 168) return true;           // RFC-1918
+  if (a === 172 && b >= 16 && b <= 31) return true;  // RFC-1918
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 — CGNAT / shared address space
   return false;
 }
 
