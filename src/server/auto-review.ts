@@ -379,10 +379,11 @@ function extractAcceptanceCriteria(description: string): string | null {
   }
   
   // Try numbered criteria like "1. ..." that look like acceptance criteria
-  const numberedMatch = description.match(/(?:^|\n)(\d+)\.\s+(?:The|Should|Must|Will|To|Ensure|Given|When|Then)[^\n]+/gi);
+  // Use multiline flag so ^ matches at start of each line — no leading \n in matches
+  const numberedMatch = description.match(/^\d+\.\s+(?:The|Should|Must|Will|To|Ensure|Given|When|Then)[^\n]+/gim);
   if (numberedMatch && numberedMatch.length >= 2) {
     return numberedMatch
-      .map(line => line.replace(/^\n/, '').replace(/^\d+\.\s+/i, '').trim())
+      .map(line => line.replace(/^\d+\.\s+/i, '').trim())
       .join('\n');
   }
   
