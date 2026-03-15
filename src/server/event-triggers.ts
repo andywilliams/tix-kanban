@@ -12,6 +12,7 @@
 import { readTask, logActivity } from './storage.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { Persona } from '../client/types/index.js';
+import { evaluateTriggerCondition } from './condition-utils.js';
 
 // Shared mapping from worker.ts style trigger keys to internal TriggerEventType
 const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
@@ -172,29 +173,55 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
  * Returns Persona objects sorted by priority (highest first)
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
+  return getPersonasByTriggerKeyWithContext(triggerKey, {});
+}
+
+/**
+ * Get triggered personas by worker.ts style trigger key and evaluate trigger conditions.
+ * If conditions are present and no task context is provided, the persona is excluded.
+ */
+export async function getPersonasByTriggerKeyWithContext(
+  triggerKey: string,
+  context: { task?: any; metadata?: Record<string, any> }
+): Promise<Persona[]> {
   const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
   if (!eventType) {
     return [];
   }
-  
+
   const triggers = getTriggeredPersonas(eventType);
   if (triggers.length === 0) {
     return [];
   }
-  
-  // Convert PersonaTrigger[] to Persona[] by looking up each persona
-  const personas: Persona[] = [];
+
+  const matched: Array<{ persona: Persona; priority: number }> = [];
   for (const trigger of triggers) {
     const persona = await getPersona(trigger.personaId);
-    if (persona) {
-      personas.push(persona);
+    if (!persona) {
+      continue;
+    }
+
+    if (!trigger.conditions || trigger.conditions.length === 0) {
+      matched.push({ persona, priority: trigger.priority });
+      continue;
+    }
+
+    if (!context.task) {
+      continue;
+    }
+
+    const allMatch = trigger.conditions.every(condition => {
+      return evaluateTriggerCondition(condition, context.task, context.metadata);
+    });
+
+    if (allMatch) {
+      matched.push({ persona, priority: trigger.priority });
     }
   }
-  
-  // Sort by priority (descending) - triggers are already sorted in the registry
-  return personas;
-}
 
+  matched.sort((a, b) => b.priority - a.priority);
+  return matched.map((entry) => entry.persona);
+}
 /**
  * Emit an event and get the list of personas that should respond
  */
@@ -222,7 +249,7 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
     
     // Evaluate conditions
     const allMatch = trigger.conditions.every(condition => {
-      return evaluateCondition(condition, task, event);
+      return evaluateTriggerCondition(condition, task, event.metadata);
     });
     
     if (allMatch) {
@@ -241,63 +268,6 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
   console.log(`🎯 Event ${event.type} on task ${event.taskId} triggered personas: ${matchingPersonas.join(', ')}`);
   
   return matchingPersonas;
-}
-
-/**
- * Evaluate a trigger condition against task/event data
- */
-function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
-  let actualValue: any;
-  
-  // Extract value from task or event metadata
-  if (condition.field.startsWith('metadata.')) {
-    const metadataKey = condition.field.substring(9);
-    actualValue = event.metadata?.[metadataKey];
-  } else {
-    actualValue = task[condition.field];
-  }
-  
-  if (actualValue === undefined) {
-    return false;
-  }
-  
-  switch (condition.operator) {
-    case 'equals':
-      return actualValue === condition.value;
-    
-    case 'contains':
-      if (Array.isArray(actualValue)) {
-        return actualValue.includes(condition.value);
-      }
-      if (typeof actualValue === 'string') {
-        return actualValue.includes(condition.value);
-      }
-      return false;
-    
-    case 'matches':
-      if (typeof actualValue === 'string' && typeof condition.value === 'string') {
-        // Sanitize user-supplied regex to prevent ReDoS: escape special chars and
-        // disallow catastrophic backtracking patterns by limiting pattern length.
-        const rawPattern = condition.value;
-        if (rawPattern.length > 200) return false;
-        try {
-          const regex = new RegExp(rawPattern);
-          return regex.test(actualValue);
-        } catch {
-          return false;
-        }
-      }
-      return false;
-    
-    case 'greaterThan':
-      return actualValue > condition.value;
-    
-    case 'lessThan':
-      return actualValue < condition.value;
-    
-    default:
-      return false;
-  }
 }
 
 /**

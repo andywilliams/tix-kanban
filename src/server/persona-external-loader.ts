@@ -1,7 +1,9 @@
 import axios from 'axios';
+import crypto from 'crypto';
+import { lookup } from 'dns/promises';
 import fs from 'fs/promises';
+import { isIP } from 'net';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
@@ -11,10 +13,6 @@ import {
   idFromFilename
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
-
-// ESM __dirname polyfill
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +46,95 @@ interface PersonaCache {
 }
 
 const personaCache: PersonaCache = {};
+
+function hashAuthToken(authToken: string): string {
+  return crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 12);
+}
+
+function getPersonaCacheKey(url: string, authToken?: string): string {
+  return authToken ? `${url}::token:${hashAuthToken(authToken)}` : url;
+}
+
+function isPrivateOrLoopbackIp(ipAddress: string): boolean {
+  const normalized = ipAddress.toLowerCase();
+  const mappedIpv4Match = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mappedIpv4Match) {
+    return isPrivateOrLoopbackIp(mappedIpv4Match[1]);
+  }
+
+  const ipVersion = isIP(normalized);
+  if (ipVersion === 4) {
+    const parts = normalized.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+      return true;
+    }
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+
+  if (ipVersion === 6) {
+    return (
+      normalized === '::' ||
+      normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe80:')
+    );
+  }
+
+  return true;
+}
+
+async function validateExternalUrl(url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (hostname === 'localhost') {
+    throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+  }
+
+  if (isIP(hostname) !== 0) {
+    if (isPrivateOrLoopbackIp(hostname)) {
+      throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+    }
+    return;
+  }
+
+  let resolvedAddresses: Array<{ address: string }>;
+  try {
+    resolvedAddresses = await lookup(hostname, { all: true, verbatim: true });
+  } catch (e) {
+    throw new Error(`Invalid URL "${url}": unable to resolve hostname "${hostname}" (${(e as Error).message})`);
+  }
+
+  if (resolvedAddresses.length === 0) {
+    throw new Error(`Invalid URL "${url}": hostname "${hostname}" did not resolve to an address`);
+  }
+
+  for (const resolved of resolvedAddresses) {
+    if (isPrivateOrLoopbackIp(resolved.address)) {
+      throw new Error(
+        `Security violation: hostname "${hostname}" resolves to internal address "${resolved.address}"`
+      );
+    }
+  }
+}
 
 function isCacheValid(location: string): boolean {
   const cached = personaCache[location];
@@ -87,52 +174,13 @@ async function loadFromUrl(
   authToken?: string,
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
-  // SSRF protection: validate URL BEFORE cache lookup to prevent bypass
-  // Only allow https:// URLs; reject private/loopback addresses
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:') {
-      throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
-    }
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    // Block loopback, private RFC-1918 ranges, link-local, and IPv4-mapped IPv6 addresses
-    if (
-      hostname === 'localhost' ||
-      hostname.startsWith('127.') ||           // 127.0.0.0/8 loopback range
-      hostname === '::' ||                       // IPv6 all-zeros (equivalent to 0.0.0.0)
-      hostname === '0.0.0.0' ||               // Linux resolves to localhost
-      hostname === '::1' ||                   // IPv6 loopback
-      hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
-      hostname.startsWith('::ffff:0.0.0.0') || // IPv4-mapped IPv6 0.0.0.0
-      hostname.startsWith('::ffff:10.') ||    // IPv4-mapped IPv6 RFC-1918 (10.x)
-      hostname.startsWith('::ffff:192.168.') || // IPv4-mapped IPv6 RFC-1918 (192.168.x)
-      /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(hostname) || // IPv4-mapped IPv6 RFC-1918 (172.16-31.x)
-      hostname.startsWith('169.254.') ||      // IPv4 link-local
-      hostname.startsWith('10.') ||           // RFC-1918
-      hostname.startsWith('192.168.') ||      // RFC-1918
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)    // RFC-1918 172.16–31
-    ) {
-      throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
-    }
-    // Additional IPv6-specific checks (only apply to IPv6 addresses containing colons)
-    const isIPv6 = hostname.includes(':');
-    if (isIPv6) {
-      if (hostname.startsWith('fc') || hostname.startsWith('fd')) {
-        throw new Error('Security violation: IPv6 unique-local addresses blocked');
-      }
-      if (hostname.startsWith('fe80')) {
-        throw new Error('Security violation: IPv6 link-local addresses blocked');
-      }
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Security violation')) throw e;
-    throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
-  }
+  // SSRF protection: validate URL BEFORE cache lookup to prevent bypass.
+  await validateExternalUrl(url);
 
   // Check cache after SSRF validation.
-  // Include authToken in the cache key so requests with different tokens don't
-  // receive each other's authenticated responses.
-  const cacheKey = authToken ? `${url}::token:${authToken}` : url;
+  // Include a hash of authToken in the cache key so requests with different
+  // credentials don't share cache entries.
+  const cacheKey = getPersonaCacheKey(url, authToken);
   const cached = getFromCache(cacheKey);
   if (cached) {
     console.log(`[persona-external-loader] Using cached version of ${url}`);
@@ -184,8 +232,8 @@ async function loadFromUrl(
  * Files must resolve to one of these directories to prevent path traversal attacks.
  */
 const ALLOWED_PERSONA_DIRS: string[] = [
-  path.resolve(__dirname, '../../personas'),
-  path.resolve(__dirname, '../../personas/builtin'),
+  path.resolve(process.cwd(), 'personas'),
+  path.resolve(process.cwd(), 'personas/builtin'),
 ];
 
 /**
@@ -297,7 +345,7 @@ function schemaToPersona(
 /**
  * Load a persona from an external source (URL or file path)
  */
-export async function loadExternalPersona(
+async function loadExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
   let yamlContent: string;
@@ -349,7 +397,7 @@ export async function loadExternalPersona(
  * NOTE: This is a Phase 4 API entry point - currently unused but reserved for
  * future wiring into startup/worker flows for bulk loading external personas.
  */
-export async function loadExternalPersonas(
+async function loadExternalPersonas(
   sources: ExternalPersonaSource[]
 ): Promise<LoadedExternalPersona[]> {
   const results: LoadedExternalPersona[] = [];
@@ -373,10 +421,13 @@ export async function loadExternalPersonas(
 /**
  * Clear the cache for a specific location or all locations
  */
-export function clearPersonaCache(location?: string): void {
+function clearPersonaCache(location?: string, authToken?: string): void {
   if (location) {
-    delete personaCache[location];
-    console.log(`[persona-external-loader] Cleared cache for ${location}`);
+    const keysToDelete = authToken
+      ? [getPersonaCacheKey(location, authToken)]
+      : Object.keys(personaCache).filter(key => key === location || key.startsWith(`${location}::token:`));
+    keysToDelete.forEach(key => delete personaCache[key]);
+    console.log(`[persona-external-loader] Cleared cache for ${location}${authToken ? ' (token-specific)' : ''}`);
   } else {
     Object.keys(personaCache).forEach(key => delete personaCache[key]);
     console.log('[persona-external-loader] Cleared all persona cache');
@@ -386,9 +437,9 @@ export function clearPersonaCache(location?: string): void {
 /**
  * Refresh a cached persona (force re-fetch)
  */
-export async function refreshExternalPersona(
+async function refreshExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
-  clearPersonaCache(source.location);
+  clearPersonaCache(source.location, source.authToken);
   return loadExternalPersona(source);
 }

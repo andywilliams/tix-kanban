@@ -7,6 +7,7 @@
 
 import { readTask, logActivity } from './storage.js';
 import { startParallelExecution } from './parallel-execution.js';
+import { evaluateFieldCondition } from './condition-utils.js';
 
 export interface OrchestratorConfig {
   personaId: string; // The orchestrator persona
@@ -330,43 +331,8 @@ export async function evaluateDelegationRules(
   }
   
   for (const rule of config.delegationRules) {
-    const fieldValue = (task as any)[rule.condition.field];
-    let matches = false;
-    
-    switch (rule.condition.operator) {
-      case 'equals':
-        matches = fieldValue === rule.condition.value;
-        break;
-      case 'contains':
-        if (Array.isArray(fieldValue)) {
-          matches = fieldValue.includes(rule.condition.value);
-        } else if (typeof fieldValue === 'string') {
-          matches = fieldValue.includes(rule.condition.value);
-        }
-        break;
-      case 'matches':
-        if (typeof fieldValue === 'string' && typeof rule.condition.value === 'string') {
-          // Sanitize user-supplied regex to prevent ReDoS: limit pattern length and wrap in try-catch
-          const rawPattern = rule.condition.value;
-          if (rawPattern.length > 200) {
-            matches = false;
-          } else {
-            try {
-              matches = new RegExp(rawPattern).test(fieldValue);
-            } catch {
-              matches = false;
-            }
-          }
-        }
-        break;
-      case 'greaterThan':
-        matches = fieldValue > rule.condition.value;
-        break;
-      case 'lessThan':
-        matches = fieldValue < rule.condition.value;
-        break;
-    }
-    
+    const matches = evaluateFieldCondition(rule.condition, task);
+
     if (matches) {
       return {
         shouldDelegate: ['delegate', 'parallel', 'sequential'].includes(rule.action),
@@ -375,6 +341,6 @@ export async function evaluateDelegationRules(
       };
     }
   }
-  
+
   return { shouldDelegate: false, targetPersonas: [], strategy: 'parallel' };
 }
