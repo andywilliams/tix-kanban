@@ -335,7 +335,7 @@ export async function evaluateDelegationRules(
 
     if (matches) {
       return {
-        shouldDelegate: ['delegate', 'parallel', 'sequential'].includes(rule.action),
+        shouldDelegate: rule.action === 'delegate',
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };
