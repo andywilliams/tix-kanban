@@ -3,11 +3,12 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawn } from 'child_process';
+import { execFile as execFileCallback, spawn } from 'child_process';
+import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
-import { getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
-import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
+import { enforceProviderAccess, BUILTIN_TRIGGER_DEFAULTS } from './persona-yaml-loader.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -15,7 +16,8 @@ import {
 } from './pipeline-storage.js';
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
-import { initiateAutoReview, executeReviewCycle } from './auto-review.js';
+import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -32,6 +34,8 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
+
+const execFile = promisify(execFileCallback);
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -146,6 +150,25 @@ function executeClaudeWithStdin(
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
+const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
+
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated';
+
+
+
+interface PRSnapshot {
+  state: 'open' | 'closed' | 'merged' | null;
+  ciState: 'SUCCESS' | 'FAILURE' | null;
+}
+
+interface WorkerTriggerTaskState {
+  prs: Record<string, PRSnapshot>;
+  lastStatus?: Task['status'];
+}
+
+interface WorkerTriggerState {
+  tasks: Record<string, WorkerTriggerTaskState>;
+}
 
 interface WorkerState {
   enabled: boolean;
@@ -216,6 +239,30 @@ async function saveWorkerState(): Promise<void> {
     await fs.writeFile(WORKER_STATE_FILE, content, 'utf8');
   } catch (error) {
     console.error('Failed to save worker state:', error);
+  }
+}
+
+async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
+  try {
+    const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && parsed.tasks && typeof parsed.tasks === 'object') {
+      return parsed as WorkerTriggerState;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('Failed to load worker trigger state:', error);
+    }
+  }
+  return { tasks: {} };
+}
+
+async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
+  try {
+    await ensureWorkerDirectories();
+    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Failed to save worker trigger state:', error);
   }
 }
 
@@ -317,6 +364,238 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
     }
   }
   return results;
+}
+
+
+
+async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
+  try {
+    const { stdout } = await execFile(
+      'gh',
+      [
+        'pr', 'view', String(number),
+        '--repo', repo,
+        '--json', 'statusCheckRollup',
+        '--jq', '.statusCheckRollup[] | select(.conclusion) | .conclusion',
+      ],
+      { timeout: 10000, maxBuffer: 1024 * 1024 }
+    );
+
+    const conclusions = stdout
+      .split('\n')
+      .map((line) => line.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (conclusions.length === 0) {
+      return null;
+    }
+
+    const hasFailure = conclusions.some((value) => {
+      return value === 'FAILURE' || value === 'TIMED_OUT' || value === 'CANCELLED' || value === 'ACTION_REQUIRED';
+    });
+    if (hasFailure) {
+      return 'FAILURE';
+    }
+
+    const hasSuccess = conclusions.some((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
+    return hasSuccess ? 'SUCCESS' : null;
+  } catch (error) {
+    console.warn(`Failed to fetch CI state for ${repo}#${number}:`, error);
+    return null;
+  }
+}
+
+function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
+  const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
+  const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
+  return Boolean(effectiveTriggers[eventType]);
+}
+
+function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType): Persona[] {
+  return personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+}
+
+function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
+  const eventDescriptionMap: Record<TriggerEventType, string> = {
+    onPROpened: 'A pull request was just linked/opened for this task.',
+    onPRMerged: 'A linked pull request was just merged for this task.',
+    onCIPassed: 'CI checks just passed for a linked pull request on this task.',
+    onTaskCreated: 'This task was just created and seen for the first time by the trigger system.',
+  };
+
+  return [
+    task.description,
+    '',
+    '## Trigger Event Context',
+    eventDescriptionMap[eventType],
+    ...(details ? [`Details: ${details}`] : []),
+    '',
+    'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
+  ].join('\n');
+}
+
+async function invokeTriggerPersona(
+  task: Task,
+  persona: Persona,
+  eventType: TriggerEventType,
+  details?: string
+): Promise<void> {
+  try {
+    const requiredProviders = getRequiredProviders(task);
+    for (const provider of requiredProviders) {
+      enforceProviderAccess(persona, provider);
+    }
+
+    const triggeredTask: Task = {
+      ...task,
+      description: buildTriggerInstruction(task, eventType, details),
+    };
+    const aiResult = await spawnAISession(triggeredTask, persona);
+
+    const triggerComment: Comment = {
+      id: Math.random().toString(36).substr(2, 9),
+      taskId: task.id,
+      body: `🔔 Trigger \`${eventType}\` (${persona.name})\n\n${aiResult.output || 'No output generated.'}`,
+      author: `${persona.name} (AI Trigger)`,
+      createdAt: new Date(),
+    };
+
+    const latestTask = await getTask(task.id);
+    if (!latestTask) return;
+    await updateTask(task.id, {
+      comments: [...(latestTask.comments || []), triggerComment],
+    });
+
+    await updatePersonaMemoryAfterTask(
+      persona.id,
+      `${task.title} [trigger:${eventType}]`,
+      task.description,
+      aiResult.output,
+      aiResult.success
+    );
+  } catch (error) {
+    console.error(`Failed to invoke trigger persona ${persona.id} for task ${task.id}:`, error);
+  }
+}
+
+async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
+  const triggerState = await loadWorkerTriggerState();
+  const personas = await getAllPersonas();
+  if (personas.length === 0) {
+    return;
+  }
+
+  const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[] }>();
+
+  const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string): void => {
+    const key = `${task.id}|${persona.id}|${eventType}`;
+    const existing = pendingInvocations.get(key);
+    if (existing) {
+      existing.details.push(detail);
+      return;
+    }
+    pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
+  };
+
+  // Trigger onTaskCreated when a task is first discovered (lastStatus === undefined).
+  // The backlog→in-progress transition is unreliable as a creation signal because
+  // processTask runs before this check, so previousStatus is already in-progress by
+  // the time we evaluate. Firing on first observation is the correct semantic.
+  for (const task of tasks) {
+    const taskState = triggerState.tasks[task.id] || { prs: {} };
+    if (taskState.lastStatus === undefined) {
+      // First time we've seen this task — treat as "created"
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} created (first seen)`);
+      }
+    }
+    taskState.lastStatus = task.status;
+    triggerState.tasks[task.id] = taskState;
+  }
+
+  const reviewTasks = tasks.filter((task) => task.status === 'review');
+  for (const task of reviewTasks) {
+    const fullTask = await getTask(task.id);
+    if (!fullTask) continue;
+
+    const prLinks = parsePRLinks(fullTask.links);
+    const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
+    const newSnapshots: Record<string, PRSnapshot> = {};
+
+    for (const pr of prLinks) {
+      const state = await getPRStateShared(pr.repo, pr.number);
+      const ciState = await getPRCIState(pr.repo, pr.number);
+      const current: PRSnapshot = { state, ciState };
+      newSnapshots[pr.key] = current;
+
+      const previous = taskState.prs[pr.key];
+
+      if (state === 'open' && (!previous || previous.state !== 'open')) {
+        for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
+          enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        }
+      }
+
+      if (state === 'merged' && (!previous || previous.state !== 'merged')) {
+        for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
+          enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        }
+      }
+
+      if (ciState === 'SUCCESS' && (!previous || previous.ciState !== 'SUCCESS')) {
+        for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
+          enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        }
+      }
+    }
+
+    taskState.prs = newSnapshots;
+    taskState.lastStatus = fullTask.status;
+    triggerState.tasks[task.id] = taskState;
+
+    // If task is stranded in review (max cycles reached) and all PRs have now merged, close it
+    const hasAutoReviewNote = fullTask.comments?.some(
+      (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
+    );
+    if (hasAutoReviewNote && prLinks.length > 0) {
+      const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
+      if (anyMerged) {
+        console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
+        await updateTask(task.id, { status: 'done' });
+
+        // Clean up review state and update persona stats (mirrors the normal approval path)
+        const reviewState = await getTaskReviewState(task.id);
+        await deleteTaskReviewState(task.id);
+        if (reviewState?.workerId) {
+          const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
+          const completionTimeMinutes = completionTimeMs / (1000 * 60);
+          await updatePersonaStats(reviewState.workerId, completionTimeMinutes, true);
+          console.log(`📊 Updated stats for persona ${reviewState.workerId} after stranded task resolution`);
+        }
+      }
+    }
+  }
+
+  if (pendingInvocations.size > 0) {
+    console.log(`🔔 Processing ${pendingInvocations.size} persona trigger invocation(s)...`);
+  }
+  for (const invocation of pendingInvocations.values()) {
+    await invokeTriggerPersona(
+      invocation.task,
+      invocation.persona,
+      invocation.eventType,
+      invocation.details.join('; ')
+    );
+  }
+
+  const existingTaskIds = new Set(tasks.map((task) => task.id));
+  for (const taskId of Object.keys(triggerState.tasks)) {
+    if (!existingTaskIds.has(taskId)) {
+      delete triggerState.tasks[taskId];
+    }
+  }
+
+  await saveWorkerTriggerState(triggerState);
 }
 
 // Spawn AI session for a task using OpenClaw
@@ -1127,110 +1406,115 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
   }
 }
 
-// Main worker function
-async function runWorker(): Promise<void> {
-  if (workerState.isRunning) {
-    console.log('⏭️  Worker already running, skipping this cycle');
-    return;
-  }
-  
+// Main worker cycle (task queue + event-based triggers)
+async function runWorkerCycle(): Promise<void> {
+  console.log('🔄 Worker cycle starting...');
+
+  // Clean up expired cache entries periodically
   try {
-    workerState.isRunning = true;
-    workerState.lastRun = new Date().toISOString();
-    await saveWorkerState();
-    
-    console.log('🔄 Worker cycle starting...');
-    
-    // Clean up expired cache entries periodically
-    try {
-      await clearExpiredCache();
-    } catch (error) {
-      console.warn('Failed to clear expired cache:', error);
-    }
-    
-    // First, process any auto-review tasks
-    await processAutoReviewTasks();
+    await clearExpiredCache();
+  } catch (error) {
+    console.warn('Failed to clear expired cache:', error);
+  }
 
-    // Get all tasks
-    const tasks = await getAllTasks();
+  // First, process any auto-review tasks
+  await processAutoReviewTasks();
 
-    // Recover any tasks stuck at in-progress (e.g. from worker crash or server restart)
-    await recoverStaleTasks(tasks);
+  // Get all tasks
+  let tasks = await getAllTasks();
 
-    const backlogTasks = tasks
-      .filter(task => task.status === 'backlog' && task.persona)
-      .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
-    
-    workerState.workload = tasks.filter(task => 
-      task.status === 'backlog' || task.status === 'in-progress' || task.status === 'auto-review'
-    ).length;
-    
-    if (backlogTasks.length === 0) {
-      console.log('📭 No backlog tasks with personas found');
-      return;
-    }
-    
-    // Adaptive interval based on workload
-    if (workerState.workload >= 10) {
-      workerState.interval = '*/2 * * * *'; // Every 2 minutes
-    } else if (workerState.workload >= 5) {
-      workerState.interval = '*/5 * * * *'; // Every 5 minutes
-    } else {
-      workerState.interval = '*/10 * * * *'; // Every 10 minutes
-    }
-    
-    // Find the highest-priority task whose persona has the required provider access.
-    // This prevents a provider-restricted task at the top of the queue from
-    // blocking all other tasks via an infinite deny → backlog → retry loop.
-    let taskToProcess: Task | undefined;
-    const eligibleBacklogTasks: Task[] = [];
-    for (const candidate of backlogTasks) {
-      const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
-      if (!candidatePersona) continue;
+  // Recover any tasks stuck at in-progress (e.g. from worker crash or server restart)
+  await recoverStaleTasks(tasks);
+  tasks = await getAllTasks();
 
-      const requiredProviders = getRequiredProviders(candidate);
+  const backlogTasks = tasks
+    .filter(task => task.status === 'backlog' && task.persona)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
 
-      let eligible = true;
-      for (const provider of requiredProviders) {
-        try {
-          enforceProviderAccess(candidatePersona, provider);
-        } catch (accessError) {
-          const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
-          console.warn(
-            `🚫 Provider access denied for backlog task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access: ${denialMessage}`
-          );
+  workerState.workload = tasks.filter(task =>
+    task.status === 'backlog' || task.status === 'in-progress' || task.status === 'auto-review'
+  ).length;
 
-          if (candidate.status !== "review") {
-            await handleProviderDenial(candidate, provider, denialMessage);
-          }
-          eligible = false;
-          break;
+  // Adaptive interval based on workload
+  if (workerState.workload >= 10) {
+    workerState.interval = '*/2 * * * *'; // Every 2 minutes
+  } else if (workerState.workload >= 5) {
+    workerState.interval = '*/5 * * * *'; // Every 5 minutes
+  } else {
+    workerState.interval = '*/10 * * * *'; // Every 10 minutes
+  }
+
+  // Find the highest-priority task whose persona has the required provider access.
+  // This prevents a provider-restricted task at the top of the queue from
+  // blocking all other tasks via an infinite deny → backlog → retry loop.
+  let taskToProcess: Task | undefined;
+  const eligibleBacklogTasks: Task[] = [];
+  for (const candidate of backlogTasks) {
+    const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
+    if (!candidatePersona) continue;
+
+    const requiredProviders = getRequiredProviders(candidate);
+
+    let eligible = true;
+    for (const provider of requiredProviders) {
+      try {
+        enforceProviderAccess(candidatePersona, provider);
+      } catch (accessError) {
+        const denialMessage = accessError instanceof Error ? accessError.message : String(accessError);
+        console.warn(
+          `🚫 Provider access denied for backlog task "${candidate.title}" — persona "${candidatePersona.name}" lacks ${provider} access: ${denialMessage}`
+        );
+
+        if (candidate.status !== "review") {
+          await handleProviderDenial(candidate, provider, denialMessage);
         }
-      }
-
-      if (eligible) {
-        eligibleBacklogTasks.push(candidate);
-        if (!taskToProcess) {
-          taskToProcess = candidate;
-        }
+        eligible = false;
+        break;
       }
     }
 
-    if (!taskToProcess) {
-      console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
-      return;
+    if (eligible) {
+      eligibleBacklogTasks.push(candidate);
+      if (!taskToProcess) {
+        taskToProcess = candidate;
+      }
     }
+  }
 
+  if (taskToProcess) {
     workerState.lastTaskId = taskToProcess.id;
-    
     await processTask(taskToProcess);
-    
-    // Show the next queued task after the one we just processed
+  } else if (backlogTasks.length === 0) {
+    console.log('📭 No backlog tasks with personas found');
+  } else {
+    console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
+  }
+
+  const refreshedTasks = await getAllTasks();
+  await processEventBasedPersonaTriggers(refreshedTasks);
+
+  if (taskToProcess) {
     const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
     const nextTask = processedIndex >= 0 && processedIndex + 1 < eligibleBacklogTasks.length
       ? eligibleBacklogTasks[processedIndex + 1]
       : null;
     console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
+  } else {
+    console.log('✅ Worker cycle completed.');
+  }
+}
+
+async function runWorker(): Promise<void> {
+  if (workerState.isRunning) {
+    console.log('⏭️  Worker already running, skipping this cycle');
+    return;
+  }
+
+  try {
+    workerState.isRunning = true;
+    workerState.lastRun = new Date().toISOString();
+    await saveWorkerState();
+    await runWorkerCycle();
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
   } finally {
