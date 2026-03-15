@@ -606,9 +606,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           }
         }
 
+        if (state === 'closed' && previous.state !== 'closed') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRClosed', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPRClosed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
           for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+          for (const persona of getTriggeredPersonas(personas, 'onTestFailure', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onTestFailure', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
       }
