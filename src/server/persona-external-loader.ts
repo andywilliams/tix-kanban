@@ -172,7 +172,7 @@ async function loadFromUrl(
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     let response: Response;
     try {
-      response = await fetch(parsedUrl, { headers, signal: controller.signal });
+      response = await fetch(parsedUrl, { headers, signal: controller.signal, redirect: 'error' });
     } finally {
       clearTimeout(timeoutId);
     }

@@ -7,7 +7,6 @@ import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 import { parsePRLinks, getPRState } from './pr-utils.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
-import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
