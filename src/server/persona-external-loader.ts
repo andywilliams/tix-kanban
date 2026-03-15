@@ -55,6 +55,16 @@ interface PersonaCache {
 const personaCache: PersonaCache = {};
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
+/**
+ * Generate a consistent cache key for URL + auth token combination
+ */
+function getCacheKey(url: string, authToken?: string): string {
+  const tokenHash = authToken
+    ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
+    : 'anon';
+  return `${url}::${tokenHash}`;
+}
+
 function isCacheValid(location: string): boolean {
   const cached = personaCache[location];
   if (!cached) return false;
@@ -166,10 +176,7 @@ async function loadFromUrl(
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
   const parsedUrl = await validateExternalUrl(url);
-  const tokenHash = authToken
-    ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
-    : 'anon';
-  const cacheKey = `${parsedUrl.toString()}::${tokenHash}`;
+  const cacheKey = getCacheKey(parsedUrl.toString(), authToken);
 
   // Check cache first
   const cached = getFromCache(cacheKey);
@@ -458,7 +465,7 @@ export async function loadExternalPersonas(
 /**
  * Clear the cache for a specific location or all locations
  */
-export function clearPersonaCache(location?: string): void {
+export function clearPersonaCache(location?: string, authToken?: string): void {
   if (location) {
     let normalizedLocation: string;
     try {
@@ -473,8 +480,9 @@ export function clearPersonaCache(location?: string): void {
       }
       return;
     }
-    delete personaCache[normalizedLocation];
-    console.log(`[persona-external-loader] Cleared cache for ${normalizedLocation}`);
+    const cacheKey = getCacheKey(normalizedLocation, authToken);
+    delete personaCache[cacheKey];
+    console.log(`[persona-external-loader] Cleared cache for ${cacheKey}`);
   } else {
     Object.keys(personaCache).forEach(key => delete personaCache[key]);
     console.log('[persona-external-loader] Cleared all persona cache');
@@ -487,6 +495,6 @@ export function clearPersonaCache(location?: string): void {
 export async function refreshExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
-  clearPersonaCache(source.location);
+  clearPersonaCache(source.location, source.authToken);
   return loadExternalPersona(source);
 }
