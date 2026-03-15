@@ -33,13 +33,35 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
+  /** Phase 3: Can this persona delegate to others (optional) */
+  orchestrator?: boolean;
+  /** Alias for orchestrator (optional) */
+  canDelegate?: boolean;
+  /** Specialist mappings for orchestrator (optional) */
+  specialists?: Array<{ specialty: string; personaIds: string[] }>;
+  /** Delegation rules for orchestrator (optional) */
+  delegationRules?: Array<{
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
+    action: 'delegate' | 'parallel' | 'sequential';
+    targetPersonas: string[];
+  }>;
 }
 
 const VALID_TRIGGER_KEYS = new Set([
   'onPROpened',
   'onPRMerged',
+  'onPRClosed',
+  'onPRReviewRequested',
   'onCIPassed',
+  'onTestFailure',
+  'onTestSuccess',
+  'onStatusChange',
   'onTaskCreated',
+  'onAssignmentChanged',
+  'onPriorityChanged',
+  'onCommentAdded',
+  'onLinkAdded',
+  'onDueDateApproaching',
 ]);
 
 const VALID_SKILLS = new Set([
@@ -125,6 +147,19 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     } else {
       const triggers = d.triggers as Record<string, unknown>;
       for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
+        // 'conditions' and 'priority' are valid non-boolean fields
+        if (triggerKey === 'conditions') {
+          if (!Array.isArray(triggerValue)) {
+            errors.push('Field "triggers.conditions" must be an array');
+          }
+          continue;
+        }
+        if (triggerKey === 'priority') {
+          if (typeof triggerValue !== 'number') {
+            errors.push('Field "triggers.priority" must be a number');
+          }
+          continue;
+        }
         if (!VALID_TRIGGER_KEYS.has(triggerKey)) {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
@@ -232,14 +267,19 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     description: yaml.description,
     prompt: yaml.prompt,
     specialties: yaml.specialties,
-    model: yaml.model,
-    triggers,
-    providers: yaml.providers,
     skills: yaml.skills,
+    triggers,
     budgetCap: yaml.budgetCap,
+    model: yaml.model,
+    providers: yaml.providers,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
+    // Phase 3: Orchestrator fields
+    orchestrator: yaml.orchestrator,
+    canDelegate: yaml.canDelegate,
+    specialists: yaml.specialists,
+    delegationRules: yaml.delegationRules,
   };
 }
 

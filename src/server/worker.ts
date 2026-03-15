@@ -28,6 +28,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
+import { evaluateCondition, TriggerCondition } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -351,9 +352,10 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
       const repo = match[1];
       const number = parseInt(match[2]);
       try {
-        const { execSync } = await import('child_process');
-        const branch = execSync(
-          `gh pr view ${number} --repo ${repo} --json headRefName --jq .headRefName`,
+        const { execFileSync } = await import('child_process');
+        const branch = execFileSync(
+          'gh',
+          ['pr', 'view', String(number), '--repo', repo, '--json', 'headRefName', '--jq', '.headRefName'],
           { encoding: 'utf-8', stdio: 'pipe', timeout: 10000 }
         ).trim();
         if (branch) {
@@ -371,6 +373,9 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
+    // Emit each check's conclusion, or "PENDING" for checks still in progress.
+    // Using select(.conclusion) would exclude pending checks, causing SUCCESS to
+    // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
       ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion'],
@@ -386,6 +391,12 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return null;
     }
 
+    // If any check is still running, CI hasn't fully completed yet.
+    const hasPending = conclusions.some((value) => value === 'PENDING');
+    if (hasPending) {
+      return null;
+    }
+
     const hasFailure = conclusions.some((value) => {
       return value === 'FAILURE' || value === 'TIMED_OUT' || value === 'CANCELLED' || value === 'ACTION_REQUIRED';
     });
@@ -393,8 +404,9 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return 'FAILURE';
     }
 
-    const hasSuccess = conclusions.some((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
-    return hasSuccess ? 'SUCCESS' : null;
+    // All checks concluded — every check must have passed.
+    const allPassed = conclusions.every((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
+    return allPassed ? 'SUCCESS' : null;
   } catch (error) {
     console.warn(`Failed to fetch CI state for ${repo}#${number}:`, error);
     return null;
@@ -407,8 +419,19 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
   return Boolean(effectiveTriggers[eventType]);
 }
 
-function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType): Persona[] {
-  return personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
+  const conditions = persona.triggers?.conditions;
+  if (!conditions || conditions.length === 0) return true;
+  // Delegate to the shared evaluateCondition from event-triggers.ts — no event
+  // context available in the polling path, so metadata.* fields will be undefined.
+  return conditions.every((cond) => evaluateCondition(cond as TriggerCondition, task));
+}
+
+function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {
+  return personas.filter((persona) =>
+    getPersonaTriggerValue(persona, eventType) &&
+    (!task || evaluateTriggerConditions(persona, task))
+  );
 }
 
 function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
@@ -502,8 +525,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     triggerState.tasks[task.id] = taskState;
   }
 
-  const reviewTasks = tasks.filter((task) => task.status === 'review');
-  for (const task of reviewTasks) {
+  // Scan any task that could have linked PRs, not just review-status tasks
+  const tasksWithPRs = tasks.filter((task) =>
+    ['review', 'in-progress', 'auto-review'].includes(task.status as string) ||
+    (task.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+  );
+  for (const task of tasksWithPRs) {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
@@ -514,26 +541,38 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     for (const pr of prLinks) {
       const state = await getPRState(pr.repo, pr.number);
       const ciState = await getPRCIState(pr.repo, pr.number);
-      const current: PRSnapshot = { state, ciState };
+      // On transient CI fetch failure, preserve the last known ciState so the snapshot
+      // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
+      const effectiveCiState = ciState ?? previous?.ciState ?? null;
+      const current: PRSnapshot = { state, ciState: effectiveCiState };
       newSnapshots[pr.key] = current;
 
-      const previous = taskState.prs[pr.key];
-
-      if (state === 'open' && (!previous || previous.state !== 'open')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
-          enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      if (!previous) {
+        // First observation: only fire onPROpened (PR was just linked to this task)
+        // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
+        if (state === 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
-
-      if (state === 'merged' && (!previous || previous.state !== 'merged')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
-          enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      } else {
+        // Subsequent observations: fire on state transitions only
+        if (state === 'open' && previous.state !== 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
 
-      if (ciState === 'SUCCESS' && (!previous || previous.ciState !== 'SUCCESS')) {
-        for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
-          enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        if (state === 'merged' && previous.state !== 'merged') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRMerged', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
+          for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
       }
     }
