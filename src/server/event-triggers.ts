@@ -89,7 +89,10 @@ export async function initializeTriggerSystem(): Promise<void> {
     if (persona.triggers) {
       const eventTypes = [...new Set(
         Object.entries(persona.triggers)
-          .filter(([key, val]) => val === true && TRIGGER_KEY_TO_EVENT_TYPE[key])
+          .filter(([key, val]) => {
+            const isEnabled = val === true || (typeof val === 'object' && val !== null && 'enabled' in val && (val as any).enabled === true);
+            return isEnabled && TRIGGER_KEY_TO_EVENT_TYPE[key];
+          })
           .map(([key]) => TRIGGER_KEY_TO_EVENT_TYPE[key])
       )];
 
