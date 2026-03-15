@@ -4,6 +4,10 @@ import { lookup } from 'dns/promises';
 import fs from 'fs/promises';
 import { isIP } from 'net';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
