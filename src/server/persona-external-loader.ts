@@ -1,17 +1,22 @@
 import axios from 'axios';
-import crypto from 'crypto';
-import dns from 'dns/promises';
 import fs from 'fs/promises';
 import path from 'path';
+import dns from 'dns/promises';
+import os from 'os';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
   validatePersonaYaml, 
-  ValidationResult,
-  yamlToPersona,
-  idFromFilename
+  ValidationResult 
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
+
+// Directories from which persona YAML files may be loaded.
+// Only paths that start with one of these prefixes are allowed.
+const ALLOWED_PERSONA_DIRS: string[] = [
+  path.join(os.homedir(), '.tix-kanban', 'personas'),
+  path.join(os.homedir(), '.tix-kanban', 'external-personas'),
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +50,7 @@ interface PersonaCache {
 }
 
 const personaCache: PersonaCache = {};
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 function isCacheValid(location: string): boolean {
   const cached = personaCache[location];
@@ -74,6 +80,78 @@ function addToCache(
   };
 }
 
+// ── Security: SSRF Protection ───────────────────────────────────────────────
+
+function isBlockedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '::') {
+    return true;
+  }
+
+  // Block IPv6 private/special ranges.
+  if (normalized.includes(':')) {
+    if (normalized.startsWith('fe80')) return true;           // link-local
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // unique-local
+    if (normalized.startsWith('::ffff:')) {
+      // IPv4-mapped IPv6 — extract embedded IPv4 and re-check
+      const embedded = normalized.slice(7);
+      return isBlockedHostname(embedded);
+    }
+    return false;
+  }
+
+  // Block private/internal IPv4 ranges.
+  const ipv4Match = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4Match) {
+    return false;
+  }
+
+  const octets = ipv4Match.slice(1).map((octet) => Number.parseInt(octet, 10));
+  if (octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  if (a === 0) return true;                          // 0.0.0.0/8 — unspecified
+  if (a === 127 || a === 10) return true;            // loopback + RFC-1918
+  if (a === 169 && b === 254) return true;           // 169.254.0.0/16 — link-local / cloud metadata (AWS IMDS, GCP, Azure)
+  if (a === 192 && b === 168) return true;           // RFC-1918
+  if (a === 172 && b >= 16 && b <= 31) return true;  // RFC-1918
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 — CGNAT / shared address space
+  return false;
+}
+
+async function validateExternalUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Security: URL must use http or https: ${rawUrl}`);
+  }
+
+  if (isBlockedHostname(parsed.hostname)) {
+    throw new Error(`Security: URL points to a blocked internal address: ${rawUrl}`);
+  }
+
+  // Resolve the hostname and re-check the resolved IP to prevent SSRF via
+  // attacker-controlled domains that resolve to private/internal addresses.
+  try {
+    const { address } = await dns.lookup(parsed.hostname);
+    if (isBlockedHostname(address)) {
+      throw new Error(`Security: URL hostname resolves to a blocked internal address: ${rawUrl}`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Security:')) throw err;
+    throw new Error(`Security: Unable to resolve hostname for ${rawUrl}`);
+  }
+
+  return parsed;
+}
+
 // ── Loaders ──────────────────────────────────────────────────────────────────
 
 /**
@@ -84,20 +162,17 @@ async function loadFromUrl(
   authToken?: string,
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
-  // Cache key includes a hash of the auth token so different credentials get separate entries.
-  const tokenHash = authToken
-    ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
-    : 'anon';
-  const cacheKey = `${url}::${tokenHash}`;
+  const parsedUrl = await validateExternalUrl(url);
+  const cacheKey = parsedUrl.toString();
 
   // Check cache first
   const cached = getFromCache(cacheKey);
   if (cached) {
-    console.log(`[persona-external-loader] Using cached version of ${url}`);
+    console.log(`[persona-external-loader] Using cached version of ${cacheKey}`);
     return cached;
   }
 
-  console.log(`[persona-external-loader] Fetching persona from ${url}`);
+  console.log(`[persona-external-loader] Fetching persona from ${cacheKey}`);
   
   const headers: Record<string, string> = {
     'Accept': 'application/x-yaml, text/yaml, text/plain',
@@ -107,70 +182,20 @@ async function loadFromUrl(
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
-  // SSRF protection: only allow https:// URLs; reject private/loopback addresses
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:') {
-      throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
-    }
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    // Block loopback, private RFC-1918 ranges, link-local, and IPv4-mapped IPv6 addresses
-    if (
-      hostname === 'localhost' ||
-      hostname.startsWith('127.') ||           // 127.0.0.0/8 loopback range
-      hostname === '::' ||                       // IPv6 all-zeros (equivalent to 0.0.0.0)
-      hostname === '0.0.0.0' ||               // Linux resolves to localhost
-      hostname === '::1' ||                   // IPv6 loopback
-      hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
-      hostname.startsWith('::ffff:0.0.0.0') || // IPv4-mapped IPv6 0.0.0.0
-      hostname.startsWith('169.254.') ||      // link-local
-      hostname.startsWith('10.') ||           // RFC-1918
-      hostname.startsWith('192.168.') ||      // RFC-1918
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) // RFC-1918 172.16–31
-    ) {
-      throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
-    }
-    // Also resolve the hostname via DNS and re-check the resolved IP to block
-    // domain names that point to internal addresses (e.g. internal.corp → 10.0.0.1).
-    try {
-      const { address } = await dns.lookup(parsed.hostname);
-      const resolvedHostname = address.toLowerCase();
-      if (
-        resolvedHostname === '127.0.0.1' ||
-        resolvedHostname === '::1' ||
-        resolvedHostname === '0.0.0.0' ||
-        resolvedHostname.startsWith('10.') ||
-        resolvedHostname.startsWith('169.254.') ||
-        resolvedHostname.startsWith('192.168.') ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(resolvedHostname) ||
-        /^::ffff:(127\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(resolvedHostname)
-      ) {
-        throw new Error(`Security: URL hostname resolves to a blocked internal address: ${url}`);
-      }
-    } catch (dnsErr) {
-      if (dnsErr instanceof Error && dnsErr.message.startsWith('Security:')) throw dnsErr;
-      throw new Error(`Security: Unable to resolve hostname for ${url}`);
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Security')) throw e;
-    throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
-  }
-
   try {
     const response = await axios.get(url, {
       headers,
-      // Use responseType 'text' to prevent axios from auto-parsing YAML as JSON
-      responseType: 'text',
       timeout: 10000, // 10 second timeout
-      maxContentLength: 1024 * 1024, // 1MB max
-      maxRedirects: 0, // Prevent SSRF bypass via HTTP redirect chains
+      maxContentLength: MAX_RESPONSE_BYTES, // 1MB max
     });
 
     if (response.status !== 200) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data: string = response.data;
+    const data = typeof response.data === 'string' 
+      ? response.data 
+      : JSON.stringify(response.data);
 
     // Cache the result
     addToCache(cacheKey, data, cacheDurationSeconds);
@@ -187,45 +212,43 @@ async function loadFromUrl(
 }
 
 /**
- * Allowed base directories for local persona file loading.
- * Files must resolve to one of these directories to prevent path traversal attacks.
- */
-const ALLOWED_PERSONA_DIRS: string[] = [
-  path.resolve(__dirname, '../../personas'),
-  path.resolve(__dirname, '../../personas/builtin'),
-];
-
-/**
  * Load persona YAML from a local file path
  */
 async function loadFromFile(filePath: string): Promise<string> {
   console.log(`[persona-external-loader] Loading persona from ${filePath}`);
   
   try {
-    // Resolve to absolute path
-    const absolutePath = await fs.realpath(path.resolve(filePath)).catch(() => path.resolve(filePath));
-    
-    // Security check: prevent path traversal attacks (e.g. ../../etc/passwd).
-    // Ensure the resolved path is within one of the allowed base directories.
-    const isAllowed = ALLOWED_PERSONA_DIRS.some(
-      allowedDir =>
-        absolutePath.startsWith(allowedDir + path.sep) ||
-        absolutePath === allowedDir
-    );
+    // Resolve to absolute path (handles relative paths)
+    const absolutePath = path.resolve(filePath);
 
+    // Resolve symlinks to prevent symlink bypass attacks — a symlink inside an
+    // allowed directory could otherwise point outside it and bypass the check.
+    let resolvedPath: string;
+    try {
+      resolvedPath = await fs.realpath(absolutePath);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Persona file not found: ${filePath}`);
+      }
+      throw e;
+    }
+
+    // Security check: reject paths that fall outside the allowed directories.
+    // This prevents an external-source configuration from being used to read
+    // arbitrary files (e.g. /etc/passwd or private keys) from the host.
+    const isAllowed = ALLOWED_PERSONA_DIRS.some(
+      (dir) => resolvedPath === dir || resolvedPath.startsWith(dir + path.sep)
+    );
     if (!isAllowed) {
       throw new Error(
-        `Security violation: path "${filePath}" resolves to "${absolutePath}" ` +
-        `which is outside the allowed directories: ${ALLOWED_PERSONA_DIRS.join(', ')}`
+        `Security: persona file path "${filePath}" is not within an allowed directory. ` +
+        `Allowed directories: ${ALLOWED_PERSONA_DIRS.join(', ')}`
       );
     }
 
-    const content = await fs.readFile(absolutePath, 'utf8');
+    const content = await fs.readFile(resolvedPath, 'utf8');
     return content;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Security violation')) {
-      throw error;
-    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new Error(`Persona file not found: ${filePath}`);
     }
@@ -274,33 +297,78 @@ function parseAndValidate(
 }
 
 /**
- * Convert PersonaYamlSchema to Persona object using shared helper
+ * Convert PersonaYamlSchema to Persona object
  */
 function schemaToPersona(
   schema: PersonaYamlSchema, 
   sourceLocation: string
 ): Persona {
-  // Ensure ID is set - derive from sourceLocation if not provided
-  if (!schema.id) {
-    // For URLs, strip query string and fragment before deriving ID from the pathname.
-    let idSource = sourceLocation;
-    try {
-      const parsed = new URL(sourceLocation);
-      idSource = parsed.pathname; // use only the path component, no query/hash
-    } catch {
-      // Not a URL — use sourceLocation as-is (file path)
-    }
-    schema.id = idFromFilename(idSource);
+  // Derive ID from filename or use provided ID
+  let id = schema.id;
+  if (!id) {
+    // Try to extract from URL or file path
+    const basename = path.basename(sourceLocation, '.yaml')
+      .replace(/\.yml$/, '');
+    id = basename
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
-  // Use shared conversion function - passing undefined for filename since ID is set
-  return yamlToPersona(schema);
+  const now = new Date();
+  return {
+    id,
+    name: schema.name,
+    emoji: schema.emoji,
+    description: schema.description,
+    prompt: schema.prompt,
+    specialties: schema.specialties,
+    model: schema.model,
+    triggers: schema.triggers,
+    providers: schema.providers,
+    skills: schema.skills,
+    budgetCap: schema.budgetCap,
+    stats: {
+      tasksCompleted: 0,
+      averageCompletionTime: 0,
+      successRate: 0,
+      ratings: {
+        total: 0,
+        good: 0,
+        needsImprovement: 0,
+        redo: 0,
+        averageRating: 0,
+      },
+    },
+    createdAt: now,
+    updatedAt: now,
+  } as Persona;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Load a persona from an external source (URL or file path)
+ * 
+ * @param source - The external source configuration
+ * @returns Loaded persona with metadata
+ * 
+ * @example
+ * ```typescript
+ * // Load from URL
+ * const result = await loadExternalPersona({
+ *   location: 'https://example.com/personas/my-persona.yaml',
+ *   type: 'url',
+ *   cacheDurationSeconds: 3600,
+ * });
+ * 
+ * // Load from file
+ * const result = await loadExternalPersona({
+ *   location: '/path/to/my-persona.yaml',
+ *   type: 'file',
+ * });
+ * ```
  */
 export async function loadExternalPersona(
   source: ExternalPersonaSource
@@ -350,10 +418,18 @@ export async function loadExternalPersona(
 
 /**
  * Load multiple personas from external sources
+ * 
+ * @param sources - Array of external source configurations
+ * @returns Array of successfully loaded personas (failures are logged but not thrown)
  */
+export interface LoadExternalPersonasResult {
+  loaded: LoadedExternalPersona[];
+  failed: Array<{ source: ExternalPersonaSource; error: string }>;
+}
+
 export async function loadExternalPersonas(
   sources: ExternalPersonaSource[]
-): Promise<{ loaded: LoadedExternalPersona[]; failed: Array<{ source: ExternalPersonaSource; error: string }> }> {
+): Promise<LoadExternalPersonasResult> {
   const loaded: LoadedExternalPersona[] = [];
   const failed: Array<{ source: ExternalPersonaSource; error: string }> = [];
 
@@ -362,11 +438,12 @@ export async function loadExternalPersonas(
       const result = await loadExternalPersona(source);
       loaded.push(result);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.error(
         `[persona-external-loader] Failed to load persona from ${source.location}:`,
         error
       );
-      failed.push({ source, error: error instanceof Error ? error.message : String(error) });
+      failed.push({ source, error: message });
     }
   }
 
@@ -376,14 +453,23 @@ export async function loadExternalPersonas(
 /**
  * Clear the cache for a specific location or all locations
  */
-export function clearPersonaCache(location?: string, authToken?: string): void {
+export function clearPersonaCache(location?: string): void {
   if (location) {
-    const tokenHash = authToken
-      ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
-      : 'anon';
-    const cacheKey = `${location}::${tokenHash}`;
-    delete personaCache[cacheKey];
-    console.log(`[persona-external-loader] Cleared cache for ${location}`);
+    let normalizedLocation: string;
+    try {
+      normalizedLocation = new URL(location).toString();
+    } catch {
+      // Not a valid URL (e.g. file path) — check if the raw string is a cache key, else no-op.
+      if (Object.prototype.hasOwnProperty.call(personaCache, location)) {
+        delete personaCache[location];
+        console.log(`[persona-external-loader] Cleared cache for ${location}`);
+      } else {
+        console.warn(`[persona-external-loader] clearPersonaCache: "${location}" is not a valid URL or known cache key — skipping`);
+      }
+      return;
+    }
+    delete personaCache[normalizedLocation];
+    console.log(`[persona-external-loader] Cleared cache for ${normalizedLocation}`);
   } else {
     Object.keys(personaCache).forEach(key => delete personaCache[key]);
     console.log('[persona-external-loader] Cleared all persona cache');
@@ -396,6 +482,6 @@ export function clearPersonaCache(location?: string, authToken?: string): void {
 export async function refreshExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
-  clearPersonaCache(source.location, source.authToken);
+  clearPersonaCache(source.location);
   return loadExternalPersona(source);
 }
