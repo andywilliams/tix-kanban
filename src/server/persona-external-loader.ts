@@ -340,6 +340,10 @@ function schemaToPersona(
     skills: schema.skills,
     budgetCap: schema.budgetCap,
     invocations: schema.invocations,
+    orchestrator: schema.orchestrator,
+    canDelegate: schema.canDelegate,
+    specialists: schema.specialists,
+    delegationRules: schema.delegationRules,
     stats: {
       tasksCompleted: 0,
       averageCompletionTime: 0,
