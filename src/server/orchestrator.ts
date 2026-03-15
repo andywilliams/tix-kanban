@@ -240,8 +240,23 @@ export async function failSubtask(
   );
   
   console.error(`❌ Subtask ${subtaskId} failed in orchestration ${orchestrationId}: ${error}`);
-  
-  // Check if orchestration should fail
+
+  // For sequential orchestrations, try to advance to the next runnable subtask
+  if (orchestration.strategy === 'sequential') {
+    const completedIds = new Set(
+      orchestration.subtasks.filter(st => st.status === 'completed').map(st => st.id)
+    );
+    const next = orchestration.subtasks.find(
+      st => st.status === 'waiting' && (st.dependencies || []).every(dep => completedIds.has(dep))
+    );
+    if (next) {
+      next.status = 'running';
+      console.log(`➡️ Advanced sequential subtask ${next.id} after failure of ${subtaskId}`);
+      return;
+    }
+  }
+
+  // Check if orchestration should finalize (all done or no remaining progress possible)
   const allDone = orchestration.subtasks.every(st => st.status === 'completed' || st.status === 'failed');
   
   if (allDone) {

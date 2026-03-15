@@ -167,15 +167,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
         }
-        if (triggerKey === 'conditions') {
-          if (!Array.isArray(triggerValue)) {
-            errors.push(`Field "triggers.conditions" must be an array`);
-          }
-        } else if (triggerKey === 'priority') {
-          if (typeof triggerValue !== 'number') {
-            errors.push(`Field "triggers.priority" must be a number`);
-          }
-        } else if (typeof triggerValue !== 'boolean') {
+        if (typeof triggerValue !== 'boolean') {
           errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
         }
       }
