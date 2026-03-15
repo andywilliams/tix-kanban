@@ -12,7 +12,6 @@ import {
   emitPROpened, 
   emitTestFailure,
   emitStatusChange,
-  TRIGGER_KEY_TO_EVENT_TYPE,
   type TriggerEvent, 
   type PersonaTrigger,
   type TriggerEventType,
@@ -27,7 +26,6 @@ import {
 } from './parallel-execution.js';
 import {
   registerOrchestrator,
-  getOrchestratorConfig,
   isOrchestrator,
   orchestrateTask,
   startOrchestration,
@@ -38,7 +36,6 @@ import {
   type OrchestratorConfig,
   type OrchestratedTask,
 } from './orchestrator.js';
-import { getAllPersonas, getPersona } from './persona-storage.js';
 import type { Persona } from '../client/types/index.js';
 
 /**

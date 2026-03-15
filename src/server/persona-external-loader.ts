@@ -192,11 +192,11 @@ async function loadFromUrl(
   // Check cache first
   const cached = getFromCache(cacheKey);
   if (cached) {
-    console.log(`[persona-external-loader] Using cached version of ${cacheKey}`);
+    console.log(`[persona-external-loader] Using cached version of ${parsedUrl.toString()}`);
     return cached;
   }
 
-  console.log(`[persona-external-loader] Fetching persona from ${cacheKey}`);
+  console.log(`[persona-external-loader] Fetching persona from ${parsedUrl.toString()}`);
   
   const headers: Record<string, string> = {
     'Accept': 'application/x-yaml, text/yaml, text/plain',
