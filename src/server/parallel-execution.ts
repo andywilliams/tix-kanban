@@ -335,8 +335,8 @@ async function resolveConflicts(
           const mergedArray = values.flatMap(v => v.value as any[]);
           (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
         } else if (firstType === 'object') {
-          // Merge objects - sort by priority first so highest priority wins in Object.assign
-          values.sort((a, b) => b.priority - a.priority);
+          // Merge objects - sort by priority ASCENDING so highest priority wins in Object.assign
+          values.sort((a, b) => a.priority - b.priority);
           const mergedObject = {};
           for (const v of values) {
             Object.assign(mergedObject, v.value);
@@ -344,7 +344,7 @@ async function resolveConflicts(
           (merged as any)[field] = mergedObject;
         } else {
           // Primitive - use highest priority
-          values.sort((a, b) => b.priority - a.priority);
+          values.sort((a, b) => a.priority - b.priority);
           (merged as any)[field] = values[0].value;
         }
         break;
