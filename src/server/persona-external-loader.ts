@@ -97,9 +97,35 @@ async function loadFromUrl(
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
+  // SSRF protection: only allow https:// URLs; reject private/loopback addresses
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') {
+      throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Block loopback, private RFC-1918 ranges, and link-local addresses
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.startsWith('169.254.') ||    // link-local
+      hostname.startsWith('10.') ||          // RFC-1918
+      hostname.startsWith('192.168.') ||     // RFC-1918
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) // RFC-1918 172.16–31
+    ) {
+      throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Security violation')) throw e;
+    throw new Error(`Invalid URL "${url}": ${(e as Error).message}`);
+  }
+
   try {
     const response = await axios.get(url, {
       headers,
+      // Use responseType 'text' to prevent axios from auto-parsing YAML as JSON
+      responseType: 'text',
       timeout: 10000, // 10 second timeout
       maxContentLength: 1024 * 1024, // 1MB max
     });
@@ -108,9 +134,7 @@ async function loadFromUrl(
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = typeof response.data === 'string' 
-      ? response.data 
-      : JSON.stringify(response.data);
+    const data: string = response.data;
 
     // Cache the result
     addToCache(url, data, cacheDurationSeconds);
