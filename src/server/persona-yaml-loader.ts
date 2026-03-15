@@ -33,20 +33,42 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
+  /** Phase 3: Can this persona delegate to others (optional) */
+  orchestrator?: boolean;
+  /** Alias for orchestrator (optional) */
+  canDelegate?: boolean;
+  /** Specialist mappings for orchestrator (optional) */
+  specialists?: Array<{ specialty: string; personaIds: string[] }>;
+  /** Delegation rules for orchestrator (optional) */
+  delegationRules?: Array<{
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches'; value: any };
+    action: 'delegate' | 'parallel' | 'sequential';
+    targetPersonas: string[];
+  }>;
 }
 
 const VALID_TRIGGER_KEYS = new Set([
   'onPROpened',
   'onPRMerged',
+  'onPRClosed',
+  'onPRReviewRequested',
   'onCIPassed',
+  'onTestFailure',
+  'onTestSuccess',
+  'onStatusChange',
   'onTaskCreated',
+  'onAssignmentChanged',
+  'onPriorityChanged',
+  'onCommentAdded',
+  'onLinkAdded',
+  'onDueDateApproaching',
 ]);
 
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
 ]);
 const PERSONA_ID_PATTERN = /^[a-z0-9-]+$/;
-const BUILTIN_TRIGGER_DEFAULTS: Record<string, PersonaTriggers> = {
+export const BUILTIN_TRIGGER_DEFAULTS: Record<string, PersonaTriggers> = {
   'qa-reviewer': { onPROpened: true },
   'tech-writer': { onPRMerged: true },
 };
@@ -233,16 +255,18 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     prompt: yaml.prompt,
     specialties: yaml.specialties,
     skills: yaml.skills,
-    triggers: yaml.triggers,
+    triggers,
     budgetCap: yaml.budgetCap,
     model: yaml.model,
-    triggers,
     providers: yaml.providers,
-    skills: yaml.skills,
-    budgetCap: yaml.budgetCap,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
+    // Phase 3: Orchestrator fields
+    orchestrator: yaml.orchestrator,
+    canDelegate: yaml.canDelegate,
+    specialists: yaml.specialists,
+    delegationRules: yaml.delegationRules,
   };
 }
 

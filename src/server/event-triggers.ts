@@ -5,8 +5,7 @@
  * Events include PR operations, test failures, status changes, etc.
  */
 
-import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
-import { listPersonas } from './persona-storage.js';
+import { readTask, getAllPersonas } from './storage.js';
 import type { ActivityLog } from '../client/types/index.js';
 
 export type TriggerEventType =
@@ -52,26 +51,63 @@ export interface TriggerCondition {
 // In-memory subscription registry
 const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
 
+// Map camelCase trigger keys to snake_case event types
+function mapTriggerKeyToEventType(key: string): TriggerEventType | null {
+  const mapping: Record<string, TriggerEventType> = {
+    onPROpened: 'pr_opened',
+    onPRMerged: 'pr_merged',
+    onPRClosed: 'pr_closed',
+    onPRReviewRequested: 'pr_review_requested',
+    onCIPassed: 'test_success',
+    onTestFailure: 'test_failure',
+    onTestSuccess: 'test_success',
+    onStatusChange: 'status_change',
+    onTaskCreated: 'task_created',
+    onAssignmentChanged: 'assignment_changed',
+    onPriorityChanged: 'priority_changed',
+    onCommentAdded: 'comment_added',
+    onLinkAdded: 'link_added',
+    onDueDateApproaching: 'due_date_approaching',
+  };
+  return mapping[key] || null;
+}
+
 /**
  * Initialize trigger system - load persona trigger configs
  */
 export async function initializeTriggerSystem(): Promise<void> {
-  const personas = await listPersonas();
+  const personas = await getAllPersonas();
   
   for (const persona of personas) {
-    if (persona.triggers && persona.triggers.length > 0) {
-      const eventTypes = persona.triggers as TriggerEventType[];
-      const trigger: PersonaTrigger = {
-        personaId: persona.id,
-        eventTypes,
-        priority: 100, // Default priority
-      };
+    if (persona.triggers && typeof persona.triggers === 'object') {
+      const triggerEntries = Object.entries(persona.triggers).filter(([_, enabled]) => enabled);
       
-      for (const eventType of eventTypes) {
-        if (!triggerSubscriptions.has(eventType)) {
-          triggerSubscriptions.set(eventType, []);
+      if (triggerEntries.length > 0) {
+        const eventTypes: TriggerEventType[] = [];
+        
+        for (const [key, enabled] of triggerEntries) {
+          if (enabled) {
+            const eventType = mapTriggerKeyToEventType(key);
+            if (eventType) {
+              eventTypes.push(eventType);
+            }
+          }
         }
-        triggerSubscriptions.get(eventType)!.push(trigger);
+        
+        if (eventTypes.length > 0) {
+          const trigger: PersonaTrigger = {
+            personaId: persona.id,
+            eventTypes,
+            priority: 100, // Default priority
+          };
+          
+          for (const eventType of eventTypes) {
+            if (!triggerSubscriptions.has(eventType)) {
+              triggerSubscriptions.set(eventType, []);
+            }
+            triggerSubscriptions.get(eventType)!.push(trigger);
+          }
+        }
       }
     }
   }

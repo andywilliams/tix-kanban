@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
-import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { enforceProviderAccess, BUILTIN_TRIGGER_DEFAULTS } from './persona-yaml-loader.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -173,11 +173,6 @@ interface WorkerTriggerTaskState {
 interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
-
-const BUILTIN_EVENT_TRIGGER_DEFAULTS: Record<string, Partial<NonNullable<Persona['triggers']>>> = {
-  'qa-reviewer': { onPROpened: true },
-  'tech-writer': { onPRMerged: true },
-};
 
 interface WorkerState {
   enabled: boolean;
@@ -424,7 +419,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 }
 
 function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
-  const defaults = BUILTIN_EVENT_TRIGGER_DEFAULTS[persona.id] || {};
+  const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
   const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
   return Boolean(effectiveTriggers[eventType]);
 }
@@ -446,12 +441,10 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     '',
     '## Trigger Event Context',
     eventDescriptionMap[eventType],
-    details ? `Details: ${details}` : '',
+    ...(details ? [`Details: ${details}`] : []),
     '',
     'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
 }
 
 async function invokeTriggerPersona(
@@ -546,21 +539,24 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
       const previous = taskState.prs[pr.key];
 
-      if (state === 'open' && (!previous || previous.state !== 'open')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
-          enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      // Only fire transitions when we have a prior snapshot — first run just seeds the state
+      if (previous) {
+        if (state === 'open' && previous.state !== 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
 
-      if (state === 'merged' && (!previous || previous.state !== 'merged')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
-          enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        if (state === 'merged' && previous.state !== 'merged') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
+            enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
 
-      if (ciState === 'SUCCESS' && (!previous || previous.ciState !== 'SUCCESS')) {
-        for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
-          enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
+          for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
+            enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
       }
     }
