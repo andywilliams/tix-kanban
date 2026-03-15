@@ -113,8 +113,7 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
 // getLinkedPRReferences and getPullRequestState deduplicated into pr-utils.ts
 // (parsePRLinks and getPRState imported above)
 
-async function isPRMerged(links: Task['links']): Promise<boolean> {
-  const linkedPRs = parsePRLinks(links);
+async function isPRMerged(linkedPRs: ReturnType<typeof parsePRLinks>): Promise<boolean> {
   if (linkedPRs.length === 0) {
     return false;
   }
@@ -667,8 +666,8 @@ async function handleMaxCyclesReached(
     });
     // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    const hasLinkedPR = parsePRLinks(task.links).length > 0;
-    const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
+    const linkedPRs = parsePRLinks(task.links);
+    const merged = linkedPRs.length > 0 ? await isPRMerged(linkedPRs) : true;
 
     if (merged) {
       // Auto-approve to done only when linked PR is merged (or there is no linked PR)
