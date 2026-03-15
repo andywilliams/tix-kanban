@@ -44,7 +44,7 @@ export interface PersonaYamlSchema {
   specialists?: Array<{ specialty: string; personaIds: string[] }>;
   /** Rules for automatic delegation (optional) */
   delegationRules?: Array<{
-    condition: { field: string; operator: 'equals' | 'contains' | 'matches'; value: any };
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
     action: 'delegate' | 'parallel' | 'sequential';
     targetPersonas: string[];
   }>;

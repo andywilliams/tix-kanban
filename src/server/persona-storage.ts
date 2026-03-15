@@ -22,6 +22,15 @@ interface PersonaIndex {
     skills?: string[];
     budgetCap?: { perTask?: number; perDay?: number };
     model?: string;
+    // Phase 3: Orchestrator pattern
+    orchestrator?: boolean;
+    canDelegate?: boolean;
+    specialists?: Array<{ specialty: string; personaIds: string[] }>;
+    delegationRules?: Array<{
+      condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
+      action: 'delegate' | 'parallel' | 'sequential';
+      targetPersonas: string[];
+    }>;
     createdAt: string;
     updatedAt: string;
   };
@@ -148,6 +157,10 @@ export async function getAllPersonas(): Promise<Persona[]> {
         skills: data.skills,
         budgetCap: data.budgetCap,
         model: data.model,
+        orchestrator: data.orchestrator,
+        canDelegate: data.canDelegate,
+        specialists: data.specialists,
+        delegationRules: data.delegationRules,
         prompt,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
@@ -185,6 +198,10 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       skills: data.skills,
       budgetCap: data.budgetCap,
       model: data.model,
+      orchestrator: data.orchestrator,
+      canDelegate: data.canDelegate,
+      specialists: data.specialists,
+      delegationRules: data.delegationRules,
       prompt,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
@@ -226,6 +243,10 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       skills: persona.skills,
       budgetCap: persona.budgetCap,
       model: persona.model,
+      orchestrator: persona.orchestrator,
+      canDelegate: persona.canDelegate,
+      specialists: persona.specialists,
+      delegationRules: persona.delegationRules,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
     };
@@ -268,6 +289,10 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       skills: updatedPersona.skills,
       budgetCap: updatedPersona.budgetCap,
       model: updatedPersona.model,
+      orchestrator: updatedPersona.orchestrator,
+      canDelegate: updatedPersona.canDelegate,
+      specialists: updatedPersona.specialists,
+      delegationRules: updatedPersona.delegationRules,
       stats: updatedPersona.stats,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),
