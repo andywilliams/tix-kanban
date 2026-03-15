@@ -41,6 +41,7 @@ export interface OrchestratedTask {
   startedAt: Date;
   completedAt?: Date;
   status: 'planning' | 'executing' | 'completed' | 'failed';
+  parallelExecutionId?: string;
 }
 
 export interface Subtask {
@@ -136,7 +137,14 @@ export async function startOrchestration(orchestrationId: string): Promise<void>
       personaIds,
       'merge-fields'
     );
-    
+
+    // Store the execution ID so completeSubtask / finalizeExecution can reference it,
+    // and mark all parallel subtasks as running.
+    orchestration.parallelExecutionId = executionId;
+    for (const subtask of orchestration.subtasks) {
+      subtask.status = 'running';
+    }
+
     console.log(`🔀 Started parallel execution ${executionId} for orchestration ${orchestrationId}`);
   } else {
     // Sequential - start first subtask

@@ -554,13 +554,10 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         continue;
       }
       const ciState = await getPRCIState(pr.repo, pr.number);
-      // Skip storing null ciState — a transient CI fetch error shouldn't reset the snapshot
-      // and cause the next successful poll to look like a state transition.
-      if (ciState === null && previous?.ciState != null) {
-        newSnapshots[pr.key] = previous;
-        continue;
-      }
-      const current: PRSnapshot = { state, ciState };
+      // On transient CI fetch failure, preserve the last known ciState so the snapshot
+      // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
+      const effectiveCiState = ciState ?? previous?.ciState ?? null;
+      const current: PRSnapshot = { state, ciState: effectiveCiState };
       newSnapshots[pr.key] = current;
 
       if (!previous) {
