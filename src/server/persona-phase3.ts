@@ -92,7 +92,8 @@ function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventTyp
   if (triggers.onCommentAdded) eventTypes.push('comment_added');
   if (triggers.onDueDateApproaching) eventTypes.push('due_date_approaching');
   
-  return eventTypes;
+  // Deduplicate: onCIPassed and onTestSuccess both resolve to 'test_success'
+  return [...new Set(eventTypes)];
 }
 
 /**
