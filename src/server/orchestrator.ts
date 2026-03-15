@@ -9,6 +9,7 @@ import { readTask, writeTask, withTaskLock, logActivity } from './storage.js';
 import { getPersona } from './persona-storage.js';
 import { startParallelExecution, markPersonaStarted, recordPersonaCompletion } from './parallel-execution.js';
 import type { Task } from '../client/types/index.js';
+import { evaluateCondition, TriggerCondition } from './event-triggers.js';
 
 export interface OrchestratorConfig {
   personaId: string; // The orchestrator persona
@@ -332,36 +333,11 @@ export async function evaluateDelegationRules(
   }
   
   for (const rule of config.delegationRules) {
-    const fieldValue = (task as any)[rule.condition.field];
-    let matches = false;
-    
-    switch (rule.condition.operator) {
-      case 'equals':
-        matches = fieldValue === rule.condition.value;
-        break;
-      case 'contains':
-        if (Array.isArray(fieldValue)) {
-          matches = fieldValue.includes(rule.condition.value);
-        } else if (typeof fieldValue === 'string') {
-          matches = fieldValue.includes(rule.condition.value);
-        }
-        break;
-      case 'matches':
-        if (typeof fieldValue === 'string') {
-          try {
-            matches = new RegExp(rule.condition.value).test(fieldValue);
-          } catch {
-            console.warn(`[orchestrator] Invalid regex pattern in delegation rule: "${rule.condition.value}"`);
-          }
-        }
-        break;
-      case 'greaterThan':
-        matches = typeof fieldValue === 'number' && fieldValue > Number(rule.condition.value);
-        break;
-      case 'lessThan':
-        matches = typeof fieldValue === 'number' && fieldValue < Number(rule.condition.value);
-        break;
-    }
+    // Use the shared evaluateCondition from event-triggers.ts to avoid
+    // duplicating condition-evaluation logic across orchestrator, worker, and
+    // the event-trigger system.  DelegationRule.condition is structurally
+    // identical to TriggerCondition, so the cast is safe.
+    const matches = evaluateCondition(rule.condition as TriggerCondition, task);
     
     if (matches) {
       return {

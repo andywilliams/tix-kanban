@@ -27,6 +27,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
+import { evaluateCondition, TriggerCondition } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -452,23 +453,9 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
 function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
   const conditions = persona.triggers?.conditions;
   if (!conditions || conditions.length === 0) return true;
-  return conditions.every((cond) => {
-    const fieldValue = (task as any)[cond.field];
-    switch (cond.operator) {
-      case 'equals': return fieldValue === cond.value;
-      case 'contains':
-        if (Array.isArray(fieldValue)) return fieldValue.includes(cond.value);
-        return typeof fieldValue === 'string' && fieldValue.includes(cond.value);
-      case 'matches':
-        try { return typeof fieldValue === 'string' && new RegExp(cond.value).test(fieldValue); }
-        catch { return false; }
-      case 'greaterThan': return typeof fieldValue === 'number' && fieldValue > Number(cond.value);
-      case 'lessThan': return typeof fieldValue === 'number' && fieldValue < Number(cond.value);
-      default:
-        console.warn(`[worker] Unknown trigger condition operator: "${cond.operator}" — treating as no-match`);
-        return false;
-    }
-  });
+  // Delegate to the shared evaluateCondition from event-triggers.ts — no event
+  // context available in the polling path, so metadata.* fields will be undefined.
+  return conditions.every((cond) => evaluateCondition(cond as TriggerCondition, task));
 }
 
 function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {

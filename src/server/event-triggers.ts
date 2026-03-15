@@ -209,15 +209,26 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
 }
 
 /**
- * Evaluate a trigger condition against task/event data
+ * Evaluate a single trigger condition against task/event data.
+ *
+ * Exported so that other modules (e.g. worker.ts, orchestrator.ts) can reuse
+ * the same evaluation logic instead of duplicating it.
+ *
+ * @param condition - The condition to evaluate
+ * @param task      - The task object to match against
+ * @param event     - Optional trigger event; required only for metadata.* fields
  */
-function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
+export function evaluateCondition(
+  condition: TriggerCondition,
+  task: any,
+  event?: TriggerEvent
+): boolean {
   let actualValue: any;
   
   // Extract value from task or event metadata
   if (condition.field.startsWith('metadata.')) {
     const metadataKey = condition.field.substring(9);
-    actualValue = event.metadata?.[metadataKey];
+    actualValue = event?.metadata?.[metadataKey];
   } else {
     actualValue = task[condition.field];
   }
