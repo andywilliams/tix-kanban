@@ -105,14 +105,17 @@ async function loadFromUrl(
       throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
     }
     const hostname = parsed.hostname.toLowerCase();
-    // Block loopback, private RFC-1918 ranges, and link-local addresses
+    // Block loopback, private RFC-1918 ranges, link-local, and IPv4-mapped IPv6 addresses
     if (
       hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '::1' ||
-      hostname.startsWith('169.254.') ||    // link-local
-      hostname.startsWith('10.') ||          // RFC-1918
-      hostname.startsWith('192.168.') ||     // RFC-1918
+      hostname.startsWith('127.') ||         // Full 127.0.0.0/8 loopback range
+      hostname === '0.0.0.0' ||               // Linux resolves to localhost
+      hostname === '::1' ||                   // IPv6 loopback
+      hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
+      hostname.startsWith('::ffff:0.0.0.0') || // IPv4-mapped IPv6 0.0.0.0
+      hostname.startsWith('169.254.') ||      // link-local
+      hostname.startsWith('10.') ||           // RFC-1918
+      hostname.startsWith('192.168.') ||      // RFC-1918
       /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) // RFC-1918 172.16–31
     ) {
       throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
@@ -157,7 +160,6 @@ async function loadFromUrl(
  * Files must resolve to one of these directories to prevent path traversal attacks.
  */
 const ALLOWED_PERSONA_DIRS: string[] = [
-  path.resolve(process.cwd()),
   path.resolve(process.cwd(), 'personas'),
   path.resolve(process.cwd(), 'config/personas'),
 ];
