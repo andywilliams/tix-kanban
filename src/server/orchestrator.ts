@@ -355,11 +355,15 @@ export async function evaluateDelegationRules(
           }
         }
         break;
+      case 'greaterThan':
+        matches = typeof fieldValue === 'number' && fieldValue > Number(rule.condition.value);
+        break;
     }
     
     if (matches) {
       return {
-        shouldDelegate: rule.action === 'delegate',
+        // All three action types (delegate, parallel, sequential) mean "yes, delegate"
+        shouldDelegate: true,
         targetPersonas: rule.targetPersonas,
         strategy: rule.action === 'parallel' ? 'parallel' : 'sequential',
       };
