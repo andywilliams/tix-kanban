@@ -1,6 +1,7 @@
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
@@ -10,6 +11,10 @@ import {
   idFromFilename
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
+
+// ESM __dirname polyfill
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,10 +120,13 @@ async function loadFromUrl(
       hostname === '::1' ||                   // IPv6 loopback
       hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
       hostname.startsWith('::ffff:0.0.0.0') || // IPv4-mapped IPv6 0.0.0.0
-      hostname.startsWith('169.254.') ||      // link-local
+      hostname.startsWith('169.254.') ||      // IPv4 link-local
       hostname.startsWith('10.') ||           // RFC-1918
       hostname.startsWith('192.168.') ||      // RFC-1918
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) // RFC-1918 172.16–31
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) || // RFC-1918 172.16–31
+      hostname.startsWith('fc') ||            // IPv6 unique-local (fc00::/7)
+      hostname.startsWith('fd') ||            // IPv6 unique-local (fc00::/7)
+      hostname.startsWith('fe80:')            // IPv6 link-local (fe80::/10)
     ) {
       throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
     }
