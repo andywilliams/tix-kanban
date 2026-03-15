@@ -10,6 +10,15 @@ export interface BudgetCap {
   perDay?: number;
 }
 
+export interface InvocationConfig {
+  /** List of persona IDs this persona can invoke */
+  allow?: string[];
+  /** If true, can invoke any persona */
+  allowAll?: boolean;
+  /** Maximum concurrent invocations */
+  maxConcurrent?: number;
+}
+
 export interface PersonaYamlSchema {
   /** Unique identifier – derived from filename if omitted */
   id?: string;
@@ -33,6 +42,8 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
+  /** Invocation permissions – which personas this one can call (optional) */
+  invocations?: InvocationConfig;
 }
 
 // Valid values according to the schema docs
@@ -170,6 +181,30 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     }
   }
 
+  if (d.invocations !== undefined) {
+    if (d.invocations === null || typeof d.invocations !== 'object' || Array.isArray(d.invocations)) {
+      errors.push('Field "invocations" must be an object');
+    } else {
+      const inv = d.invocations as Record<string, unknown>;
+      
+      if (inv.allow !== undefined) {
+        if (!Array.isArray(inv.allow)) {
+          errors.push('Field "invocations.allow" must be an array');
+        } else if (!inv.allow.every((p) => typeof p === 'string')) {
+          errors.push('Field "invocations.allow" must be an array of strings');
+        }
+      }
+      
+      if (inv.allowAll !== undefined && typeof inv.allowAll !== 'boolean') {
+        errors.push('Field "invocations.allowAll" must be a boolean');
+      }
+      
+      if (inv.maxConcurrent !== undefined && typeof inv.maxConcurrent !== 'number') {
+        errors.push('Field "invocations.maxConcurrent" must be a number');
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors, warnings };
 }
 
@@ -215,7 +250,7 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     );
   }
   const now = new Date();
-  return {
+  const persona: any = {
     id,
     name: yaml.name,
     emoji: yaml.emoji,
@@ -231,6 +266,13 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     createdAt: now,
     updatedAt: now,
   };
+  
+  // Include invocations if present
+  if (yaml.invocations) {
+    persona.invocations = yaml.invocations;
+  }
+  
+  return persona;
 }
 
 /**
