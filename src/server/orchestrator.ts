@@ -18,7 +18,7 @@ export interface OrchestratorConfig {
 export interface DelegationRule {
   condition: {
     field: string;
-    operator: 'equals' | 'contains' | 'matches';
+    operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan';
     value: any;
   };
   action: 'delegate' | 'parallel' | 'sequential';
@@ -348,6 +348,12 @@ export async function evaluateDelegationRules(
         if (typeof fieldValue === 'string') {
           matches = new RegExp(rule.condition.value).test(fieldValue);
         }
+        break;
+      case 'greaterThan':
+        matches = fieldValue > rule.condition.value;
+        break;
+      case 'lessThan':
+        matches = fieldValue < rule.condition.value;
         break;
     }
     

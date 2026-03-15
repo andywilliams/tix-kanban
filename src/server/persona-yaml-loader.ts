@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
 import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,10 +70,7 @@ const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
 ]);
 const PERSONA_ID_PATTERN = /^[a-z0-9-]+$/;
-const BUILTIN_TRIGGER_DEFAULTS: Record<string, PersonaTriggers> = {
-  'qa-reviewer': { onPROpened: true },
-  'tech-writer': { onPRMerged: true },
-};
+// Built-in trigger defaults are now imported from persona-constants.ts
 
 // ── Validation ───────────────────────────────────────────────────────────────
 

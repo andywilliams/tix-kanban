@@ -83,7 +83,8 @@ export async function initializeTriggerSystem(): Promise<void> {
         const trigger: PersonaTrigger = {
           personaId: persona.id,
           eventTypes,
-          priority: persona.triggers.priority ?? 100,
+          conditions: persona.triggers?.conditions,
+          priority: persona.triggers?.priority ?? 100,
         };
 
         for (const eventType of eventTypes) {
