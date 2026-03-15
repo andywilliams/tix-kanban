@@ -479,9 +479,23 @@ export function clearPersonaCache(location?: string, authToken?: string): void {
       }
       return;
     }
-    const cacheKey = getCacheKey(normalizedLocation, authToken);
-    delete personaCache[cacheKey];
-    console.log(`[persona-external-loader] Cleared cache for ${cacheKey}`);
+    if (authToken) {
+      // Caller knows the token — clear the exact keyed entry
+      const cacheKey = getCacheKey(normalizedLocation, authToken);
+      delete personaCache[cacheKey];
+      console.log(`[persona-external-loader] Cleared cache for ${cacheKey}`);
+    } else {
+      // No token provided — clear ALL cache entries for this URL (all auth variants)
+      const prefix = `${normalizedLocation}::`;
+      let cleared = 0;
+      for (const key of Object.keys(personaCache)) {
+        if (key === normalizedLocation || key.startsWith(prefix)) {
+          delete personaCache[key];
+          cleared++;
+        }
+      }
+      console.log(`[persona-external-loader] Cleared ${cleared} cache entries for ${normalizedLocation}`);
+    }
   } else {
     Object.keys(personaCache).forEach(key => delete personaCache[key]);
     console.log('[persona-external-loader] Cleared all persona cache');
