@@ -17,7 +17,7 @@ import {
 import { Task, Persona, Comment } from '../client/types/index.js';
 import { TaskPipelineState, TaskStageHistory } from '../client/types/pipeline.js';
 import { initiateAutoReview, executeReviewCycle, getTaskReviewState, deleteTaskReviewState } from './auto-review.js';
-import { parsePRLinks, getPRStateShared, type ParsedPRLink } from './pr-utils.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
@@ -368,15 +368,6 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
 
 
 
-// Thin wrappers around shared pr-utils — keeps local callers unchanged.
-function parseTaskPRLinks(links: Task['links']): ParsedPRLink[] {
-  return parsePRLinks(links);
-}
-
-async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
-  return getPRStateShared(repo, number);
-}
-
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
     const { stdout } = await execFile(
@@ -526,12 +517,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[], preProcessStatuse
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
-    const prLinks = parseTaskPRLinks(fullTask.links);
+    const prLinks = parsePRLinks(fullTask.links);
     const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
-      const state = await getPRState(pr.repo, pr.number);
+      const state = await getPRStateShared(pr.repo, pr.number);
       const ciState = await getPRCIState(pr.repo, pr.number);
       const current: PRSnapshot = { state, ciState };
       newSnapshots[pr.key] = current;

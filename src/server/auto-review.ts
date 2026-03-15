@@ -110,11 +110,6 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
-// Thin wrappers around the shared pr-utils so callers in this file don't need to change.
-function getLinkedPRReferences(links: Task['links']): Array<{ repo: string; number: number }> {
-  return parsePRLinks(links);
-}
-
 async function getPullRequestState(repo: string, number: number): Promise<string | null> {
   const state = await getPRStateShared(repo, number);
   // Callers in this file expect uppercase state strings (e.g. 'MERGED')
@@ -122,7 +117,7 @@ async function getPullRequestState(repo: string, number: number): Promise<string
 }
 
 async function isPRMerged(links: Task['links']): Promise<boolean> {
-  const linkedPRs = getLinkedPRReferences(links);
+  const linkedPRs = parsePRLinks(links);
   if (linkedPRs.length === 0) {
     return false;
   }
@@ -759,7 +754,7 @@ async function handleMaxCyclesReached(
     });
     // Preserve review state — deleting it here would strand the task with no auto-review path back out
   } else {
-    const hasLinkedPR = getLinkedPRReferences(task.links).length > 0;
+    const hasLinkedPR = parsePRLinks(task.links).length > 0;
     const merged = hasLinkedPR ? await isPRMerged(task.links) : true;
 
     if (merged) {
