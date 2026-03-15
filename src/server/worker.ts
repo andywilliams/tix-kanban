@@ -153,6 +153,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
+// Worker uses trigger key names (onTaskStarted, onPROpened) not internal event types
 type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
 
 interface PRSnapshot {

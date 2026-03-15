@@ -334,11 +334,12 @@ async function resolveConflicts(
           (merged as any)[field] = values[0].value;
         } else if (firstType === 'array') {
           // Merge arrays and deduplicate
+          console.log(`Merged array field ${field} from ${values.length} personas`);
           const mergedArray = values.flatMap(v => v.value as any[]);
           (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
         } else if (firstType === 'object') {
-          // Merge objects - sort by priority ASCENDING so highest priority wins in Object.assign
-          values.sort((a, b) => a.priority - b.priority);
+          // Merge objects - sort by priority DESCENDING so highest priority wins in Object.assign
+          values.sort((a, b) => b.priority - a.priority);
           const mergedObject = {};
           for (const v of values) {
             Object.assign(mergedObject, v.value);
