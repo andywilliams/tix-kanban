@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
-import { Persona, PersonaStats, InvocationConfig, PersonaTriggers } from '../client/types/index.js';
+import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -34,15 +34,13 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
-  /** Invocation permissions – which personas this one can call (optional) */
-  invocations?: InvocationConfig;
-  /** Whether this persona can orchestrate/delegate to others (optional) */
+  /** Phase 3: Can this persona delegate to others (optional) */
   orchestrator?: boolean;
   /** Alias for orchestrator (optional) */
   canDelegate?: boolean;
-  /** Specialist mappings for delegation (optional) */
+  /** Specialist mappings for orchestrator (optional) */
   specialists?: Array<{ specialty: string; personaIds: string[] }>;
-  /** Rules for automatic delegation (optional) */
+  /** Delegation rules for orchestrator (optional) */
   delegationRules?: Array<{
     condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
     action: 'delegate' | 'parallel' | 'sequential';
@@ -150,6 +148,19 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     } else {
       const triggers = d.triggers as Record<string, unknown>;
       for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
+        // 'conditions' and 'priority' are valid non-boolean fields
+        if (triggerKey === 'conditions') {
+          if (!Array.isArray(triggerValue)) {
+            errors.push('Field "triggers.conditions" must be an array');
+          }
+          continue;
+        }
+        if (triggerKey === 'priority') {
+          if (typeof triggerValue !== 'number') {
+            errors.push('Field "triggers.priority" must be a number');
+          }
+          continue;
+        }
         if (!VALID_TRIGGER_KEYS.has(triggerKey)) {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
@@ -323,11 +334,6 @@ export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Perso
     createdAt: now,
     updatedAt: now,
   };
-
-  // Include invocations if present
-  if (yaml.invocations) {
-    persona.invocations = yaml.invocations;
-  }
 
   return persona;
 }

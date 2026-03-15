@@ -376,6 +376,9 @@ function quoteShellArg(value: string): string {
 
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
+    // Emit each check's conclusion, or "PENDING" for checks still in progress.
+    // Using select(.conclusion) would exclude pending checks, causing SUCCESS to
+    // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
       ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion) | .conclusion'],
@@ -391,6 +394,12 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return null;
     }
 
+    // If any check is still running, CI hasn't fully completed yet.
+    const hasPending = conclusions.some((value) => value === 'PENDING');
+    if (hasPending) {
+      return null;
+    }
+
     const hasFailure = conclusions.some((value) => {
       return value === 'FAILURE' || value === 'TIMED_OUT' || value === 'CANCELLED' || value === 'ACTION_REQUIRED';
     });
@@ -398,8 +407,9 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
       return 'FAILURE';
     }
 
-    const hasSuccess = conclusions.some((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
-    return hasSuccess ? 'SUCCESS' : null;
+    // All checks concluded — every check must have passed.
+    const allPassed = conclusions.every((value) => value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED');
+    return allPassed ? 'SUCCESS' : null;
   } catch (error) {
     console.warn(`Failed to fetch CI state for ${repo}#${number}:`, error);
     return null;
@@ -502,7 +512,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task transitions into in-progress from any previous state.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if (taskState.lastStatus && taskState.lastStatus !== task.status && task.status === 'in-progress') {
+    if (taskState.lastStatus !== task.status && task.status === 'in-progress') {
       const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onTaskStarted', {
         task,
         metadata: { from: taskState.lastStatus, to: task.status },
@@ -535,12 +545,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const newSnapshots: Record<string, PRSnapshot> = {};
 
     for (const pr of prLinks) {
-      const state = await getPRStateShared(pr.repo, pr.number);
-      const ciState = await getPRCIState(pr.repo, pr.number);
-      const current: PRSnapshot = { state, ciState };
-      newSnapshots[pr.key] = current;
-
       const previous = taskState.prs[pr.key];
+      const state = await getPRStateShared(pr.repo, pr.number);
+      if (state === null) {
+        // Preserve the last known snapshot on transient state lookup failures.
+        if (previous) {
+          newSnapshots[pr.key] = previous;
+        }
+        continue;
+      }
+      const ciState = await getPRCIState(pr.repo, pr.number);
+      // On transient CI fetch failure, preserve the last known ciState so the snapshot
+      // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
+      const effectiveCiState = ciState ?? previous?.ciState ?? null;
+      const current: PRSnapshot = { state, ciState: effectiveCiState };
+      newSnapshots[pr.key] = current;
 
       if (!previous) {
         // First observation of this PR — record state without firing merge/CI events.
@@ -619,6 +638,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
     if (hasAutoReviewNote && prLinks.length > 0) {
+      // Match isPRMerged semantics: any linked PR merged is sufficient to close the task
       const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
       if (anyMerged) {
         console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
