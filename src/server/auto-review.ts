@@ -264,8 +264,13 @@ function extractAcceptanceCriteria(description: string): string | null {
     // Extract bullet points or checkboxes from this section
     const criteria = section
       .split('\n')
-      .filter(line => line.trim().match(/^[-*•]\s+\[?\s*\]?/i) || line.trim().match(/^\d+\.\s+/))
-      .map(line => line.replace(/^[-*•]\s+\[?\s*\]?\s*/i, '').trim())
+      .filter(line => line.trim().match(/^[-*•]\s+\[[^\]]*\]/) || line.trim().match(/^[-*•]\s+[^\[]/) || line.trim().match(/^\d+\.\s+/))
+      .map(line => line.trim()
+        .replace(/^[-*•]\s+\[[^\]]*\]\s*/, '')  // strip checkbox (checked or unchecked)
+        .replace(/^[-*•]\s+/, '')                // strip plain bullet
+        .replace(/^\d+\.\s+/, '')               // strip numbered item
+        .trim()
+      )
       .filter(line => line.length > 0);
     
     if (criteria.length > 0) {
@@ -285,7 +290,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   const numberedMatch = description.match(/(?:^|\n)(\d+)\.\s+(?:The|Should|Must|Will|To|Ensure|Given|When|Then)[^\n]+/gi);
   if (numberedMatch && numberedMatch.length >= 2) {
     return numberedMatch
-      .map(line => line.replace(/^\d+\.\s+/i, '').trim())
+      .map(line => line.replace(/^\n/, '').replace(/^\d+\.\s+/i, '').trim())
       .join('\n');
   }
   
