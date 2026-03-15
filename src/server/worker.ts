@@ -515,7 +515,7 @@ async function invokeTriggerPersona(
   }
 }
 
-async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
+async function processEventBasedPersonaTriggers(tasks: Task[], preProcessStatuses?: Map<string, Task['status']>): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
   if (personas.length === 0) {
@@ -538,7 +538,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Use undefined lastStatus as sentinel for "never seen" — don't fire on first observation.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    const previousStatus = taskState.lastStatus; // undefined on first run
+    // Use pre-processing snapshot if available (catches same-cycle backlog→in-progress transitions)
+    const previousStatus = preProcessStatuses?.get(task.id) ?? taskState.lastStatus;
     if (previousStatus === 'backlog' && task.status === 'in-progress') {
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
@@ -1506,6 +1507,11 @@ async function runWorkerCycle(): Promise<void> {
     }
   }
 
+  // Snapshot task statuses before processing so trigger system can detect transitions
+  const preProcessStatuses = new Map<string, Task['status']>(
+    (await getAllTasks()).map(t => [t.id, t.status])
+  );
+
   if (taskToProcess) {
     workerState.lastTaskId = taskToProcess.id;
     await processTask(taskToProcess);
@@ -1516,7 +1522,7 @@ async function runWorkerCycle(): Promise<void> {
   }
 
   const refreshedTasks = await getAllTasks();
-  await processEventBasedPersonaTriggers(refreshedTasks);
+  await processEventBasedPersonaTriggers(refreshedTasks, preProcessStatuses);
 
   if (taskToProcess) {
     const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);

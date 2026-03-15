@@ -339,7 +339,8 @@ function extractAcceptanceCriteria(description: string): string | null {
   if (!description) return null;
   
   // Try to find "Acceptance Criteria" section
-  const acSectionMatch = description.match(/##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n##|\n\n##|$)/i);
+  // Stop only at same-level (##) or higher headings, not sub-headings (###, ####)
+  const acSectionMatch = description.match(/##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
   if (acSectionMatch) {
     const section = acSectionMatch[0];
     // Extract bullet points or checkboxes from this section
