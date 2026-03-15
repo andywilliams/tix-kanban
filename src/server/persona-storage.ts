@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { Persona, PersonaStats } from '../client/types/index.js';
+import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
 import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from './agent-memory.js';
 import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
@@ -17,7 +17,7 @@ interface PersonaIndex {
     description: string;
     specialties: string[];
     stats: PersonaStats;
-    triggers?: string[];
+    triggers?: PersonaTriggers;
     providers?: string[];
     skills?: string[];
     budgetCap?: { perTask?: number; perDay?: number };

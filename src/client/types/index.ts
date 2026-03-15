@@ -126,12 +126,44 @@ export interface Persona {
   specialties: string[]; // Areas of expertise (e.g., ["TypeScript", "React", "API Design"])
   stats: PersonaStats;
   model?: string; // Default AI model for this persona
-  triggers?: string[]; // Trigger event types
+  triggers?: PersonaTriggers; // Phase 3: Event-driven activation
   providers?: string[]; // Allowed provider names – security boundary
   skills?: string[]; // Capabilities this persona can perform
   budgetCap?: { perTask?: number; perDay?: number }; // Token budget caps
+  // Phase 3: Orchestrator pattern
+  orchestrator?: boolean; // Can delegate to other personas
+  canDelegate?: boolean; // Alias for orchestrator
+  specialists?: Array<{ specialty: string; personaIds: string[] }>; // Specialist mappings
+  delegationRules?: Array<{
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches'; value: any };
+    action: 'delegate' | 'parallel' | 'sequential';
+    targetPersonas: string[];
+  }>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface PersonaTriggers {
+  onPROpened?: boolean;
+  onPRMerged?: boolean;
+  onPRClosed?: boolean;
+  onPRReviewRequested?: boolean;
+  onCIPassed?: boolean;
+  onTestFailure?: boolean;
+  onTestSuccess?: boolean;
+  onStatusChange?: boolean;
+  onTaskCreated?: boolean;
+  onAssignmentChanged?: boolean;
+  onPriorityChanged?: boolean;
+  onCommentAdded?: boolean;
+  onDueDateApproaching?: boolean;
+  // Phase 3: Event trigger conditions
+  conditions?: Array<{
+    field: string;
+    operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan';
+    value: any;
+  }>;
+  priority?: number; // Higher priority personas respond first in parallel
 }
 
 export interface PersonaMemory {
