@@ -174,7 +174,16 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
             errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
           }
         } else if (typeof triggerValue !== 'boolean') {
-          errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
+          // Accept config object: { enabled?: boolean, priority?: number }
+          if (
+            typeof triggerValue !== 'object' ||
+            triggerValue === null ||
+            Array.isArray(triggerValue) ||
+            ('enabled' in triggerValue && typeof (triggerValue as any).enabled !== 'boolean') ||
+            ('priority' in triggerValue && typeof (triggerValue as any).priority !== 'number')
+          ) {
+            errors.push(`Field "triggers.${triggerKey}" must be a boolean or a config object { enabled?: boolean, priority?: number }`);
+          }
         }
       }
     }

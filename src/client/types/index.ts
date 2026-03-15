@@ -161,21 +161,21 @@ export interface PersonaTriggerConfig {
 }
 
 export interface PersonaTriggers {
-  onPROpened?: boolean;
-  onPRMerged?: boolean;
-  onPRClosed?: boolean;
-  onPRReviewRequested?: boolean;
-  onCIPassed?: boolean;
-  onTestFailure?: boolean;
-  onTestSuccess?: boolean;
-  onStatusChange?: boolean;
-  onTaskCreated?: boolean;
-  onTaskStarted?: boolean;
-  onAssignmentChanged?: boolean;
-  onPriorityChanged?: boolean;
-  onCommentAdded?: boolean;
+  onPROpened?: boolean | PersonaTriggerConfig;
+  onPRMerged?: boolean | PersonaTriggerConfig;
+  onPRClosed?: boolean | PersonaTriggerConfig;
+  onPRReviewRequested?: boolean | PersonaTriggerConfig;
+  onCIPassed?: boolean | PersonaTriggerConfig;
+  onTestFailure?: boolean | PersonaTriggerConfig;
+  onTestSuccess?: boolean | PersonaTriggerConfig;
+  onStatusChange?: boolean | PersonaTriggerConfig;
+  onTaskCreated?: boolean | PersonaTriggerConfig;
+  onTaskStarted?: boolean | PersonaTriggerConfig;
+  onAssignmentChanged?: boolean | PersonaTriggerConfig;
+  onPriorityChanged?: boolean | PersonaTriggerConfig;
+  onCommentAdded?: boolean | PersonaTriggerConfig;
   onLinkAdded?: boolean;
-  onDueDateApproaching?: boolean;
+  onDueDateApproaching?: boolean | PersonaTriggerConfig;
   // Phase 3: Event trigger conditions
   conditions?: Array<{
     field: string;
