@@ -319,9 +319,11 @@ async function resolveConflicts(
           const mergedArray = values.flatMap(v => v.value as any[]);
           (merged as any)[field] = Array.from(new Set(mergedArray.map(JSON.stringify))).map(JSON.parse);
         } else if (typeof values[0].value === 'object' && values[0].value !== null) {
-          // Merge objects
+          // Merge objects — sort ascending so highest-priority persona is applied last
+          // and wins conflicts (Object.assign gives precedence to the last argument).
+          const sortedByPriority = [...values].sort((a, b) => a.priority - b.priority);
           const mergedObject = {};
-          for (const v of values) {
+          for (const v of sortedByPriority) {
             Object.assign(mergedObject, v.value);
           }
           (merged as any)[field] = mergedObject;
