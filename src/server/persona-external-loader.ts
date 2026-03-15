@@ -107,12 +107,19 @@ async function loadFromUrl(
       hostname.startsWith('169.254.') ||      // IPv4 link-local
       hostname.startsWith('10.') ||           // RFC-1918
       hostname.startsWith('192.168.') ||      // RFC-1918
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) || // RFC-1918 172.16–31
-      hostname.startsWith('fc') ||            // IPv6 unique-local (fc00::/7)
-      hostname.startsWith('fd') ||            // IPv6 unique-local (fc00::/7)
-      hostname.startsWith('fe80:')            // IPv6 link-local (fe80::/10)
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)    // RFC-1918 172.16–31
     ) {
       throw new Error(`Security violation: requests to internal addresses are not allowed (${hostname})`);
+    }
+    // Additional IPv6-specific checks (only apply to IPv6 addresses containing colons)
+    const isIPv6 = hostname.includes(':');
+    if (isIPv6) {
+      if (hostname.startsWith('fc') || hostname.startsWith('fd')) {
+        throw new Error('IPv6 unique-local addresses blocked');
+      }
+      if (hostname.startsWith('fe80')) {
+        throw new Error('IPv6 link-local addresses blocked');
+      }
     }
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('Security violation')) throw e;

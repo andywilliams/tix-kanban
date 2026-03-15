@@ -155,6 +155,11 @@ export interface InvocationConfig {
   maxConcurrent?: number;
 }
 
+export interface PersonaTriggerConfig {
+  enabled?: boolean;
+  priority?: number;
+}
+
 export interface PersonaTriggers {
   onPROpened?: boolean;
   onPRMerged?: boolean;
@@ -169,7 +174,7 @@ export interface PersonaTriggers {
   onAssignmentChanged?: boolean;
   onPriorityChanged?: boolean;
   onCommentAdded?: boolean;
-  onLinkAdded?: boolean;
+  onLinkAdded?: PersonaTriggerConfig | boolean;
   onDueDateApproaching?: boolean;
   // Phase 3: Event trigger conditions
   conditions?: Array<{
