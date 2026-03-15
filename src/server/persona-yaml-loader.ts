@@ -241,16 +241,25 @@ function buildDefaultStats(): PersonaStats {
 
 /**
  * Convert a validated PersonaYamlSchema + filename into a Persona object.
+ * If filename is not provided, ID must be present in the schema.
  */
-function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
-  const id = yaml.id ?? idFromFilename(filename);
+export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Persona {
+  let id = yaml.id;
+  if (!id && filename) {
+    id = idFromFilename(filename);
+  }
+  if (!id) {
+    throw new Error(
+      `Persona ID is required. Provide it in the schema or as filename.`,
+    );
+  }
   if (!PERSONA_ID_PATTERN.test(id)) {
     throw new Error(
-      `Invalid persona id "${id}" in ${filename}. IDs must use lowercase letters, numbers, and hyphens.`,
+      `Invalid persona id "${id}". IDs must use lowercase letters, numbers, and hyphens.`,
     );
   }
   const now = new Date();
-  const persona: any = {
+  const persona: Persona = {
     id,
     name: yaml.name,
     emoji: yaml.emoji,

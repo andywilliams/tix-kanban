@@ -5,7 +5,8 @@ import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
   validatePersonaYaml, 
-  ValidationResult 
+  ValidationResult,
+  yamlToPersona
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
 
@@ -239,60 +240,25 @@ function parseAndValidate(
 }
 
 /**
- * Convert PersonaYamlSchema to Persona object
+ * Convert PersonaYamlSchema to Persona object using shared helper
  */
 function schemaToPersona(
   schema: PersonaYamlSchema, 
   sourceLocation: string
 ): Persona {
-  // Derive ID from filename or use provided ID
-  let id = schema.id;
-  if (!id) {
-    // Try to extract from URL or file path
+  // Ensure ID is set - derive from sourceLocation if not provided
+  if (!schema.id) {
     const basename = path.basename(sourceLocation, '.yaml')
       .replace(/\.yml$/, '');
-    id = basename
+    schema.id = basename
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
   }
 
-  const now = new Date();
-  const persona: any = {
-    id,
-    name: schema.name,
-    emoji: schema.emoji,
-    description: schema.description,
-    prompt: schema.prompt,
-    specialties: schema.specialties,
-    model: schema.model,
-    triggers: schema.triggers,
-    providers: schema.providers,
-    skills: schema.skills,
-    budgetCap: schema.budgetCap,
-    stats: {
-      tasksCompleted: 0,
-      averageCompletionTime: 0,
-      successRate: 0,
-      ratings: {
-        total: 0,
-        good: 0,
-        needsImprovement: 0,
-        redo: 0,
-        averageRating: 0,
-      },
-    },
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  // Include invocations if present (mirrors yamlToPersona behaviour)
-  if (schema.invocations) {
-    persona.invocations = schema.invocations;
-  }
-
-  return persona as Persona;
+  // Use shared conversion function - passing undefined for filename since ID is set
+  return yamlToPersona(schema);
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

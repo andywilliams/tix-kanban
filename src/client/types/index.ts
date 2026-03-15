@@ -130,8 +130,19 @@ export interface Persona {
   providers?: string[]; // Allowed provider names – security boundary
   skills?: string[]; // Capabilities this persona can perform
   budgetCap?: { perTask?: number; perDay?: number }; // Token budget caps
+  invocations?: InvocationConfig; // Persona invocation permissions (Phase 4)
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Phase 4: Persona collaboration - invocation permissions
+export interface InvocationConfig {
+  /** List of persona IDs this persona can invoke */
+  allow?: string[];
+  /** If true, can invoke any persona */
+  allowAll?: boolean;
+  /** Maximum concurrent invocations */
+  maxConcurrent?: number;
 }
 
 export interface PersonaMemory {
