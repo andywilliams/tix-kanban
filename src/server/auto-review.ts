@@ -287,7 +287,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   
   // Try to find "Acceptance Criteria" section
   // Stop only at same-level (##) or higher headings, not sub-headings (###, ####)
-  const acSectionMatch = description.match(/##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/i);
+  const acSectionMatch = description.match(/^##?\s*Acceptance\s+Criteria[\s\S]*?(?=\n#{1,2}[^#]|\n\n#{1,2}[^#]|$)/im);
   if (acSectionMatch) {
     const section = acSectionMatch[0];
     // Extract bullet points or checkboxes from this section
@@ -328,7 +328,7 @@ function extractAcceptanceCriteria(description: string): string | null {
   
   // Try numbered criteria like "1. ..." that look like acceptance criteria
   // Use multiline flag so ^ matches at start of each line — no leading \n in matches
-  const numberedMatch = description.match(/^\d+\.\s+(?:The|Should|Must|Will|To|Ensure|Given|When|Then)[^\n]+/gim);
+  const numberedMatch = description.match(/^\d+\.\s+(?:Should|Must|Ensure|Given|When|Then)[^\n]+/gim);
   if (numberedMatch && numberedMatch.length >= 2) {
     return numberedMatch
       .map(line => line.replace(/^\d+\.\s+/i, '').trim())

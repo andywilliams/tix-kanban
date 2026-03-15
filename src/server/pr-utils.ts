@@ -2,11 +2,11 @@
  * Shared PR utilities — used by both auto-review.ts and worker.ts.
  * Extracted here to avoid circular imports and keep both files in sync.
  */
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ParsedPRLink {
   repo: string;
@@ -49,8 +49,9 @@ export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
  */
 export async function getPRStateShared(repo: string, number: number): Promise<'open' | 'merged' | 'closed' | null> {
   try {
-    const { stdout } = await execAsync(
-      `gh pr view ${number} --repo '${repo.replace(/'/g, `'\\''`)}' --json state --jq .state`,
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     const state = stdout.trim().toUpperCase();
