@@ -71,6 +71,7 @@ import {
   updatePersonaStats
 } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { loadExternalPersona, loadExternalPersonas, clearPersonaCache, ExternalPersonaSource } from './persona-external-loader.js';
 import {
   getGitHubConfig,
   saveGitHubConfig,
@@ -1511,6 +1512,56 @@ app.get('/api/personas', async (_req, res) => {
   } catch (error) {
     console.error('GET /api/personas error:', error);
     res.status(500).json({ error: 'Failed to fetch personas' });
+  }
+});
+
+// POST /api/personas/external - Load a persona from an external URL or file path
+app.post('/api/personas/external', async (req, res) => {
+  try {
+    const { location, type, cacheDurationSeconds, authToken } = req.body as ExternalPersonaSource & { type: 'url' | 'file' };
+    if (!location || !type) {
+      return res.status(400).json({ error: 'location and type are required' });
+    }
+    const source: ExternalPersonaSource = { location, type, cacheDurationSeconds, authToken };
+    const loaded = await loadExternalPersona(source);
+    res.json({ persona: loaded.persona, loadedAt: loaded.loadedAt, cacheExpiresAt: loaded.cacheExpiresAt });
+  } catch (error) {
+    console.error('POST /api/personas/external error:', error);
+    res.status(500).json({ error: 'Failed to load external persona', details: String(error) });
+  }
+});
+
+// POST /api/personas/external/batch - Load multiple personas from external sources
+app.post('/api/personas/external/batch', async (req, res) => {
+  try {
+    const { sources } = req.body as { sources: ExternalPersonaSource[] };
+    if (!Array.isArray(sources) || sources.length === 0) {
+      return res.status(400).json({ error: 'sources array is required' });
+    }
+    const results = await loadExternalPersonas(sources);
+    const sanitizedFailed = results.failed.map(({ source, error }) => ({
+      source: { ...source, authToken: undefined },
+      error,
+    }));
+    res.json({
+      loaded: results.loaded.map(l => ({ persona: l.persona, loadedAt: l.loadedAt })),
+      failed: sanitizedFailed,
+    });
+  } catch (error) {
+    console.error('POST /api/personas/external/batch error:', error);
+    res.status(500).json({ error: 'Failed to load external personas', details: String(error) });
+  }
+});
+
+// DELETE /api/personas/external/cache - Clear the external persona cache
+app.delete('/api/personas/external/cache', (req, res) => {
+  try {
+    const { location } = req.query as { location?: string };
+    clearPersonaCache(location);
+    res.json({ cleared: true, location: location || 'all' });
+  } catch (error) {
+    console.error('DELETE /api/personas/external/cache error:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
   }
 });
 
