@@ -450,7 +450,14 @@ function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): 
 }
 
 function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType): Persona[] {
-  return personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+  const triggered = personas.filter((persona) => getPersonaTriggerValue(persona, eventType));
+  
+  // Sort by priority (descending) to match event-triggers.ts behavior
+  return triggered.sort((a, b) => {
+    const priorityA = a.triggers?.priority ?? 100;
+    const priorityB = b.triggers?.priority ?? 100;
+    return priorityB - priorityA;
+  });
 }
 
 function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
