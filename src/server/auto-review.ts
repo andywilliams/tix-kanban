@@ -6,6 +6,7 @@ import { getPersona, updatePersonaStats } from './persona-storage.js';
 import { updateTask, getTask } from './storage.js';
 import { spawn } from 'child_process';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { parsePRLinks, getPRStateShared } from './pr-utils.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
@@ -109,69 +110,15 @@ async function postReviewUpdate(task: Task, reviewerName: string, message: strin
   }
 }
 
+// Thin wrappers around the shared pr-utils so callers in this file don't need to change.
 function getLinkedPRReferences(links: Task['links']): Array<{ repo: string; number: number }> {
-  const prLinks = (links || []).filter((link) => link.type === 'pr' || link.url?.includes('/pull/'));
-  const references: Array<{ repo: string; number: number }> = [];
-
-  for (const link of prLinks) {
-    const match = link.url?.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
-    if (!match) {
-      continue;
-    }
-
-    references.push({
-      repo: match[1],
-      number: parseInt(match[2], 10),
-    });
-  }
-
-  return references;
+  return parsePRLinks(links);
 }
 
 async function getPullRequestState(repo: string, number: number): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = spawn(
-      'gh',
-      ['pr', 'view', String(number), '--repo', repo, '--json', 'state', '--jq', '.state'],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
-    );
-
-    let stdout = '';
-    let stderr = '';
-
-    const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
-      console.error(`Timed out checking PR state for ${repo}#${number}`);
-      resolve(null);
-    }, 10000);
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve(stdout.trim());
-        return;
-      }
-
-      if (stderr.trim()) {
-        console.error(`Failed to get PR state for ${repo}#${number}: ${stderr.trim()}`);
-      }
-      resolve(null);
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timeout);
-      console.error(`Failed to run gh pr view for ${repo}#${number}:`, error);
-      resolve(null);
-    });
-  });
+  const state = await getPRStateShared(repo, number);
+  // Callers in this file expect uppercase state strings (e.g. 'MERGED')
+  return state ? state.toUpperCase() : null;
 }
 
 async function isPRMerged(links: Task['links']): Promise<boolean> {
@@ -264,7 +211,7 @@ async function saveTaskReviewState(state: TaskReviewState): Promise<void> {
 }
 
 // Delete task review state
-async function deleteTaskReviewState(taskId: string): Promise<void> {
+export async function deleteTaskReviewState(taskId: string): Promise<void> {
   try {
     const filePath = getReviewStateFilePath(taskId);
     await fs.unlink(filePath);
