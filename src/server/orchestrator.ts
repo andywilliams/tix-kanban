@@ -248,6 +248,34 @@ export async function failSubtask(
   
   if (allDone) {
     await finalizeOrchestration(orchestrationId);
+    return;
+  }
+
+  // If sequential, try to start the next available subtask (mirroring completeSubtask logic).
+  // Subtasks whose dependencies are all completed can still proceed; subtasks whose dependencies
+  // include a failed subtask remain blocked and will never run, potentially leaving
+  // the orchestration with no remaining runnable subtasks.
+  if (orchestration.strategy === 'sequential') {
+    const nextSubtask = orchestration.subtasks.find(st => {
+      if (st.status !== 'waiting') return false;
+      if (!st.dependencies || st.dependencies.length === 0) return true;
+
+      // Check if all dependencies are completed (not just resolved)
+      return st.dependencies.every(depId => {
+        const dep = orchestration.subtasks.find(s => s.id === depId);
+        return dep?.status === 'completed';
+      });
+    });
+
+    if (nextSubtask) {
+      nextSubtask.status = 'running';
+      console.log(`➡️ Starting next sequential subtask ${nextSubtask.id} for ${nextSubtask.assignedTo} after prior subtask failure`);
+    } else {
+      // No subtask can make progress (all remaining are blocked by a failed dependency).
+      // Finalize now rather than stalling indefinitely.
+      console.warn(`⚠️ No runnable subtasks remain after failure in orchestration ${orchestrationId} — finalizing`);
+      await finalizeOrchestration(orchestrationId);
+    }
   }
 }
 
