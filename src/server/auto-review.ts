@@ -305,7 +305,7 @@ function extractAcceptanceCriteria(description: string): string | null {
       .split('\n')
       .slice(1) // skip the "## Acceptance Criteria" heading line
       .map(line => line.trim())
-      .filter(line => line.length > 0);
+      .filter(line => line.length > 0 && !line.startsWith('#'));
 
     if (proseLines.length > 0) {
       return proseLines.join('\n');
