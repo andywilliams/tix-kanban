@@ -82,6 +82,7 @@ function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventTyp
   if (triggers.onPRMerged) eventTypes.push('pr_merged');
   if (triggers.onPRClosed) eventTypes.push('pr_closed');
   if (triggers.onPRReviewRequested) eventTypes.push('pr_review_requested');
+  if (triggers.onCIPassed) eventTypes.push('test_success');
   if (triggers.onTestFailure) eventTypes.push('test_failure');
   if (triggers.onTestSuccess) eventTypes.push('test_success');
   if (triggers.onStatusChange) eventTypes.push('status_change');

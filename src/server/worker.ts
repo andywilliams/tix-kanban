@@ -9,6 +9,7 @@ import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -173,11 +174,6 @@ interface WorkerTriggerTaskState {
 interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
-
-const BUILTIN_EVENT_TRIGGER_DEFAULTS: Record<string, Partial<NonNullable<Persona['triggers']>>> = {
-  'qa-reviewer': { onPROpened: true },
-  'tech-writer': { onPRMerged: true },
-};
 
 interface WorkerState {
   enabled: boolean;
@@ -448,7 +444,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 }
 
 function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
-  const defaults = BUILTIN_EVENT_TRIGGER_DEFAULTS[persona.id] || {};
+  const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
   const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
   return Boolean(effectiveTriggers[eventType]);
 }

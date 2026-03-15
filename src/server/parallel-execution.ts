@@ -25,6 +25,7 @@ export interface ParallelParticipant {
   completedAt?: Date;
   changes?: Partial<Task>;
   error?: string;
+  priority?: number; // Caller-specified priority for conflict resolution
 }
 
 export interface ChangeSet {
@@ -115,6 +116,7 @@ export async function recordPersonaCompletion(
   participant.status = 'completed';
   participant.completedAt = new Date();
   participant.changes = changes;
+  participant.priority = priority;
   
   console.log(`✅ Persona ${personaId} completed in execution ${executionId}`);
   
@@ -195,7 +197,7 @@ async function finalizeExecution(executionId: string): Promise<void> {
       personaId: p.personaId,
       timestamp: p.completedAt!,
       changes: p.changes!,
-      priority: 100 - index, // First to complete gets higher priority
+      priority: p.priority ?? (100 - index), // Use stored priority or fallback to completion order
     }));
   
   // Apply conflict resolution
