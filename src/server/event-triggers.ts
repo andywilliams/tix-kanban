@@ -12,6 +12,7 @@
 import { readTask, logActivity } from './storage.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { Persona } from '../client/types/index.js';
+import { evaluateFieldCondition } from './condition-utils.js';
 
 // Shared mapping from worker.ts style trigger keys to internal TriggerEventType
 const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
@@ -242,57 +243,15 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
  * Evaluate a trigger condition against task/event data
  */
 function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
-  let actualValue: any;
-  
-  // Extract value from task or event metadata
+  // metadata.* fields are resolved against event metadata, not the task
   if (condition.field.startsWith('metadata.')) {
     const metadataKey = condition.field.substring(9);
-    actualValue = event.metadata?.[metadataKey];
-  } else {
-    actualValue = task[condition.field];
+    const metaValue = event.metadata?.[metadataKey];
+    if (metaValue === undefined) return false;
+    return evaluateFieldCondition({ ...condition, field: '_meta' }, { _meta: metaValue });
   }
-  
-  if (actualValue === undefined) {
-    return false;
-  }
-  
-  switch (condition.operator) {
-    case 'equals':
-      return actualValue === condition.value;
-    
-    case 'contains':
-      if (Array.isArray(actualValue)) {
-        return actualValue.includes(condition.value);
-      }
-      if (typeof actualValue === 'string') {
-        return actualValue.includes(condition.value);
-      }
-      return false;
-    
-    case 'matches':
-      if (typeof actualValue === 'string' && typeof condition.value === 'string') {
-        // Sanitize user-supplied regex to prevent ReDoS: escape special chars and
-        // disallow catastrophic backtracking patterns by limiting pattern length.
-        const rawPattern = condition.value;
-        if (rawPattern.length > 200) return false;
-        try {
-          const regex = new RegExp(rawPattern);
-          return regex.test(actualValue);
-        } catch {
-          return false;
-        }
-      }
-      return false;
-    
-    case 'greaterThan':
-      return actualValue > condition.value;
-    
-    case 'lessThan':
-      return actualValue < condition.value;
-    
-    default:
-      return false;
-  }
+
+  return evaluateFieldCondition(condition, task);
 }
 
 /**

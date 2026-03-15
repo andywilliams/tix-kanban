@@ -123,6 +123,7 @@ import {
   buildTaskMemoryContext,
   MemoryEntry as AgentMemoryEntry
 } from './agent-memory.js';
+import { initializeTriggerSystem } from './event-triggers.js';
 import {
   getAgentSoul,
   updateAgentSoul,
@@ -1547,6 +1548,8 @@ app.post('/api/personas', async (req, res) => {
     };
     
     const persona = await createPersona(newPersonaData);
+    // Refresh trigger subscriptions so the new persona's triggers fire immediately
+    await initializeTriggerSystem();
     res.status(201).json({ persona });
   } catch (error) {
     console.error('POST /api/personas error:', error);
@@ -1564,6 +1567,8 @@ app.put('/api/personas/:id', async (req, res) => {
       return res.status(404).json({ error: 'Persona not found' });
     }
     
+    // Refresh trigger subscriptions so updated trigger config takes effect immediately
+    await initializeTriggerSystem();
     res.json({ persona });
   } catch (error) {
     console.error(`PUT /api/personas/${req.params.id} error:`, error);
@@ -1580,6 +1585,8 @@ app.delete('/api/personas/:id', async (req, res) => {
       return res.status(404).json({ error: 'Persona not found' });
     }
     
+    // Refresh trigger subscriptions to remove the deleted persona's triggers
+    await initializeTriggerSystem();
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/personas/${req.params.id} error:`, error);
