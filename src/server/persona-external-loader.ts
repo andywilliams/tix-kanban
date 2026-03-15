@@ -6,7 +6,8 @@ import {
   PersonaYamlSchema, 
   validatePersonaYaml, 
   ValidationResult,
-  yamlToPersona
+  yamlToPersona,
+  idFromFilename
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
 
@@ -104,11 +105,11 @@ async function loadFromUrl(
     if (parsed.protocol !== 'https:') {
       throw new Error(`Security violation: only HTTPS URLs are allowed (got "${parsed.protocol}")`);
     }
-    const hostname = parsed.hostname.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     // Block loopback, private RFC-1918 ranges, link-local, and IPv4-mapped IPv6 addresses
     if (
       hostname === 'localhost' ||
-      hostname.startsWith('127.') ||         // Full 127.0.0.0/8 loopback range
+      hostname === '::' ||                       // IPv6 all-zeros (equivalent to 0.0.0.0)
       hostname === '0.0.0.0' ||               // Linux resolves to localhost
       hostname === '::1' ||                   // IPv6 loopback
       hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
@@ -251,13 +252,7 @@ function schemaToPersona(
 ): Persona {
   // Ensure ID is set - derive from sourceLocation if not provided
   if (!schema.id) {
-    const basename = path.basename(sourceLocation, '.yaml')
-      .replace(/\.yml$/, '');
-    schema.id = basename
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+    schema.id = idFromFilename(sourceLocation);
   }
 
   // Use shared conversion function - passing undefined for filename since ID is set
