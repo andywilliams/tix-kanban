@@ -104,6 +104,9 @@ async function loadFromUrl(
       hostname === '::1' ||                   // IPv6 loopback
       hostname.startsWith('::ffff:127.') ||   // IPv4-mapped IPv6 loopback
       hostname.startsWith('::ffff:0.0.0.0') || // IPv4-mapped IPv6 0.0.0.0
+      hostname.startsWith('::ffff:10.') ||    // IPv4-mapped IPv6 RFC-1918 (10.x)
+      hostname.startsWith('::ffff:192.168.') || // IPv4-mapped IPv6 RFC-1918 (192.168.x)
+      /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(hostname) || // IPv4-mapped IPv6 RFC-1918 (172.16-31.x)
       hostname.startsWith('169.254.') ||      // IPv4 link-local
       hostname.startsWith('10.') ||           // RFC-1918
       hostname.startsWith('192.168.') ||      // RFC-1918
