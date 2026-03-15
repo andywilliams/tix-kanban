@@ -399,7 +399,7 @@ function quoteShellArg(value: string): string {
 async function getPRState(repo: string, number: number): Promise<'open' | 'closed' | 'merged' | null> {
   try {
     const { stdout } = await exec(
-      `gh pr view ${number} --repo ${quoteShellArg(repo)} --json state --jq .state`,
+      `gh pr view ${quoteShellArg(String(number))} --repo ${quoteShellArg(repo)} --json state --jq .state`,
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     const state = stdout.trim().toUpperCase();
@@ -415,7 +415,7 @@ async function getPRState(repo: string, number: number): Promise<'open' | 'close
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
     const { stdout } = await exec(
-      `gh pr view ${number} --repo ${quoteShellArg(repo)} --json statusCheckRollup --jq ".statusCheckRollup[] | select(.conclusion) | .conclusion"`,
+      `gh pr view ${quoteShellArg(String(number))} --repo ${quoteShellArg(repo)} --json statusCheckRollup --jq ".statusCheckRollup[] | select(.conclusion) | .conclusion"`,
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
 
@@ -566,21 +566,32 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
       const previous = taskState.prs[pr.key];
 
-      if (state === 'open' && (!previous || previous.state !== 'open')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
-          enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      if (!previous) {
+        // First observation of this PR — record state without firing merge/CI events.
+        // Only fire onPROpened for PRs that are already open on first run.
+        if (state === 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
-
-      if (state === 'merged' && (!previous || previous.state !== 'merged')) {
-        for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
-          enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+      } else {
+        // Subsequent observations — fire on state transitions only.
+        if (state === 'open' && previous.state !== 'open') {
+          for (const persona of getTriggeredPersonas(personas, 'onPROpened')) {
+            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
-      }
 
-      if (ciState === 'SUCCESS' && (!previous || previous.ciState !== 'SUCCESS')) {
-        for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
-          enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+        if (state === 'merged' && previous.state !== 'merged') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRMerged')) {
+            enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
+          for (const persona of getTriggeredPersonas(personas, 'onCIPassed')) {
+            enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
         }
       }
     }
