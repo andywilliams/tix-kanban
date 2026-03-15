@@ -156,7 +156,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskCreated' | 'onTaskStarted';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskCreated' | 'onTaskStarted';
 
 // ParsedPRLink imported from pr-utils
 
@@ -440,7 +440,9 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
   const eventDescriptionMap: Record<TriggerEventType, string> = {
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
+    onPRClosed: 'A linked pull request was just closed for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
+    onTestFailure: 'CI checks failed for a linked pull request on this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
     onTaskCreated: 'This task was first observed in in-progress status (no prior state recorded).',
   };
@@ -583,9 +585,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           }
         }
 
+        if (state === 'closed' && previous.state !== 'closed') {
+          for (const persona of getTriggeredPersonas(personas, 'onPRClosed', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onPRClosed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
           for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+          for (const persona of getTriggeredPersonas(personas, 'onTestFailure', fullTask)) {
+            enqueueInvocation(fullTask, persona, 'onTestFailure', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
       }
