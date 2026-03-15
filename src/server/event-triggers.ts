@@ -55,6 +55,9 @@ const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
  * Initialize trigger system - load persona trigger configs
  */
 export async function initializeTriggerSystem(): Promise<void> {
+  // Clear existing subscriptions to avoid accumulating duplicates on re-init
+  triggerSubscriptions.clear();
+
   const personas = await getAllPersonas();
 
   const triggerKeyToEventType: Record<string, TriggerEventType> = {
@@ -75,9 +78,11 @@ export async function initializeTriggerSystem(): Promise<void> {
 
   for (const persona of personas) {
     if (persona.triggers) {
-      const eventTypes = Object.entries(persona.triggers)
-        .filter(([key, val]) => val === true && triggerKeyToEventType[key])
-        .map(([key]) => triggerKeyToEventType[key]);
+      const eventTypes = [...new Set(
+        Object.entries(persona.triggers)
+          .filter(([key, val]) => val === true && triggerKeyToEventType[key])
+          .map(([key]) => triggerKeyToEventType[key])
+      )];
 
       if (eventTypes.length > 0) {
         const trigger: PersonaTrigger = {

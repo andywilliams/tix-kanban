@@ -135,7 +135,7 @@ export interface Persona {
   canDelegate?: boolean; // Alias for orchestrator
   specialists?: Array<{ specialty: string; personaIds: string[] }>; // Specialist mappings
   delegationRules?: Array<{
-    condition: { field: string; operator: 'equals' | 'contains' | 'matches'; value: any };
+    condition: { field: string; operator: 'equals' | 'contains' | 'matches' | 'greaterThan' | 'lessThan'; value: any };
     action: 'delegate' | 'parallel' | 'sequential';
     targetPersonas: string[];
   }>;
