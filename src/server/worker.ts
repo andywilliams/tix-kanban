@@ -9,6 +9,8 @@ import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
+import { evaluateFieldCondition, type FieldCondition } from './condition-utils.js';
 import { 
   getPipeline, 
   getTaskPipelineState, 
@@ -430,7 +432,7 @@ function evaluateTriggerConditions(persona: Persona, task: Task): boolean {
   if (!conditions || conditions.length === 0) return true;
   // Delegate to the shared evaluateCondition from event-triggers.ts — no event
   // context available in the polling path, so metadata.* fields will be undefined.
-  return conditions.every((cond) => evaluateCondition(cond as TriggerCondition, task));
+  return conditions.every((cond) => evaluateFieldCondition(cond as FieldCondition, task));
 }
 
 function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, task?: Task): Persona[] {

@@ -290,11 +290,6 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
-    // Phase 3: Orchestrator fields
-    orchestrator: yaml.orchestrator,
-    canDelegate: yaml.canDelegate,
-    specialists: yaml.specialists,
-    delegationRules: yaml.delegationRules,
   };
 }
 

@@ -162,11 +162,6 @@ export async function getAllPersonas(): Promise<Persona[]> {
         specialists: data.specialists,
         delegationRules: data.delegationRules,
         prompt,
-        // Phase 3: Orchestrator fields
-        orchestrator: data.orchestrator,
-        canDelegate: data.canDelegate,
-        specialists: data.specialists,
-        delegationRules: data.delegationRules,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
       });
@@ -208,11 +203,6 @@ export async function getPersona(personaId: string): Promise<Persona | null> {
       specialists: data.specialists,
       delegationRules: data.delegationRules,
       prompt,
-      // Phase 3: Orchestrator fields
-      orchestrator: data.orchestrator,
-      canDelegate: data.canDelegate,
-      specialists: data.specialists,
-      delegationRules: data.delegationRules,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
     };
@@ -253,11 +243,6 @@ export async function createPersona(personaData: Omit<Persona, 'id' | 'createdAt
       skills: persona.skills,
       budgetCap: persona.budgetCap,
       model: persona.model,
-      // Phase 3: Orchestrator fields
-      orchestrator: persona.orchestrator,
-      canDelegate: persona.canDelegate,
-      specialists: persona.specialists,
-      delegationRules: persona.delegationRules,
       createdAt: persona.createdAt.toISOString(),
       updatedAt: persona.updatedAt.toISOString(),
     };
@@ -305,11 +290,6 @@ export async function updatePersona(personaId: string, updates: Partial<Persona>
       specialists: updatedPersona.specialists,
       delegationRules: updatedPersona.delegationRules,
       stats: updatedPersona.stats,
-      // Phase 3: Orchestrator fields
-      orchestrator: updatedPersona.orchestrator,
-      canDelegate: updatedPersona.canDelegate,
-      specialists: updatedPersona.specialists,
-      delegationRules: updatedPersona.delegationRules,
       createdAt: updatedPersona.createdAt.toISOString(),
       updatedAt: updatedPersona.updatedAt.toISOString(),
     };
