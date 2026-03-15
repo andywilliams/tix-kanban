@@ -250,7 +250,7 @@ async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
   try {
     const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
     const parsed = JSON.parse(content);
-    if (parsed && typeof parsed === 'object' && parsed.tasks && typeof parsed.tasks === 'object') {
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.tasks && typeof parsed.tasks === 'object' && !Array.isArray(parsed.tasks)) {
       return parsed as WorkerTriggerState;
     }
   } catch (error) {
@@ -519,15 +519,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      // Known transition: backlog → in-progress fires onTaskStarted (the primary event)
+    if ((taskState.lastStatus === 'backlog' || taskState.lastStatus === undefined) && task.status === 'in-progress') {
+      // Fire onTaskStarted for both the known backlog→in-progress transition and for tasks
+      // first observed already in in-progress (no prior state). Both cases are semantically
+      // "task started" — using a single key ensures all subscribed personas are invoked.
       for (const persona of getTriggeredPersonas(personas, 'onTaskStarted', task)) {
-        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved backlog -> in-progress`);
-      }
-    } else if (taskState.lastStatus === undefined && task.status === 'in-progress') {
-      // First observation: task already in-progress with no prior state — fire onTaskCreated
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} first observed in-progress`);
+        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved ${taskState.lastStatus ?? 'unknown'} -> in-progress`);
       }
     }
     taskState.lastStatus = task.status;
