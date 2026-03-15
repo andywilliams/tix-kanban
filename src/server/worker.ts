@@ -478,7 +478,7 @@ async function invokeTriggerPersona(
   }
 }
 
-async function processEventBasedPersonaTriggers(tasks: Task[], preProcessStatuses?: Map<string, Task['status']>): Promise<void> {
+async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
   if (personas.length === 0) {
@@ -1481,11 +1481,6 @@ async function runWorkerCycle(): Promise<void> {
     }
   }
 
-  // Snapshot task statuses before processing so trigger system can detect transitions
-  const preProcessStatuses = new Map<string, Task['status']>(
-    (await getAllTasks()).map(t => [t.id, t.status])
-  );
-
   if (taskToProcess) {
     workerState.lastTaskId = taskToProcess.id;
     await processTask(taskToProcess);
@@ -1496,7 +1491,7 @@ async function runWorkerCycle(): Promise<void> {
   }
 
   const refreshedTasks = await getAllTasks();
-  await processEventBasedPersonaTriggers(refreshedTasks, preProcessStatuses);
+  await processEventBasedPersonaTriggers(refreshedTasks);
 
   if (taskToProcess) {
     const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
