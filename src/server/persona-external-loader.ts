@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import dns from 'dns/promises';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
@@ -118,7 +119,7 @@ function isBlockedHostname(hostname: string): boolean {
   return false;
 }
 
-function validateExternalUrl(rawUrl: string): URL {
+async function validateExternalUrl(rawUrl: string): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -134,6 +135,18 @@ function validateExternalUrl(rawUrl: string): URL {
     throw new Error(`Security: URL points to a blocked internal address: ${rawUrl}`);
   }
 
+  // Resolve the hostname and re-check the resolved IP to prevent SSRF via
+  // attacker-controlled domains that resolve to private/internal addresses.
+  try {
+    const { address } = await dns.lookup(parsed.hostname);
+    if (isBlockedHostname(address)) {
+      throw new Error(`Security: URL hostname resolves to a blocked internal address: ${rawUrl}`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Security:')) throw err;
+    throw new Error(`Security: Unable to resolve hostname for ${rawUrl}`);
+  }
+
   return parsed;
 }
 
@@ -147,7 +160,7 @@ async function loadFromUrl(
   authToken?: string,
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
-  const parsedUrl = validateExternalUrl(url);
+  const parsedUrl = await validateExternalUrl(url);
   const cacheKey = parsedUrl.toString();
 
   // Check cache first
@@ -475,7 +488,19 @@ export async function loadExternalPersonas(
  */
 export function clearPersonaCache(location?: string): void {
   if (location) {
-    const normalizedLocation = new URL(location).toString();
+    let normalizedLocation: string;
+    try {
+      normalizedLocation = new URL(location).toString();
+    } catch {
+      // Not a valid URL (e.g. file path) — check if the raw string is a cache key, else no-op.
+      if (Object.prototype.hasOwnProperty.call(personaCache, location)) {
+        delete personaCache[location];
+        console.log(`[persona-external-loader] Cleared cache for ${location}`);
+      } else {
+        console.warn(`[persona-external-loader] clearPersonaCache: "${location}" is not a valid URL or known cache key — skipping`);
+      }
+      return;
+    }
     delete personaCache[normalizedLocation];
     console.log(`[persona-external-loader] Cleared cache for ${normalizedLocation}`);
   } else {
