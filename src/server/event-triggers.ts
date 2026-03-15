@@ -253,7 +253,14 @@ export function evaluateCondition(
     case 'matches':
       if (typeof actualValue === 'string' && typeof condition.value === 'string') {
         try {
-          return new RegExp(condition.value).test(actualValue);
+          const pattern = condition.value;
+          // Guard against ReDoS: reject patterns that are overly long or contain
+          // nested quantifiers (e.g. (a+)+) which are common catastrophic-backtracking vectors.
+          if (pattern.length > 200 || /(\(.+[+*?]\)[+*?]|\[.+\][+*]{2})/.test(pattern)) {
+            console.warn(`[event-triggers] Potentially unsafe regex pattern rejected in condition: "${pattern}"`);
+            return false;
+          }
+          return new RegExp(pattern).test(actualValue);
         } catch {
           console.warn(`[event-triggers] Invalid regex pattern in condition: "${condition.value}"`);
           return false;
