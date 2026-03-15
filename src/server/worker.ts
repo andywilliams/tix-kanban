@@ -535,9 +535,11 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   };
 
   // Trigger when a task moves from backlog to in-progress.
+  // Use undefined lastStatus as sentinel for "never seen" — don't fire on first observation.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
+    const previousStatus = taskState.lastStatus; // undefined on first run
+    if (previousStatus === 'backlog' && task.status === 'in-progress') {
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
@@ -591,9 +593,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
     if (hasAutoReviewNote && prLinks.length > 0) {
-      const allMerged = prLinks.every((pr) => newSnapshots[pr.key]?.state === 'merged');
-      if (allMerged) {
-        console.log(`✅ All PRs merged for stranded review task ${task.id} — marking done`);
+      const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
+      if (anyMerged) {
+        console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
       }
     }
