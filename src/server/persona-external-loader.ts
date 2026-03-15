@@ -1,15 +1,21 @@
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dns from 'dns/promises';
 import os from 'os';
 import { Persona } from '../client/types/index.js';
 import { 
   PersonaYamlSchema, 
   validatePersonaYaml, 
-  ValidationResult 
+  ValidationResult,
+  idFromFilename
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
+
+// ESM __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Directories from which persona YAML files may be loaded.
 // Only paths that start with one of these prefixes are allowed.
@@ -187,15 +193,16 @@ async function loadFromUrl(
       headers,
       timeout: 10000, // 10 second timeout
       maxContentLength: MAX_RESPONSE_BYTES, // 1MB max
+      responseType: 'text', // Get raw text to prevent auto JSON parsing
+      maxRedirects: 0, // Don't follow redirects to prevent SSRF bypass
     });
 
     if (response.status !== 200) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = typeof response.data === 'string' 
-      ? response.data 
-      : JSON.stringify(response.data);
+    // Response is already text due to responseType: 'text'
+    const data = response.data as string;
 
     // Cache the result
     addToCache(cacheKey, data, cacheDurationSeconds);
@@ -306,14 +313,8 @@ function schemaToPersona(
   // Derive ID from filename or use provided ID
   let id = schema.id;
   if (!id) {
-    // Try to extract from URL or file path
-    const basename = path.basename(sourceLocation, '.yaml')
-      .replace(/\.yml$/, '');
-    id = basename
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+    // Use shared idFromFilename helper
+    id = idFromFilename(sourceLocation);
   }
 
   const now = new Date();
@@ -329,6 +330,7 @@ function schemaToPersona(
     providers: schema.providers,
     skills: schema.skills,
     budgetCap: schema.budgetCap,
+    invocations: schema.invocations,
     stats: {
       tasksCompleted: 0,
       averageCompletionTime: 0,
