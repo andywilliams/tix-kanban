@@ -253,6 +253,17 @@ export async function failSubtask(
       next.status = 'running';
       console.log(`➡️ Advanced sequential subtask ${next.id} after failure of ${subtaskId}`);
       return;
+    } else {
+      // No runnable subtask — remaining subtasks are all blocked by the failed dependency.
+      // Mark them failed and finalize to avoid a permanent deadlock.
+      for (const st of orchestration.subtasks) {
+        if (st.status === 'waiting') {
+          st.status = 'failed';
+          st.error = `Skipped: dependency subtask ${subtaskId} failed`;
+        }
+      }
+      await finalizeOrchestration(orchestrationId);
+      return;
     }
   }
 
