@@ -3,6 +3,10 @@
  *
  * Enables personas to subscribe to task events and respond automatically.
  * Events include PR operations, test failures, status changes, etc.
+ *
+ * TODO: This module has duplicate implementations with worker.ts trigger logic.
+ * worker.ts (lines 155, 446-536) contains a simpler trigger system that is
+ * currently in use. Consider consolidating to one implementation.
  */
 
 import { readTask, logActivity } from './storage.js';

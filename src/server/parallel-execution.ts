@@ -343,8 +343,8 @@ async function resolveConflicts(
           }
           (merged as any)[field] = mergedObject;
         } else {
-          // Primitive - use highest priority
-          values.sort((a, b) => a.priority - b.priority);
+          // Primitive - use highest priority (sort descending so highest priority is first)
+          values.sort((a, b) => b.priority - a.priority);
           (merged as any)[field] = values[0].value;
         }
         break;
