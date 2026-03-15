@@ -67,7 +67,6 @@ export async function initializeTriggerSystem(): Promise<void> {
     onPRReviewRequested: 'pr_review_requested',
     onCIPassed: 'test_success',
     onTestFailure: 'test_failure',
-    onTestSuccess: 'test_success',
     onStatusChange: 'status_change',
     onTaskCreated: 'task_created',
     onAssignmentChanged: 'assignment_changed',
@@ -231,8 +230,16 @@ function evaluateCondition(condition: TriggerCondition, task: any, event: Trigge
     
     case 'matches':
       if (typeof actualValue === 'string' && typeof condition.value === 'string') {
-        const regex = new RegExp(condition.value);
-        return regex.test(actualValue);
+        // Sanitize user-supplied regex to prevent ReDoS: escape special chars and
+        // disallow catastrophic backtracking patterns by limiting pattern length.
+        const rawPattern = condition.value;
+        if (rawPattern.length > 200) return false;
+        try {
+          const regex = new RegExp(rawPattern);
+          return regex.test(actualValue);
+        } catch {
+          return false;
+        }
       }
       return false;
     
