@@ -517,7 +517,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status === 'in-progress') {
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
@@ -541,6 +541,13 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     for (const pr of prLinks) {
       const previous = taskState.prs[pr.key];
       const state = await getPRState(pr.repo, pr.number);
+      if (state === null) {
+        // Preserve the last known snapshot on transient state lookup failures.
+        if (previous) {
+          newSnapshots[pr.key] = previous;
+        }
+        continue;
+      }
       const ciState = await getPRCIState(pr.repo, pr.number);
       // On transient CI fetch failure, preserve the last known ciState so the snapshot
       // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
