@@ -169,24 +169,6 @@ interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
 
-async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
-  try {
-    const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
-    return JSON.parse(content) as WorkerTriggerState;
-  } catch {
-    return { tasks: {} };
-  }
-}
-
-async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
-  try {
-    await fs.mkdir(path.dirname(WORKER_TRIGGER_STATE_FILE), { recursive: true });
-    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
-  } catch (error) {
-    console.warn('[worker] Failed to save trigger state:', error);
-  }
-}
-
 interface WorkerState {
   enabled: boolean;
   interval: string; // cron expression
