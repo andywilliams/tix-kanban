@@ -174,6 +174,24 @@ interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
 
+async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
+  try {
+    const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
+    return JSON.parse(content) as WorkerTriggerState;
+  } catch {
+    return { tasks: {} };
+  }
+}
+
+async function saveWorkerTriggerState(state: WorkerTriggerState): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(WORKER_TRIGGER_STATE_FILE), { recursive: true });
+    await fs.writeFile(WORKER_TRIGGER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    console.warn('[worker] Failed to save trigger state:', error);
+  }
+}
+
 interface WorkerState {
   enabled: boolean;
   interval: string; // cron expression
@@ -547,8 +565,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     triggerState.tasks[task.id] = taskState;
   }
 
-  const reviewTasks = tasks.filter((task) => task.status === 'review');
-  for (const task of reviewTasks) {
+  // Scan any task that could have linked PRs, not just review-status tasks
+  const tasksWithPRs = tasks.filter((task) =>
+    ['review', 'in-progress', 'auto-review'].includes(task.status as string) ||
+    (task.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+  );
+  for (const task of tasksWithPRs) {
     const fullTask = await getTask(task.id);
     if (!fullTask) continue;
 
