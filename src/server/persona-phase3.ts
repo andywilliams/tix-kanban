@@ -2,6 +2,10 @@
  * Persona Collaboration Phase 3 - Integration Layer
  *
  * High-level API for event-driven triggers, parallel execution, and orchestration.
+ * 
+ * Note: Several integration helper functions have been removed as they were not
+ * being used by the worker. The worker implements its own simpler trigger logic.
+ * Removed: initializePhase3, handleTaskEvent, registerPersonaTriggers, coordinateEventResponse
  */
 
 import { 
@@ -36,84 +40,7 @@ import {
   type OrchestratorConfig,
   type OrchestratedTask,
 } from './orchestrator.js';
-import { getAllPersonas } from './persona-storage.js';
-import type { Persona, PersonaTriggers } from '../client/types/index.js';
-
-/**
- * Initialize Phase 3 systems
- */
-export async function initializePhase3(): Promise<void> {
-  console.log('🚀 Initializing Phase 3: Event triggers, parallel execution, orchestration');
-  
-  // Load trigger subscriptions from persona configs
-  await initializeTriggerSystem();
-  
-  // Load orchestrator configs
-  const personas = await getAllPersonas();
-  for (const persona of personas) {
-    if (persona.orchestrator || persona.canDelegate) {
-      const config: OrchestratorConfig = {
-        personaId: persona.id,
-        canDelegate: true,
-        specialists: persona.specialists,
-        delegationRules: persona.delegationRules,
-      };
-      registerOrchestrator(config);
-    }
-  }
-  
-  console.log('✅ Phase 3 initialized');
-}
-
-/**
- * Handle a task event - emit to trigger system and get responding personas
- */
-export async function handleTaskEvent(event: TriggerEvent): Promise<string[]> {
-  return emitEvent(event);
-}
-
-/**
- * Convert PersonaTriggers to event types list
- */
-function personaTriggersToEventTypes(triggers: PersonaTriggers): TriggerEventType[] {
-  const eventTypes: TriggerEventType[] = [];
-  
-  if (triggers.onPROpened) eventTypes.push('pr_opened');
-  if (triggers.onPRMerged) eventTypes.push('pr_merged');
-  if (triggers.onPRClosed) eventTypes.push('pr_closed');
-  if (triggers.onPRReviewRequested) eventTypes.push('pr_review_requested');
-  if (triggers.onCIPassed) eventTypes.push('test_success');
-  if (triggers.onTestFailure) eventTypes.push('test_failure');
-  if (triggers.onTestSuccess) eventTypes.push('test_success');
-  if (triggers.onStatusChange) eventTypes.push('status_change');
-  if (triggers.onTaskCreated) eventTypes.push('task_created');
-  if (triggers.onAssignmentChanged) eventTypes.push('assignment_changed');
-  if (triggers.onPriorityChanged) eventTypes.push('priority_changed');
-  if (triggers.onCommentAdded) eventTypes.push('comment_added');
-  if (triggers.onDueDateApproaching) eventTypes.push('due_date_approaching');
-  
-  // Deduplicate: onCIPassed and onTestSuccess both resolve to 'test_success'
-  return [...new Set(eventTypes)];
-}
-
-/**
- * Register a persona's triggers
- */
-export async function registerPersonaTriggers(persona: Persona): Promise<void> {
-  if (!persona.triggers) return;
-  
-  const eventTypes = personaTriggersToEventTypes(persona.triggers);
-  if (eventTypes.length === 0) return;
-  
-  const trigger: PersonaTrigger = {
-    personaId: persona.id,
-    eventTypes,
-    conditions: persona.triggers.conditions,
-    priority: persona.triggers.priority || 100,
-  };
-  
-  await registerTrigger(trigger);
-}
+import type { PersonaTriggers } from '../client/types/index.js';
 
 /**
  * Composable addressing priority order:
@@ -184,28 +111,6 @@ export async function resolvePersonaInvocation(
     mode: 'silence',
     parallel: false,
   };
-}
-
-/**
- * Coordinate multiple personas responding to an event
- */
-export async function coordinateEventResponse(
-  taskId: string,
-  event: TriggerEvent,
-  personaIds: string[]
-): Promise<{ executionId?: string; mode: 'parallel' | 'sequential' | 'single' }> {
-  if (personaIds.length === 0) {
-    return { mode: 'single' };
-  }
-  
-  if (personaIds.length === 1) {
-    return { mode: 'single' };
-  }
-  
-  // Multiple personas - use parallel execution
-  const executionId = await startParallelExecution(taskId, personaIds, 'merge-fields');
-  
-  return { executionId, mode: 'parallel' };
 }
 
 // Export sub-modules

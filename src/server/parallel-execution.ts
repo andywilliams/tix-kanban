@@ -313,11 +313,28 @@ async function resolveConflicts(
       
       case 'merge-fields':
         // For arrays, merge; for objects, merge; for primitives, use highest priority
-        if (Array.isArray(values[0].value)) {
+        // First check if all values have the same type to prevent type mismatch bugs
+        const firstType = Array.isArray(values[0].value) ? 'array' 
+          : typeof values[0].value === 'object' && values[0].value !== null ? 'object'
+          : 'primitive';
+        
+        const allSameType = values.every(v => {
+          const vType = Array.isArray(v.value) ? 'array'
+            : typeof v.value === 'object' && v.value !== null ? 'object'
+            : 'primitive';
+          return vType === firstType;
+        });
+        
+        if (!allSameType) {
+          // Type mismatch across values - use last-write-wins fallback
+          console.warn(`Type mismatch for field  in merge-fields strategy, falling back to last-write-wins`);
+          values.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+          (merged as any)[field] = values[0].value;
+        } else if (firstType === 'array') {
           // Merge arrays and deduplicate
           const mergedArray = values.flatMap(v => v.value as any[]);
           (merged as any)[field] = Array.from(new Set(mergedArray.map((v) => JSON.stringify(v)))).map((v) => JSON.parse(v));
-        } else if (typeof values[0].value === 'object' && values[0].value !== null) {
+        } else if (firstType === 'object') {
           // Merge objects
           const mergedObject = {};
           for (const v of values) {
