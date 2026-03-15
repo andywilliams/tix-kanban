@@ -27,8 +27,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { initializeTriggerSystem, getPersonasByTriggerKey, getTriggersByTriggerKey } from './event-triggers.js';
-import { evaluateFieldCondition, type FieldCondition } from './condition-utils.js';
+import { initializeTriggerSystem, getPersonasByTriggerKey } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -37,38 +36,6 @@ import {
 } from './personal-reminders.js';
 
 const exec = promisify(execCallback);
-
-/**
- * Filter triggers by evaluating their conditions against the task.
- * Returns only personas whose trigger conditions match the task.
- */
-async function filterTriggersByConditions(
-  triggers: Array<{ persona: Persona | null; conditions?: FieldCondition[]; priority: number }>,
-  task: Task
-): Promise<Persona[]> {
-  const matchingPersonas: Persona[] = [];
-  
-  for (const trigger of triggers) {
-    if (!trigger.persona) continue;
-    
-    // If no conditions, include the persona
-    if (!trigger.conditions || trigger.conditions.length === 0) {
-      matchingPersonas.push(trigger.persona);
-      continue;
-    }
-    
-    // Evaluate all conditions
-    const allMatch = trigger.conditions.every(condition => {
-      return evaluateFieldCondition(condition, task);
-    });
-    
-    if (allMatch) {
-      matchingPersonas.push(trigger.persona);
-    }
-  }
-  
-  return matchingPersonas;
-}
 
 // Sanitize user content to prevent prompt injection attacks
 function sanitizeForPrompt(content: string): string {
@@ -185,7 +152,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskStarted' | 'onStatusChange' | 'onPRClosed' | 'onTestFailure' | 'onTestSuccess' | 'onCommentAdded';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskStarted';
 
 interface ParsedPRLink {
   repo: string;
@@ -480,13 +447,8 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
   const eventDescriptionMap: Record<TriggerEventType, string> = {
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
-    onPRClosed: 'A linked pull request was just closed for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTestFailure: 'Tests just failed for this task.',
-    onTestSuccess: 'Tests just passed for this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
-    onStatusChange: 'This task status just changed.',
-    onCommentAdded: 'A new comment was added to this task.',
   };
 
   return [
@@ -498,7 +460,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     '',
     'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
   ]
-    .filter(line => line !== undefined && line !== null && line !== '')
+    .filter(line => line !== undefined && line !== null)
     .join('\n');
 }
 
@@ -565,33 +527,26 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
   };
 
-  // Trigger on task status changes
+  // Trigger when a task moves from backlog to in-progress.
+  // Only fire if we have prior state (not first-run) to avoid false positives.
   for (const task of tasks) {
-    const taskState = triggerState.tasks[task.id] || { prs: {} };
-    const previousStatus = taskState.lastStatus;
-    const currentStatus = task.status;
-
-    // Detect status transitions and trigger appropriate events
-    if (previousStatus === 'backlog' && currentStatus === 'in-progress') {
-      const triggers = await getTriggersByTriggerKey('onTaskStarted');
-      const triggeredPersonas = await filterTriggersByConditions(triggers, task);
+    const taskState = triggerState.tasks[task.id];
+    if (taskState && taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
+      const triggeredPersonas = await getPersonasByTriggerKey('onTaskStarted');
       for (const persona of triggeredPersonas) {
         enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved backlog -> in-progress`);
       }
     }
-
-    // Trigger onStatusChange for any status transition
-    if (previousStatus && previousStatus !== currentStatus) {
-      const triggers = await getTriggersByTriggerKey('onStatusChange');
-      const triggeredPersonas = await filterTriggersByConditions(triggers, task);
-      for (const persona of triggeredPersonas) {
-        enqueueInvocation(task, persona, 'onStatusChange', `Task ${task.id} moved ${previousStatus} -> ${currentStatus}`);
-      }
+    // Initialize or update task state - only set lastStatus if we have prior state
+    // to prevent first-run triggers from firing incorrectly
+    if (taskState) {
+      taskState.lastStatus = task.status;
+      triggerState.tasks[task.id] = taskState;
+    } else {
+      // First time seeing this task - initialize state but don't fire triggers
+      // (the absence of prior state prevents transition detection)
+      triggerState.tasks[task.id] = { prs: {}, lastStatus: task.status };
     }
-
-    // Update status AFTER trigger fires (issue #11)
-    taskState.lastStatus = task.status;
-    triggerState.tasks[task.id] = taskState;
   }
 
   const reviewTasks = tasks.filter((task) => task.status === 'in-progress' || task.status === 'review');
@@ -615,8 +570,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         // First observation of this PR — record state without firing merge/CI events.
         // Only fire onPROpened for PRs that are already open on first run.
         if (state === 'open') {
-          const triggers = await getTriggersByTriggerKey('onPROpened');
-          const triggeredPersonas = await filterTriggersByConditions(triggers, fullTask);
+          const triggeredPersonas = await getPersonasByTriggerKey('onPROpened');
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
@@ -624,24 +578,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       } else {
         // Subsequent observations — fire on state transitions only.
         if (state === 'open' && previous.state !== 'open') {
-          const triggers = await getTriggersByTriggerKey('onPROpened');
-          const triggeredPersonas = await filterTriggersByConditions(triggers, fullTask);
+          const triggeredPersonas = await getPersonasByTriggerKey('onPROpened');
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
         if (state === 'merged' && previous.state !== 'merged') {
-          const triggers = await getTriggersByTriggerKey('onPRMerged');
-          const triggeredPersonas = await filterTriggersByConditions(triggers, fullTask);
+          const triggeredPersonas = await getPersonasByTriggerKey('onPRMerged');
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
-          const triggers = await getTriggersByTriggerKey('onCIPassed');
-          const triggeredPersonas = await filterTriggersByConditions(triggers, fullTask);
+          const triggeredPersonas = await getPersonasByTriggerKey('onCIPassed');
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
