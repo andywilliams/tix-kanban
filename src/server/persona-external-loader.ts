@@ -1,7 +1,7 @@
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import dns from 'dns/promises';
 import os from 'os';
 import { Persona } from '../client/types/index.js';
@@ -13,9 +13,6 @@ import {
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';
 
-// ESM __dirname equivalent
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Directories from which persona YAML files may be loaded.
 // Only paths that start with one of these prefixes are allowed.
@@ -169,7 +166,10 @@ async function loadFromUrl(
   cacheDurationSeconds: number = 3600
 ): Promise<string> {
   const parsedUrl = await validateExternalUrl(url);
-  const cacheKey = parsedUrl.toString();
+  const tokenHash = authToken
+    ? crypto.createHash('sha256').update(authToken).digest('hex').slice(0, 16)
+    : 'anon';
+  const cacheKey = `${parsedUrl.toString()}::${tokenHash}`;
 
   // Check cache first
   const cached = getFromCache(cacheKey);
@@ -313,8 +313,11 @@ function schemaToPersona(
   // Derive ID from filename or use provided ID
   let id = schema.id;
   if (!id) {
-    // Use shared idFromFilename helper
-    id = idFromFilename(sourceLocation);
+    // Use shared idFromFilename helper — strip query/fragment for URLs so
+    // "my-persona.yaml?v=2" doesn't produce "my-persona-v-2".
+    let locationForId = sourceLocation;
+    try { locationForId = new URL(sourceLocation).pathname; } catch { /* not a URL, use as-is */ }
+    id = idFromFilename(locationForId);
   }
 
   const now = new Date();
