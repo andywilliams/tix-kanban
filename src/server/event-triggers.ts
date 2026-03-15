@@ -169,14 +169,6 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
   return triggerSubscriptions.get(eventType) || [];
 }
 
-/**
- * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
- * Returns Persona objects sorted by priority (highest first)
- */
-export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
-  return getPersonasByTriggerKeyWithContext(triggerKey);
-}
-
 export async function getPersonasByTriggerKeyWithContext(
   triggerKey: string,
   task?: { id: string } | null,

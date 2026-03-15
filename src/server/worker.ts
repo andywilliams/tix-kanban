@@ -245,7 +245,12 @@ async function saveWorkerState(): Promise<void> {
 async function loadWorkerTriggerState(): Promise<WorkerTriggerState> {
   try {
     const content = await fs.readFile(WORKER_TRIGGER_STATE_FILE, 'utf8');
-    return JSON.parse(content) as WorkerTriggerState;
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.tasks !== 'object' || Array.isArray(parsed.tasks)) {
+      console.warn('[worker] Trigger state file has unexpected shape — resetting');
+      return { tasks: {} };
+    }
+    return parsed as WorkerTriggerState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Failed to load worker trigger state:', error);
