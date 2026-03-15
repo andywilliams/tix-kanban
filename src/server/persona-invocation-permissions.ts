@@ -106,8 +106,24 @@ export function checkInvocationPermission(
     };
   }
 
-  // Check wildcard permission
+  // Check wildcard permission (but still enforce concurrent limit if set)
   if (permissions.canInvokeAll) {
+    if (permissions.maxConcurrentInvocations !== undefined) {
+      const active = activeInvocations.get(invoker)?.size || 0;
+      if (active >= permissions.maxConcurrentInvocations) {
+        return {
+          allowed: false,
+          reason: `Persona "${invoker}" has reached max concurrent invocations ` +
+                  `(${active}/${permissions.maxConcurrentInvocations})`,
+          metadata: {
+            hasExplicitPermission: false,
+            hasWildcardPermission: true,
+            concurrentInvocations: active,
+            maxConcurrent: permissions.maxConcurrentInvocations,
+          },
+        };
+      }
+    }
     return {
       allowed: true,
       metadata: {

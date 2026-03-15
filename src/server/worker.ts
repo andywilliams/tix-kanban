@@ -465,12 +465,10 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     '',
     '## Trigger Event Context',
     eventDescriptionMap[eventType],
-    details ? `Details: ${details}` : '',
+    ...(details ? [`Details: ${details}`] : []),
     '',
     'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
 }
 
 async function invokeTriggerPersona(
