@@ -14,8 +14,9 @@ import { getAllPersonas, getPersona } from './persona-storage.js';
 import { Persona } from '../client/types/index.js';
 import { evaluateFieldCondition } from './condition-utils.js';
 
-// Shared mapping from worker.ts style trigger keys to internal TriggerEventType
-const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+// Shared mapping from worker.ts style trigger keys to internal TriggerEventType.
+// Keep this as the single source of truth to avoid duplicate mappings.
+export const WORKER_TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPROpened: 'pr_opened',
   onPRMerged: 'pr_merged',
   onPRClosed: 'pr_closed',
@@ -92,9 +93,9 @@ export async function initializeTriggerSystem(): Promise<void> {
         Object.entries(persona.triggers)
           .filter(([key, val]) => {
             const isEnabled = val === true || (typeof val === 'object' && val !== null && 'enabled' in val && (val as any).enabled === true);
-            return isEnabled && TRIGGER_KEY_TO_EVENT_TYPE[key];
+            return isEnabled && WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key];
           })
-          .map(([key]) => TRIGGER_KEY_TO_EVENT_TYPE[key])
+          .map(([key]) => WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key])
       )];
 
       if (eventTypes.length > 0) {
@@ -113,6 +114,11 @@ export async function initializeTriggerSystem(): Promise<void> {
         }
       }
     }
+  }
+
+  // Keep ordering consistent with registerTrigger(): highest priority first.
+  for (const subscribers of triggerSubscriptions.values()) {
+    subscribers.sort((a, b) => b.priority - a.priority);
   }
   
   console.log(`🎯 Initialized ${triggerSubscriptions.size} event trigger types with ${personas.length} persona subscriptions`);
@@ -168,16 +174,49 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
  * Returns Persona objects sorted by priority (highest first)
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
+  return getPersonasByTriggerKeyWithContext(triggerKey);
+}
+
+export async function getPersonasByTriggerKeyWithContext(
+  triggerKey: string,
+  task?: { id: string } | null,
+  metadata?: TriggerEvent['metadata']
+): Promise<Persona[]> {
   const triggersWithConditions = await getTriggersByTriggerKey(triggerKey);
-  // Convert to Persona[] by looking up each persona
-  const personas: Persona[] = [];
-  for (const { persona } of triggersWithConditions) {
-    if (persona) {
-      personas.push(persona);
-    }
+  if (triggersWithConditions.length === 0) {
+    return [];
   }
-  
-  // Sort by priority (descending) - triggers are already sorted in the registry
+
+  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  if (!eventType) {
+    return [];
+  }
+
+  const personas: Persona[] = [];
+  for (const { persona, conditions } of triggersWithConditions) {
+    if (!persona) {
+      continue;
+    }
+
+    if (conditions && conditions.length > 0) {
+      if (!task) {
+        continue;
+      }
+      const syntheticEvent: TriggerEvent = {
+        type: eventType,
+        taskId: task.id,
+        metadata,
+        timestamp: new Date(),
+      };
+      const allMatch = conditions.every((condition) => evaluateCondition(condition, task, syntheticEvent));
+      if (!allMatch) {
+        continue;
+      }
+    }
+
+    personas.push(persona);
+  }
+
   return personas;
 }
 
@@ -186,7 +225,7 @@ export async function getPersonasByTriggerKey(triggerKey: string): Promise<Perso
  * Returns array of { persona, conditions, priority } for condition evaluation
  */
 export async function getTriggersByTriggerKey(triggerKey: string): Promise<Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }>> {
-  const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
   if (!eventType) {
     return [];
   }

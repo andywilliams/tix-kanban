@@ -27,7 +27,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { initializeTriggerSystem, getPersonasByTriggerKey } from './event-triggers.js';
+import { initializeTriggerSystem, getPersonasByTriggerKeyWithContext } from './event-triggers.js';
 import {
   PersonalReminder,
   getDueReminders,
@@ -152,7 +152,7 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onCIPassed' | 'onTaskStarted';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
 
 interface ParsedPRLink {
   repo: string;
@@ -447,7 +447,9 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
   const eventDescriptionMap: Record<TriggerEventType, string> = {
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
+    onPRClosed: 'A linked pull request was just closed for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
+    onTestFailure: 'CI checks failed for a linked pull request on this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
   };
 
@@ -527,24 +529,24 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
   };
 
-  // Trigger when a task moves from backlog to in-progress.
-  // Only fire if we have prior state (not first-run) to avoid false positives.
+  // Trigger when a task moves into in-progress.
+  // Includes legacy state snapshots where lastStatus may be undefined.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id];
-    if (taskState && taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      const triggeredPersonas = await getPersonasByTriggerKey('onTaskStarted');
+    const previousStatus = taskState?.lastStatus;
+
+    if (task.status === 'in-progress' && (previousStatus === 'backlog' || previousStatus === undefined)) {
+      const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onTaskStarted', task);
       for (const persona of triggeredPersonas) {
-        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved backlog -> in-progress`);
+        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved ${previousStatus ?? 'unknown'} -> in-progress`);
       }
     }
-    // Initialize or update task state - only set lastStatus if we have prior state
-    // to prevent first-run triggers from firing incorrectly
+
+    // Update status snapshot only after trigger detection for this cycle.
     if (taskState) {
       taskState.lastStatus = task.status;
       triggerState.tasks[task.id] = taskState;
     } else {
-      // First time seeing this task - initialize state but don't fire triggers
-      // (the absence of prior state prevents transition detection)
       triggerState.tasks[task.id] = { prs: {}, lastStatus: task.status };
     }
   }
@@ -570,7 +572,11 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         // First observation of this PR — record state without firing merge/CI events.
         // Only fire onPROpened for PRs that are already open on first run.
         if (state === 'open') {
-          const triggeredPersonas = await getPersonasByTriggerKey('onPROpened');
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onPROpened', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+          });
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
@@ -578,23 +584,59 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       } else {
         // Subsequent observations — fire on state transitions only.
         if (state === 'open' && previous.state !== 'open') {
-          const triggeredPersonas = await getPersonasByTriggerKey('onPROpened');
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onPROpened', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+          });
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
         if (state === 'merged' && previous.state !== 'merged') {
-          const triggeredPersonas = await getPersonasByTriggerKey('onPRMerged');
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onPRMerged', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+          });
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onPRMerged', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
 
+        if (state === 'closed' && previous.state !== 'closed') {
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onPRClosed', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+          });
+          for (const persona of triggeredPersonas) {
+            enqueueInvocation(fullTask, persona, 'onPRClosed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
         if (ciState === 'SUCCESS' && previous.ciState !== 'SUCCESS') {
-          const triggeredPersonas = await getPersonasByTriggerKey('onCIPassed');
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onCIPassed', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+            ciState,
+          });
           for (const persona of triggeredPersonas) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          }
+        }
+
+        if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+          const triggeredPersonas = await getPersonasByTriggerKeyWithContext('onTestFailure', fullTask, {
+            url: pr.url,
+            repo: pr.repo,
+            prNumber: pr.number,
+            ciState,
+          });
+          for (const persona of triggeredPersonas) {
+            enqueueInvocation(fullTask, persona, 'onTestFailure', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
       }
@@ -1520,6 +1562,7 @@ async function runWorkerCycle(): Promise<void> {
   }
 
   const refreshedTasks = await getAllTasks();
+  await initializeTriggerSystem();
   await processEventBasedPersonaTriggers(refreshedTasks);
 
   if (taskToProcess) {

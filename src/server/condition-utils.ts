@@ -13,12 +13,12 @@ export interface FieldCondition {
 
 /**
  * Evaluate a single condition against a task object.
- * Returns false if the field value is undefined.
+ * Returns false if the field value is undefined or null.
  */
 export function evaluateFieldCondition(condition: FieldCondition, task: any): boolean {
   const fieldValue = (task as any)[condition.field];
 
-  if (fieldValue === undefined) {
+  if (fieldValue === undefined || fieldValue === null) {
     return false;
   }
 
