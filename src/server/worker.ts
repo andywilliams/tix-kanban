@@ -558,8 +558,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
         // Update persona stats if we know which persona worked this task
-        // Use assignedTo as the persona ID — it's the authoritative field
-        const workerId = fullTask.assignedTo;
+        const workerId = fullTask.persona;
         if (workerId) {
           const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
           await updatePersonaStats(workerId, completionTimeMs / 60000, true).catch(() => {});
