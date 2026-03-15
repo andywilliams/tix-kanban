@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec as execCallback, execFile as execFileCallback, spawn } from 'child_process';
+import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { parsePRLinks, getPRState } from './pr-utils.js';
 import { runSlxDigest } from './slx-service.js';
@@ -40,8 +40,6 @@ import {
   registerActiveInvocation,
   unregisterActiveInvocation,
 } from './persona-invocation-permissions.js';
-
-const exec = promisify(execCallback);
 
 const execFile = promisify(execFileCallback);
 
@@ -376,14 +374,11 @@ async function getPRBranchInfo(links: Task['links']): Promise<Array<{url: string
 
 // parsePRLinks and getPRState are imported from pr-utils.ts
 
-function quoteShellArg(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | 'FAILURE' | null> {
   try {
-    const { stdout } = await exec(
-      `gh pr view ${number} --repo ${quoteShellArg(repo)} --json statusCheckRollup --jq ".statusCheckRollup[] | select(.conclusion) | .conclusion"`,
+    const { stdout } = await execFile(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
 
@@ -447,6 +442,7 @@ async function invokeTriggerPersona(
   details?: string,
   invokingPersonaId?: string
 ): Promise<void> {
+  let invocationRegistered = false;
   try {
     // If this invocation is initiated by another persona, check permissions.
     if (invokingPersonaId) {
@@ -463,6 +459,7 @@ async function invokeTriggerPersona(
         return;
       }
       registerActiveInvocation(invokingPersonaId, persona.id);
+      invocationRegistered = true;
     }
 
     const requiredProviders = getRequiredProviders(task);
@@ -500,7 +497,7 @@ async function invokeTriggerPersona(
   } catch (error) {
     console.error(`Failed to invoke trigger persona ${persona.id} for task ${task.id}:`, error);
   } finally {
-    if (invokingPersonaId) {
+    if (invocationRegistered && invokingPersonaId) {
       unregisterActiveInvocation(invokingPersonaId, persona.id);
     }
   }
@@ -529,7 +526,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   // Trigger when a task moves from backlog to in-progress.
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
-    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status !== 'backlog') {
+    if ((taskState.lastStatus === undefined || taskState.lastStatus === 'backlog') && task.status === 'in-progress') {
       for (const persona of getTriggeredPersonas(personas, 'onTaskCreated')) {
         enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
       }
