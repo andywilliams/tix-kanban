@@ -1530,9 +1530,13 @@ app.post('/api/personas/external/batch', async (req, res) => {
       return res.status(400).json({ error: 'sources array is required' });
     }
     const results = await loadExternalPersonas(sources);
+    const sanitizedFailed = results.failed.map(({ source, error }) => ({
+      source: { ...source, authToken: undefined },
+      error,
+    }));
     res.json({
       loaded: results.loaded.map(l => ({ persona: l.persona, loadedAt: l.loadedAt })),
-      failed: results.failed,
+      failed: sanitizedFailed,
     });
   } catch (error) {
     console.error('POST /api/personas/external/batch error:', error);

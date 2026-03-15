@@ -65,23 +65,6 @@ export function setInvocationPermissions(
 }
 
 /**
- * Get invocation permissions for a persona
- */
-export function getInvocationPermissions(
-  personaId: string
-): InvocationPermission | null {
-  return invocationPermissions.get(personaId) || null;
-}
-
-/**
- * Remove invocation permissions for a persona
- */
-export function removeInvocationPermissions(personaId: string): void {
-  invocationPermissions.delete(personaId);
-  console.log(`[invocation-permissions] Removed permissions for ${personaId}`);
-}
-
-/**
  * Check if a persona can invoke another persona
  */
 export function checkInvocationPermission(
@@ -183,20 +166,6 @@ export function checkInvocationPermission(
 }
 
 /**
- * Enforce invocation permission (throws on denial)
- */
-export function enforceInvocationPermission(
-  attempt: InvocationAttempt
-): void {
-  const result = checkInvocationPermission(attempt);
-  if (!result.allowed) {
-    throw new Error(
-      `Invocation denied: ${result.reason}`
-    );
-  }
-}
-
-/**
  * Register an active invocation (for concurrent limit tracking).
  * Increments the counter for the invoker so that concurrent calls
  * to the same target persona are each counted individually.
@@ -223,20 +192,6 @@ export function unregisterActiveInvocation(
   } else {
     activeInvocations.set(invoker, current - 1);
   }
-}
-
-/**
- * Get count of active invocations for a persona
- */
-export function getActiveInvocationCount(personaId: string): number {
-  return activeInvocations.get(personaId) || 0;
-}
-
-/**
- * Clear all active invocations for a persona
- */
-export function clearActiveInvocations(personaId: string): void {
-  activeInvocations.delete(personaId);
 }
 
 // ── Bulk Operations ──────────────────────────────────────────────────────────
