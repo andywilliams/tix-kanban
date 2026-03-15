@@ -29,7 +29,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { type TriggerCondition } from './event-triggers.js';
+import { type TriggerCondition, initializeTriggerSystem } from './event-triggers.js';
 import { evaluateFieldCondition } from './condition-utils.js';
 import {
   PersonalReminder,
@@ -441,8 +441,8 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
-    onTaskCreated: 'This task just moved from backlog to in-progress.',
-    onTaskStarted: 'This task was first observed in in-progress status.',
+    onTaskStarted: 'This task just moved from backlog to in-progress.',
+    onTaskCreated: 'This task was first observed in in-progress status (no prior state recorded).',
   };
 
   return [
@@ -520,14 +520,14 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   for (const task of tasks) {
     const taskState = triggerState.tasks[task.id] || { prs: {} };
     if (taskState.lastStatus === 'backlog' && task.status === 'in-progress') {
-      // Known transition: backlog → in-progress
-      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
-        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} moved backlog -> in-progress`);
+      // Known transition: backlog → in-progress fires onTaskStarted (the primary event)
+      for (const persona of getTriggeredPersonas(personas, 'onTaskStarted', task)) {
+        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} moved backlog -> in-progress`);
       }
     } else if (taskState.lastStatus === undefined && task.status === 'in-progress') {
-      // First observation: task already in-progress, no prior state — use onTaskStarted only
-      for (const persona of getTriggeredPersonas(personas, 'onTaskStarted', task)) {
-        enqueueInvocation(task, persona, 'onTaskStarted', `Task ${task.id} first observed in-progress`);
+      // First observation: task already in-progress with no prior state — fire onTaskCreated
+      for (const persona of getTriggeredPersonas(personas, 'onTaskCreated', task)) {
+        enqueueInvocation(task, persona, 'onTaskCreated', `Task ${task.id} first observed in-progress`);
       }
     }
     taskState.lastStatus = task.status;
@@ -1574,6 +1574,7 @@ export async function startWorker(): Promise<void> {
   try {
     await ensureWorkerDirectories();
     await loadWorkerState();
+    await initializeTriggerSystem();
     
     // Stop existing cron jobs if running
     if (cronJob) {
