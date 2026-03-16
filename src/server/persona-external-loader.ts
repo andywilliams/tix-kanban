@@ -482,6 +482,12 @@ export function clearPersonaCache(location?: string, authToken?: string): void {
 export async function refreshExternalPersona(
   source: ExternalPersonaSource
 ): Promise<LoadedExternalPersona> {
-  clearPersonaCache(source.location, source.authToken);
+  // Only clear cache for URL-based sources — file-based personas are never cached
+  try {
+    new URL(source.location);
+    clearPersonaCache(source.location, source.authToken);
+  } catch {
+    // Not a URL (file path) — no cache to clear
+  }
   return loadExternalPersona(source);
 }
