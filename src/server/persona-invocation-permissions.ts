@@ -61,10 +61,9 @@ export function setInvocationPermissions(
 
 /**
  * Get invocation permissions for a persona
- * @internal Reserved for Phase 5 BYOP admin UI integration; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP admin UI integration
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function getInvocationPermissions(
+function getInvocationPermissions(
   personaId: string
 ): InvocationPermission | null {
   return invocationPermissions.get(personaId) || null;
@@ -72,10 +71,9 @@ export function getInvocationPermissions(
 
 /**
  * Remove invocation permissions for a persona
- * @internal Reserved for Phase 5 BYOP persona lifecycle hooks; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP persona lifecycle hooks
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function removeInvocationPermissions(personaId: string): void {
+function removeInvocationPermissions(personaId: string): void {
   invocationPermissions.delete(personaId);
   console.log(`[invocation-permissions] Removed permissions for ${personaId}`);
 }
@@ -185,10 +183,9 @@ export function checkInvocationPermission(
 
 /**
  * Enforce invocation permission (throws on denial)
- * @internal Reserved for Phase 5 BYOP integration - wiring into invocation pipeline TBD
+ * @internal Reserved for Phase 5 BYOP integration
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function enforceInvocationPermission(
+function enforceInvocationPermission(
   attempt: InvocationAttempt
 ): void {
   const result = checkInvocationPermission(attempt);
@@ -249,10 +246,9 @@ export function getActiveInvocationCount(personaId: string): number {
 
 /**
  * Clear all active invocations for a persona
- * @internal Reserved for Phase 5 BYOP error recovery; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP error recovery
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function clearActiveInvocations(personaId: string): void {
+function clearActiveInvocations(personaId: string): void {
   activeInvocations.delete(personaId);
 }
 
