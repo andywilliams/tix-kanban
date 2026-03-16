@@ -78,6 +78,20 @@ const DEFAULT_MAX_TURNS: Record<'task' | 'research' | 'evaluation', number> = {
   evaluation: 4,
 };
 
+// Resolve model aliases to full model names so we don't depend on Claude CLI's
+// built-in alias resolution (which may point to outdated versions)
+const MODEL_ALIASES: Record<string, string> = {
+  'opus': 'claude-opus-4-6',
+  'sonnet': 'claude-sonnet-4-6',
+  'haiku': 'claude-haiku-4-5-20250515',
+};
+
+function resolveModelAlias(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const lower = model.toLowerCase().trim();
+  return MODEL_ALIASES[lower] || model;
+}
+
 function executeClaudeWithStdin(
   prompt: string,
   args: string[] = [],
@@ -776,7 +790,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     }
 
     // Resolve model: task model > persona model > system default
-    const model = (task as any).model || persona?.model || undefined;
+    const model = resolveModelAlias((task as any).model || persona?.model || undefined);
 
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
@@ -928,7 +942,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     console.log(`📊 Generated research prompt with ${tokenCount.toLocaleString()} tokens`);
     
     // Resolve model: task model > persona model > system default
-    const researchModel = (task as any).model || persona?.model || undefined;
+    const researchModel = resolveModelAlias((task as any).model || persona?.model || undefined);
 
     // Execute research with Claude CLI
     const { stdout, stderr } = await executeClaudeWithStdin(
@@ -1359,7 +1373,7 @@ Consider: Was code written? Were changes committed or a PR created? Was the deli
 
 Reply with ONLY one word: REVIEW (if work appears complete and ready for review) or BACKLOG (if work appears incomplete and needs to be retried).`;
 
-    const model = (task as any).model || persona?.model || undefined;
+    const model = resolveModelAlias((task as any).model || persona?.model || undefined);
     const { stdout } = await executeClaudeWithStdin(
       evaluationPrompt,
       ['--dangerously-skip-permissions'],

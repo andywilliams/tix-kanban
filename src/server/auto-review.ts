@@ -697,18 +697,13 @@ export async function executeReviewCycle(taskId: string): Promise<'approved' | '
       // Get worker persona details for agentActivity
       const workerPersona = await getPersona(reviewState.workerId);
 
+      // Set back to backlog so the worker picks it up next cycle for rework
       await updateTask(taskId, { 
-        status: 'in-progress',
+        status: 'backlog',
         assignee: reviewState.workerId,
         persona: reviewState.workerId,
         comments: commentsWithRework,
-        agentActivity: {
-          personaId: reviewState.workerId,
-          personaName: workerPersona?.name || reviewState.workerId,
-          personaEmoji: workerPersona?.emoji || '🔧',
-          status: 'working',
-          startedAt: new Date(),
-        }
+        agentActivity: undefined,
       });
       
       // Post rejection message to chat
