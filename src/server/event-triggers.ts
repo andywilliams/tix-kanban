@@ -267,19 +267,6 @@ export async function emitTestFailure(taskId: string, testPath: string, errorMes
   });
 }
 
-/**
- * Emit a CI passed event for a task
- * @public - Called by the worker polling loop on CI pass; also available for external webhook integrations
- */
-export async function emitCIPassed(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
-  return emitEvent({
-    type: 'ci_passed',
-    taskId,
-    metadata: { url: prUrl, prNumber },
-    timestamp: new Date(),
-  });
-}
-
 export async function emitStatusChange(taskId: string, from: string, to: string): Promise<string[]> {
   return emitEvent({
     type: 'status_change',
