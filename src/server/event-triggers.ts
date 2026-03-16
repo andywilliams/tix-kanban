@@ -197,62 +197,7 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
   return triggerSubscriptions.get(eventType) || [];
 }
 
-/**
- * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
- * Returns Persona objects sorted by priority (highest first)
- * @internal - Reserved for future use (simplified trigger lookup without context)
- * @deprecated - Use getPersonasByTriggerKeyWithContext for full condition evaluation
- */
-export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
-  return getPersonasByTriggerKeyWithContext(triggerKey, {});
-}
 
-/**
- * Get triggered personas by worker.ts style trigger key and evaluate trigger conditions.
- * If conditions are present and no task context is provided, the persona is excluded.
- */
-export async function getPersonasByTriggerKeyWithContext(
-  triggerKey: string,
-  context: { task?: any; metadata?: Record<string, any> }
-): Promise<Persona[]> {
-  const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
-  if (!eventType) {
-    return [];
-  }
-
-  const triggers = getTriggeredPersonas(eventType);
-  if (triggers.length === 0) {
-    return [];
-  }
-
-  const matched: Array<{ persona: Persona; priority: number }> = [];
-  for (const trigger of triggers) {
-    const persona = await getPersona(trigger.personaId);
-    if (!persona) {
-      continue;
-    }
-
-    if (!trigger.conditions || trigger.conditions.length === 0) {
-      matched.push({ persona, priority: trigger.priority });
-      continue;
-    }
-
-    if (!context.task) {
-      continue;
-    }
-
-    const allMatch = trigger.conditions.every(condition => {
-      return evaluateTriggerCondition(condition, context.task, context.metadata);
-    });
-
-    if (allMatch) {
-      matched.push({ persona, priority: trigger.priority });
-    }
-  }
-
-  matched.sort((a, b) => b.priority - a.priority);
-  return matched.map((entry) => entry.persona);
-}
 /**
  * Emit an event and get the list of personas that should respond
  */
