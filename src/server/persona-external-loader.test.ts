@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import {
   loadExternalPersona,
   loadExternalPersonas,
@@ -21,7 +23,8 @@ vi.mock('fs/promises', () => ({
 
 describe('persona-external-loader', () => {
   // Allowed directory for file tests - matches persona-external-loader.ts ALLOWED_PERSONA_DIRS
-  const allowedDir = '/root/.tix-kanban/personas';
+  // Use os.homedir() to match the production code rather than hardcoding '/root'
+  const allowedDir = path.join(os.homedir(), '.tix-kanban', 'personas');
   
   beforeEach(() => {
     clearPersonaCache();

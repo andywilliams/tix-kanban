@@ -60,25 +60,6 @@ export function setInvocationPermissions(
 }
 
 /**
- * Get invocation permissions for a persona
- * @internal Reserved for Phase 5 BYOP admin UI integration
- */
-function getInvocationPermissions(
-  personaId: string
-): InvocationPermission | null {
-  return invocationPermissions.get(personaId) || null;
-}
-
-/**
- * Remove invocation permissions for a persona
- * @internal Reserved for Phase 5 BYOP persona lifecycle hooks
- */
-function removeInvocationPermissions(personaId: string): void {
-  invocationPermissions.delete(personaId);
-  console.log(`[invocation-permissions] Removed permissions for ${personaId}`);
-}
-
-/**
  * Check if a persona can invoke another persona
  */
 export function checkInvocationPermission(
@@ -182,21 +163,6 @@ export function checkInvocationPermission(
 }
 
 /**
- * Enforce invocation permission (throws on denial)
- * @internal Reserved for Phase 5 BYOP integration
- */
-function enforceInvocationPermission(
-  attempt: InvocationAttempt
-): void {
-  const result = checkInvocationPermission(attempt);
-  if (!result.allowed) {
-    throw new Error(
-      `Invocation denied: ${result.reason}`
-    );
-  }
-}
-
-/**
  * Register an active invocation (for concurrent limit tracking).
  * Uses a Map<target, count> so invoking the same target multiple times
  * is counted correctly (Set would only count unique targets once).
@@ -242,14 +208,6 @@ export function getActiveInvocationCount(personaId: string): number {
   let total = 0;
   for (const count of targetMap.values()) total += count;
   return total;
-}
-
-/**
- * Clear all active invocations for a persona
- * @internal Reserved for Phase 5 BYOP error recovery
- */
-function clearActiveInvocations(personaId: string): void {
-  activeInvocations.delete(personaId);
 }
 
 // ── Bulk Operations ──────────────────────────────────────────────────────────
