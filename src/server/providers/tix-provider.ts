@@ -69,10 +69,10 @@ export abstract class CLITicketProvider implements TicketProvider {
     if (lower.includes('review') || lower.includes('testing') || lower.includes('pending')) {
       return 'review';
     }
-    if (lower.includes('verified') || lower.includes('approved') || lower.includes('merged')) {
+    if (lower.includes('verified') || lower.includes('approved')) {
       return 'verified';
     }
-    if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
+    if (lower.includes('done') || lower.includes('complete') || lower.includes('closed') || lower.includes('merged')) {
       return 'done';
     }
     
