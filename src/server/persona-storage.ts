@@ -856,6 +856,7 @@ export async function initializePersonas(): Promise<void> {
               budgetCap: yamlPersona.budgetCap,
               model: yamlPersona.model,
               providers: yamlPersona.providers,
+              invocations: yamlPersona.invocations,
               stats: {
                 tasksCompleted: 0,
                 averageCompletionTime: 0,
