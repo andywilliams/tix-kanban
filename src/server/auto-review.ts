@@ -416,7 +416,7 @@ Do not run a fresh full-criteria review on cycle ${reviewCycle}.
   // Extract ONLY the Work Summary section, not the full comment (which may include verbose output)
   let workSummarySection = '';
   if (workSummaryComment) {
-    const summaryMatch = workSummaryComment.body.match(/## Work Summary[\s\S]*?(?=\n##[^#]|\n\n##|$)/);
+    const summaryMatch = workSummaryComment.body.match(/## Work Summary[\s\S]*?(?=\n#{1,2}(?!#)|\n\n#{1,2}(?!#)|$)/);
     let extractedSummary = summaryMatch ? summaryMatch[0] : workSummaryComment.body;
     // Strip the ## Work Summary prefix since we're wrapping it in ## DEVELOPER WORK SUMMARY
     extractedSummary = extractedSummary.replace(/^## Work Summary\n?\n?/, '');

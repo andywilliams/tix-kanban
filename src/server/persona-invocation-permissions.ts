@@ -40,14 +40,9 @@ export interface InvocationResult {
 
 const invocationPermissions: Map<string, InvocationPermission> = new Map();
 
-// Track active invocations for concurrent limit enforcement.
-// Maps invoker persona ID → total number of currently active invocations.
-// A plain counter (not a Set<targetId>) is used so that the same invoker
-// calling the same target concurrently (e.g. for two different tasks) is
-// counted correctly. Using Set<string> would collapse duplicate target IDs
-// into one entry, undercounting concurrent calls and allowing the limit to
-// be exceeded.
-const activeInvocations: Map<string, number> = new Map();
+// Track active invocations for concurrent limit enforcement
+// Uses Map<invoker, Map<target, count>> to correctly count duplicate concurrent targets
+const activeInvocations: Map<string, Map<string, number>> = new Map();
 
 // ── Permission Management ────────────────────────────────────────────────────
 
@@ -95,10 +90,11 @@ export function checkInvocationPermission(
     };
   }
 
-  // Check wildcard permission (but still enforce concurrent limit if set)
+  // Check wildcard permission FIRST
   if (permissions.canInvokeAll) {
+    // Now check concurrent invocation limit (applies to both wildcard and explicit permissions)
     if (permissions.maxConcurrentInvocations !== undefined) {
-      const active = activeInvocations.get(invoker) || 0;
+      const active = getActiveInvocationCount(invoker);
       if (active >= permissions.maxConcurrentInvocations) {
         return {
           allowed: false,
@@ -113,6 +109,7 @@ export function checkInvocationPermission(
         };
       }
     }
+
     return {
       allowed: true,
       metadata: {
@@ -137,9 +134,9 @@ export function checkInvocationPermission(
     };
   }
 
-  // Check concurrent invocation limit if set
+  // Check concurrent invocation limit for explicit permissions
   if (permissions.maxConcurrentInvocations !== undefined) {
-    const active = activeInvocations.get(invoker) || 0;
+    const active = getActiveInvocationCount(invoker);
     if (active >= permissions.maxConcurrentInvocations) {
       return {
         allowed: false,
@@ -167,31 +164,50 @@ export function checkInvocationPermission(
 
 /**
  * Register an active invocation (for concurrent limit tracking).
- * Increments the counter for the invoker so that concurrent calls
- * to the same target persona are each counted individually.
+ * Uses a Map<target, count> so invoking the same target multiple times
+ * is counted correctly (Set would only count unique targets once).
  */
 export function registerActiveInvocation(
-  invoker: string,
-  _target: string
+  invoker: string, 
+  target: string
 ): void {
-  activeInvocations.set(invoker, (activeInvocations.get(invoker) || 0) + 1);
+  if (!activeInvocations.has(invoker)) {
+    activeInvocations.set(invoker, new Map());
+  }
+  const targetMap = activeInvocations.get(invoker)!;
+  targetMap.set(target, (targetMap.get(target) ?? 0) + 1);
 }
 
 /**
- * Unregister an active invocation.
- * Decrements the counter; removes the entry when it reaches zero.
+ * Unregister an active invocation (decrements count for the target).
  */
 export function unregisterActiveInvocation(
-  invoker: string,
-  _target: string
+  invoker: string, 
+  target: string
 ): void {
-  const current = activeInvocations.get(invoker);
-  if (current === undefined) return;
-  if (current <= 1) {
-    activeInvocations.delete(invoker);
-  } else {
-    activeInvocations.set(invoker, current - 1);
+  const targetMap = activeInvocations.get(invoker);
+  if (targetMap) {
+    const count = targetMap.get(target) ?? 0;
+    if (count <= 1) {
+      targetMap.delete(target);
+    } else {
+      targetMap.set(target, count - 1);
+    }
+    if (targetMap.size === 0) {
+      activeInvocations.delete(invoker);
+    }
   }
+}
+
+/**
+ * Get total count of active invocations for a persona (sum across all targets).
+ */
+export function getActiveInvocationCount(personaId: string): number {
+  const targetMap = activeInvocations.get(personaId);
+  if (!targetMap) return 0;
+  let total = 0;
+  for (const count of targetMap.values()) total += count;
+  return total;
 }
 
 // ── Bulk Operations ──────────────────────────────────────────────────────────
@@ -201,17 +217,17 @@ export function unregisterActiveInvocation(
  * This extends the YAML schema to support an 'invocations' field
  */
 export function loadPermissionsFromPersonas(personas: Persona[]): void {
+  // Clear stale entries first — personas may have had invocations removed or been deleted
+  invocationPermissions.clear();
   personas.forEach(persona => {
     // Check if persona has invocation configuration
-    // This would be an extension to the PersonaYamlSchema
-    const personaAny = persona as any;
-    
-    if (personaAny.invocations) {
+    // Persona.invocations is typed via InvocationConfig (no as any needed)
+    if (persona.invocations) {
       setInvocationPermissions({
         personaId: persona.id,
-        canInvoke: personaAny.invocations.allow || [],
-        canInvokeAll: personaAny.invocations.allowAll || false,
-        maxConcurrentInvocations: personaAny.invocations.maxConcurrent,
+        canInvoke: persona.invocations.allow || [],
+        canInvokeAll: persona.invocations.allowAll || false,
+        maxConcurrentInvocations: persona.invocations.maxConcurrent,
       });
     }
   });

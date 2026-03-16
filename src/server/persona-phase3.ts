@@ -2,15 +2,11 @@
  * Persona Collaboration Phase 3 - Integration Layer
  *
  * High-level API for event-driven triggers, parallel execution, and orchestration.
- * 
- * Note: Several integration helper functions have been removed as they were not
- * being used by the worker. The worker implements its own simpler trigger logic.
- * Removed: initializePhase3, handleTaskEvent, registerPersonaTriggers, coordinateEventResponse
  */
 
 import { 
   initializeTriggerSystem, 
-  registerTrigger, 
+  registerTrigger,
   clearAllTriggers,
   emitEvent, 
   emitPROpened, 
@@ -40,7 +36,7 @@ import {
   type OrchestratorConfig,
   type OrchestratedTask,
 } from './orchestrator.js';
-import type { PersonaTriggers } from '../client/types/index.js';
+import type { Persona } from '../client/types/index.js';
 
 /**
  * Composable addressing priority order:

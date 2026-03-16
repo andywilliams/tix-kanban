@@ -139,26 +139,43 @@ export interface Persona {
     action: 'delegate' | 'parallel' | 'sequential';
     targetPersonas: string[];
   }>;
+  // Phase 4: Persona invocation permissions
+  invocations?: InvocationConfig;
   createdAt: Date;
   updatedAt: Date;
 }
 
+// Phase 4: Persona collaboration - invocation permissions
+export interface InvocationConfig {
+  /** List of persona IDs this persona can invoke */
+  allow?: string[];
+  /** If true, can invoke any persona */
+  allowAll?: boolean;
+  /** Maximum concurrent invocations */
+  maxConcurrent?: number;
+}
+
+export interface PersonaTriggerConfig {
+  enabled?: boolean;
+  priority?: number;
+}
+
 export interface PersonaTriggers {
-  onPROpened?: boolean;
-  onPRMerged?: boolean;
-  onPRClosed?: boolean;
-  onPRReviewRequested?: boolean;
-  onCIPassed?: boolean;
-  onTestFailure?: boolean;
-  onTestSuccess?: boolean;
-  onStatusChange?: boolean;
-  onTaskCreated?: boolean;
-  onTaskStarted?: boolean;
-  onAssignmentChanged?: boolean;
-  onPriorityChanged?: boolean;
-  onCommentAdded?: boolean;
-  onLinkAdded?: boolean;
-  onDueDateApproaching?: boolean;
+  onPROpened?: boolean | PersonaTriggerConfig;
+  onPRMerged?: boolean | PersonaTriggerConfig;
+  onPRClosed?: boolean | PersonaTriggerConfig;
+  onPRReviewRequested?: boolean | PersonaTriggerConfig;
+  onCIPassed?: boolean | PersonaTriggerConfig;
+  onTestFailure?: boolean | PersonaTriggerConfig;
+  onTestSuccess?: boolean | PersonaTriggerConfig;
+  onStatusChange?: boolean | PersonaTriggerConfig;
+  onTaskCreated?: boolean | PersonaTriggerConfig;
+  onTaskStarted?: boolean | PersonaTriggerConfig;
+  onAssignmentChanged?: boolean | PersonaTriggerConfig;
+  onPriorityChanged?: boolean | PersonaTriggerConfig;
+  onCommentAdded?: boolean | PersonaTriggerConfig;
+  onLinkAdded?: boolean; // boolean only — config objects not supported for this trigger
+  onDueDateApproaching?: boolean | PersonaTriggerConfig;
   // Phase 3: Event trigger conditions
   conditions?: Array<{
     field: string;

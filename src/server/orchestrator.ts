@@ -372,6 +372,6 @@ export async function evaluateDelegationRules(
       };
     }
   }
-  
+
   return { shouldDelegate: false, targetPersonas: [], strategy: 'parallel' };
 }

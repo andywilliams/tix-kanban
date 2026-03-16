@@ -1,8 +1,5 @@
 /**
- * Shared condition evaluation utility
- *
- * Used by both event-triggers.ts and orchestrator.ts to evaluate task field conditions.
- * Extracted to avoid duplication and ensure consistent behaviour (including undefined guard).
+ * Shared condition evaluation utilities.
  */
 
 export interface FieldCondition {
@@ -13,7 +10,7 @@ export interface FieldCondition {
 
 /**
  * Evaluate a single condition against a task object.
- * Returns false if the field value is undefined or null.
+ * Returns false if the field value is null/undefined.
  */
 export function evaluateFieldCondition(condition: FieldCondition, task: any): boolean {
   const fieldValue = (task as any)[condition.field];
@@ -37,9 +34,11 @@ export function evaluateFieldCondition(condition: FieldCondition, task: any): bo
 
     case 'matches':
       if (typeof fieldValue === 'string' && typeof condition.value === 'string') {
-        // Sanitize user-supplied regex to prevent ReDoS: limit pattern length and wrap in try-catch.
         const rawPattern = condition.value;
-        if (rawPattern.length > 200) return false;
+        if (rawPattern.length > 200 || /(\(.+?[+*?]\)[+*?]|\[.+?\][+*]{2})/.test(rawPattern)) {
+          console.warn(`[condition-utils] Potentially unsafe regex pattern rejected: "${rawPattern}"`);
+          return false;
+        }
         try {
           return new RegExp(rawPattern).test(fieldValue);
         } catch {
@@ -63,4 +62,25 @@ export function evaluateFieldCondition(condition: FieldCondition, task: any): bo
     default:
       return false;
   }
+}
+
+/**
+ * Evaluate a trigger condition against task fields and optional event metadata.
+ * `metadata.*` fields are resolved from metadata object.
+ */
+export function evaluateTriggerCondition(
+  condition: FieldCondition,
+  task: any,
+  metadata?: Record<string, any>
+): boolean {
+  if (condition.field.startsWith('metadata.')) {
+    const metadataKey = condition.field.substring(9);
+    const metaValue = metadata?.[metadataKey];
+    if (metaValue === undefined || metaValue === null) {
+      return false;
+    }
+    return evaluateFieldCondition({ ...condition, field: '_meta' }, { _meta: metaValue });
+  }
+
+  return evaluateFieldCondition(condition, task);
 }

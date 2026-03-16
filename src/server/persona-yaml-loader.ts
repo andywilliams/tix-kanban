@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import jsYaml from 'js-yaml';
-import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js';
+import { Persona, PersonaStats, PersonaTriggers, InvocationConfig } from '../client/types/index.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -34,6 +34,8 @@ export interface PersonaYamlSchema {
   budgetCap?: BudgetCap;
   /** Capabilities this persona can perform (optional) */
   skills?: string[];
+  /** Invocation permissions – which personas this one can call (optional) */
+  invocations?: InvocationConfig;
   /** Whether this persona can orchestrate/delegate to others (optional) */
   orchestrator?: boolean;
   /** Alias for orchestrator (optional) */
@@ -64,11 +66,10 @@ const VALID_TRIGGER_KEYS = new Set([
   'onCommentAdded',
   'onLinkAdded',
   'onDueDateApproaching',
-  // PersonaTriggers fields
-  'conditions',
-  'priority',
-  'enabled',  // For PersonaTriggerConfig
 ]);
+
+// PersonaTriggers metadata fields (not event triggers)
+const VALID_TRIGGER_METADATA_KEYS = new Set(['conditions', 'priority']);
 
 const VALID_SKILLS = new Set([
   'code', 'review', 'comment', 'docs', 'test',
@@ -150,16 +151,16 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     } else {
       const triggers = d.triggers as Record<string, unknown>;
       for (const [triggerKey, triggerValue] of Object.entries(triggers)) {
-        // 'conditions' and 'priority' are valid non-boolean fields
-        if (triggerKey === 'conditions') {
-          if (!Array.isArray(triggerValue)) {
-            errors.push('Field "triggers.conditions" must be an array');
-          }
-          continue;
-        }
-        if (triggerKey === 'priority') {
-          if (typeof triggerValue !== 'number') {
-            errors.push('Field "triggers.priority" must be a number');
+        // Handle metadata fields separately from event triggers
+        if (VALID_TRIGGER_METADATA_KEYS.has(triggerKey)) {
+          if (triggerKey === 'conditions') {
+            if (!Array.isArray(triggerValue)) {
+              errors.push('Field "triggers.conditions" must be an array');
+            }
+          } else if (triggerKey === 'priority') {
+            if (typeof triggerValue !== 'number') {
+              errors.push('Field "triggers.priority" must be a number');
+            }
           }
           continue;
         }
@@ -167,8 +168,25 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
           warnings.push(`Unknown trigger key: "${triggerKey}" (will be ignored)`);
           continue;
         }
-        if (typeof triggerValue !== 'boolean') {
-          errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
+        if (triggerKey === 'onLinkAdded') {
+          // onLinkAdded only accepts boolean (config object not supported)
+          if (typeof triggerValue !== 'boolean') {
+            errors.push(`Field "triggers.${triggerKey}" must be a boolean`);
+          }
+        } else if (typeof triggerValue !== 'boolean') {
+          // Accept config object: { enabled?: boolean, priority?: number }
+          if (
+            typeof triggerValue !== 'object' ||
+            triggerValue === null ||
+            Array.isArray(triggerValue) ||
+            ('enabled' in triggerValue && typeof (triggerValue as any).enabled !== 'boolean') ||
+            ('priority' in triggerValue && typeof (triggerValue as any).priority !== 'number')
+          ) {
+            errors.push(`Field "triggers.${triggerKey}" must be a boolean or a config object { enabled?: boolean, priority?: number }`);
+          } else if (!('enabled' in triggerValue)) {
+            // Config object without enabled — trigger will be inactive. Warn so the user knows.
+            warnings.push(`Field "triggers.${triggerKey}" is a config object without "enabled: true" — trigger will not fire. Add "enabled: true" to activate it.`);
+          }
         }
       }
     }
@@ -215,6 +233,89 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
     }
   }
 
+  if (d.invocations !== undefined) {
+    if (d.invocations === null || typeof d.invocations !== 'object' || Array.isArray(d.invocations)) {
+      errors.push('Field "invocations" must be an object');
+    } else {
+      const inv = d.invocations as Record<string, unknown>;
+      
+      if (inv.allow !== undefined) {
+        if (!Array.isArray(inv.allow)) {
+          errors.push('Field "invocations.allow" must be an array');
+        } else if (!inv.allow.every((p) => typeof p === 'string')) {
+          errors.push('Field "invocations.allow" must be an array of strings');
+        }
+      }
+      
+      if (inv.allowAll !== undefined && typeof inv.allowAll !== 'boolean') {
+        errors.push('Field "invocations.allowAll" must be a boolean');
+      }
+      
+      if (inv.maxConcurrent !== undefined) {
+        if (typeof inv.maxConcurrent !== 'number' || !Number.isFinite(inv.maxConcurrent)) {
+          errors.push('Field "invocations.maxConcurrent" must be a number');
+        } else if (!Number.isInteger(inv.maxConcurrent) || inv.maxConcurrent < 1) {
+          errors.push('Field "invocations.maxConcurrent" must be a positive integer');
+        }
+      }
+    }
+  }
+
+  if (d.orchestrator !== undefined && typeof d.orchestrator !== 'boolean') {
+    errors.push('Field "orchestrator" must be a boolean');
+  }
+
+  if (d.canDelegate !== undefined && typeof d.canDelegate !== 'boolean') {
+    errors.push('Field "canDelegate" must be a boolean');
+  }
+
+  if (d.specialists !== undefined) {
+    if (!Array.isArray(d.specialists)) {
+      errors.push('Field "specialists" must be an array');
+    } else {
+      d.specialists.forEach((spec, idx) => {
+        if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+          errors.push(`Field "specialists[${idx}]" must be an object`);
+        } else {
+          const s = spec as Record<string, unknown>;
+          if (!s.specialty || typeof s.specialty !== 'string') {
+            errors.push(`Field "specialists[${idx}].specialty" must be a string`);
+          }
+          if (!s.personaIds || !Array.isArray(s.personaIds)) {
+            errors.push(`Field "specialists[${idx}].personaIds" must be an array`);
+          } else if (!s.personaIds.every((p: unknown) => typeof p === 'string')) {
+            errors.push(`Field "specialists[${idx}].personaIds" must be an array of strings`);
+          }
+        }
+      });
+    }
+  }
+
+  if (d.delegationRules !== undefined) {
+    if (!Array.isArray(d.delegationRules)) {
+      errors.push('Field "delegationRules" must be an array');
+    } else {
+      d.delegationRules.forEach((rule, idx) => {
+        if (typeof rule !== 'object' || rule === null || Array.isArray(rule)) {
+          errors.push(`Field "delegationRules[${idx}]" must be an object`);
+        } else {
+          const r = rule as Record<string, unknown>;
+          if (!r.condition || typeof r.condition !== 'object') {
+            errors.push(`Field "delegationRules[${idx}].condition" must be an object`);
+          }
+          if (!r.action || !['delegate', 'parallel', 'sequential'].includes(r.action as string)) {
+            errors.push(`Field "delegationRules[${idx}].action" must be one of: delegate, parallel, sequential`);
+          }
+          if (!r.targetPersonas || !Array.isArray(r.targetPersonas)) {
+            errors.push(`Field "delegationRules[${idx}].targetPersonas" must be an array`);
+          } else if (!r.targetPersonas.every((p: unknown) => typeof p === 'string')) {
+            errors.push(`Field "delegationRules[${idx}].targetPersonas" must be an array of strings`);
+          }
+        }
+      });
+    }
+  }
+
   return { valid: errors.length === 0, errors, warnings };
 }
 
@@ -224,7 +325,7 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
  * Derive a persona id from a filename, e.g. "senior-developer.yaml" → "senior-developer"
  * Sanitizes to lowercase with hyphens: "My_Persona.yaml" → "my-persona"
  */
-function idFromFilename(filename: string): string {
+export function idFromFilename(filename: string): string {
   return path
     .basename(filename)
     .replace(/\.(yaml|yml)$/, '')
@@ -251,19 +352,29 @@ function buildDefaultStats(): PersonaStats {
 
 /**
  * Convert a validated PersonaYamlSchema + filename into a Persona object.
+ * If filename is not provided, ID must be present in the schema.
  */
-function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
-  const id = yaml.id ?? idFromFilename(filename);
+export function yamlToPersona(yaml: PersonaYamlSchema, filename?: string): Persona {
+  let id = yaml.id;
+  if (!id && filename) {
+    id = idFromFilename(filename);
+  }
+  if (!id) {
+    throw new Error(
+      `Persona ID is required. Provide it in the schema or as filename.`,
+    );
+  }
   if (!PERSONA_ID_PATTERN.test(id)) {
     throw new Error(
-      `Invalid persona id "${id}" in ${filename}. IDs must use lowercase letters, numbers, and hyphens.`,
+      `Invalid persona id "${id}". IDs must use lowercase letters, numbers, and hyphens.`,
     );
   }
   const now = new Date();
   const builtins = BUILTIN_TRIGGER_DEFAULTS[id] || {};
   const mergedTriggers = { ...builtins, ...(yaml.triggers || {}) };
   const triggers = Object.keys(mergedTriggers).length > 0 ? mergedTriggers : undefined;
-  return {
+
+  const persona: Persona = {
     id,
     name: yaml.name,
     emoji: yaml.emoji,
@@ -279,10 +390,13 @@ function yamlToPersona(yaml: PersonaYamlSchema, filename: string): Persona {
     canDelegate: yaml.canDelegate,
     specialists: yaml.specialists,
     delegationRules: yaml.delegationRules,
+    invocations: yaml.invocations,
     stats: buildDefaultStats(),
     createdAt: now,
     updatedAt: now,
   };
+
+  return persona;
 }
 
 /**

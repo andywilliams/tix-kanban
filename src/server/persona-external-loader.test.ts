@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import {
   loadExternalPersona,
   loadExternalPersonas,
@@ -10,12 +12,29 @@ import {
 
 // Mock axios and fs
 vi.mock('axios');
-vi.mock('fs/promises');
+vi.mock('fs/promises', () => ({
+  default: {
+    readFile: vi.fn(),
+    realpath: vi.fn(),
+    lstat: vi.fn(),
+    access: vi.fn(),
+  },
+}));
 
 describe('persona-external-loader', () => {
+  // Allowed directory for file tests - matches persona-external-loader.ts ALLOWED_PERSONA_DIRS
+  // Use os.homedir() to match the production code rather than hardcoding '/root'
+  const allowedDir = path.join(os.homedir(), '.tix-kanban', 'personas');
+  
   beforeEach(() => {
     clearPersonaCache();
     vi.clearAllMocks();
+    // Mock realpath to return a path within allowed directory
+    (fs.realpath as any).mockImplementation((path: string) => {
+      // Strip the test path and replace with allowed dir to pass security check
+      const filename = path.split('/').pop() || 'persona.yaml';
+      return Promise.resolve(`${allowedDir}/${filename}`);
+    });
   });
 
   afterEach(() => {
@@ -231,9 +250,9 @@ specialties: [two]
         { location: '/path/to/two.yaml', type: 'file' },
       ]);
 
-      expect(results).toHaveLength(2);
-      expect(results[0].persona.id).toBe('persona-1');
-      expect(results[1].persona.id).toBe('persona-2');
+      expect(results.loaded).toHaveLength(2);
+      expect(results.loaded[0].persona.id).toBe('persona-1');
+      expect(results.loaded[1].persona.id).toBe('persona-2');
     });
 
     it('should continue on partial failures', async () => {
@@ -256,8 +275,8 @@ specialties: [validation]
       ]);
 
       // Should return only the successful one
-      expect(results).toHaveLength(1);
-      expect(results[0].persona.id).toBe('valid-persona');
+      expect(results.loaded).toHaveLength(1);
+      expect(results.loaded[0].persona.id).toBe('valid-persona');
     });
   });
 
