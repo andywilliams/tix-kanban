@@ -127,6 +127,7 @@ function executeClaudeWithStdin(
     }
     
     console.log(`[worker] Running: ${fullCommand} (cwd: ${resolvedCwd || process.cwd()})`);
+    console.log(`[worker] Prompt (first 1000 chars): ${prompt.substring(0, 1000)}`);
     const child = spawn(fullCommand, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
