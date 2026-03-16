@@ -133,11 +133,12 @@ function executeClaudeWithStdin(
     
     child.on('close', (code) => {
       clearTimeout(timeout);
-      if (code !== 0) {
-        console.error(`[worker] Claude exited with code ${code}`);
+      // Always log output for debugging (truncated)
+      console.log(`[worker] Claude exited with code ${code}`);
+      if (stderr) {
         console.error(`[worker] stderr: ${stderr.substring(0, 2000)}`);
-        console.error(`[worker] stdout (last 3000 chars): ${stdout.substring(Math.max(0, stdout.length - 3000))}`);
       }
+      console.log(`[worker] stdout (last 3000 chars): ${stdout.substring(Math.max(0, stdout.length - 3000))}`);
       if (code === 0) {
         resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
       } else {
