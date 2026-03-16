@@ -313,7 +313,7 @@ export async function emitTestFailure(taskId: string, testPath: string, errorMes
 
 /**
  * Emit a CI passed event for a task
- * @internal - Reserved for future use (GitHub Actions integration, CI webhook handlers)
+ * @public - Called by the worker polling loop on CI pass; also available for external webhook integrations
  */
 export async function emitCIPassed(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
   return emitEvent({

@@ -29,7 +29,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { type TriggerCondition, initializeTriggerSystem } from './event-triggers.js';
+import { type TriggerCondition, initializeTriggerSystem, emitCIPassed } from './event-triggers.js';
 import { evaluateFieldCondition } from './condition-utils.js';
 import {
   PersonalReminder,
@@ -603,6 +603,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
+          // Also emit via the event-triggers subscription pathway so personas registered
+          // through initializeTriggerSystem / registerTrigger receive the ci_passed event
+          emitCIPassed(fullTask.id, pr.url || '', pr.number).catch(() => {/* non-fatal */});
         }
 
         if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
