@@ -123,7 +123,8 @@ export async function initializeTriggerSystem(): Promise<void> {
     }
   }
   
-  // Sort all trigger arrays by priority (descending)
+  // Sort all trigger arrays by priority (descending) after all triggers are pushed
+  // This ensures higher priority personas respond first when events are triggered
   for (const triggers of triggerSubscriptions.values()) {
     triggers.sort((a, b) => b.priority - a.priority);
   }
