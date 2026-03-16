@@ -29,7 +29,7 @@ import {
 } from './standup-storage.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
-import { type TriggerCondition, initializeTriggerSystem, emitCIPassed } from './event-triggers.js';
+import { initializeTriggerSystem } from './event-triggers.js';
 import { evaluateFieldCondition } from './condition-utils.js';
 import {
   PersonalReminder,
@@ -1477,9 +1477,6 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
 // Main worker cycle (task queue + event-based triggers)
 async function runWorkerCycle(): Promise<void> {
   console.log('🔄 Worker cycle starting...');
-
-  // Ensure trigger system is initialized before processing
-  await initializeTriggerSystem();
 
   // Clean up expired cache entries periodically
   try {
