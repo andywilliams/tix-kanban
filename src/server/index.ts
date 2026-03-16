@@ -5,6 +5,18 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { initializeTriggerSystem } from './event-triggers.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
+
+/**
+ * Refresh persona-derived runtime state after a CRUD mutation.
+ * Uses a single getAllPersonas() call to update invocation permissions,
+ * then kicks off trigger system re-initialization (which fetches internally).
+ */
+async function refreshPersonaSystemState(label: string): Promise<void> {
+  const all = await getAllPersonas();
+  loadPermissionsFromPersonas(all);
+  await initializeTriggerSystem();
+  console.log(`[persona-system] Refreshed after ${label}`);
+}
 import {
   getAllTasks,
   getTask,
@@ -1600,8 +1612,7 @@ app.post('/api/personas', async (req, res) => {
     };
     
     const persona = await createPersona(newPersonaData);
-    initializeTriggerSystem().catch(err => console.error('[triggers] Failed to refresh on persona create:', err));
-    getAllPersonas().then(all => loadPermissionsFromPersonas(all)).catch(err => console.error('[permissions] Failed to refresh on persona create:', err));
+    refreshPersonaSystemState('persona create').catch(err => console.error('[persona-system] Failed to refresh on persona create:', err));
     res.status(201).json({ persona });
   } catch (error) {
     console.error('POST /api/personas error:', error);
@@ -1619,8 +1630,7 @@ app.put('/api/personas/:id', async (req, res) => {
       return res.status(404).json({ error: 'Persona not found' });
     }
 
-    initializeTriggerSystem().catch(err => console.error('[triggers] Failed to refresh on persona update:', err));
-    getAllPersonas().then(all => loadPermissionsFromPersonas(all)).catch(err => console.error('[permissions] Failed to refresh on persona update:', err));
+    refreshPersonaSystemState('persona update').catch(err => console.error('[persona-system] Failed to refresh on persona update:', err));
     res.json({ persona });
   } catch (error) {
     console.error(`PUT /api/personas/${req.params.id} error:`, error);
@@ -1637,8 +1647,7 @@ app.delete('/api/personas/:id', async (req, res) => {
       return res.status(404).json({ error: 'Persona not found' });
     }
     
-    initializeTriggerSystem().catch(err => console.error('[triggers] Failed to refresh on persona delete:', err));
-    getAllPersonas().then(all => loadPermissionsFromPersonas(all)).catch(err => console.error('[permissions] Failed to refresh on persona delete:', err));
+    refreshPersonaSystemState('persona delete').catch(err => console.error('[persona-system] Failed to refresh on persona delete:', err));
     res.json({ success: true });
   } catch (error) {
     console.error(`DELETE /api/personas/${req.params.id} error:`, error);
