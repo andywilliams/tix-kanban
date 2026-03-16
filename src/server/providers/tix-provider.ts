@@ -53,7 +53,7 @@ export abstract class CLITicketProvider implements TicketProvider {
   /**
    * Normalize status to one of the canonical kanban statuses
    */
-  protected normalizeStatus(status: string | null | undefined): 'backlog' | 'in-progress' | 'review' | 'done' {
+  protected normalizeStatus(status: string | null | undefined): 'backlog' | 'in-progress' | 'review' | 'verified' | 'done' {
     if (!status) {
       console.warn(`Missing status, defaulting to backlog`);
       return 'backlog';
@@ -68,6 +68,9 @@ export abstract class CLITicketProvider implements TicketProvider {
     }
     if (lower.includes('review') || lower.includes('testing') || lower.includes('pending')) {
       return 'review';
+    }
+    if (lower.includes('verified') || lower.includes('approved') || lower.includes('merged')) {
+      return 'verified';
     }
     if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
       return 'done';

@@ -254,8 +254,8 @@ body {
 }
 
 .kanban-column.drag-over {
-  border-color: var(--accent);
-  background: var(--bg-tertiary);
+  border-color: var(--accent) !important;
+  background: var(--bg-tertiary) !important;
 }
 
 /* Verified column - green styling for clean/ready status */
