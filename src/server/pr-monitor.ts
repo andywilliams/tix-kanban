@@ -448,6 +448,30 @@ async function handlePRStateChanges(
       return;
     }
 
+    // 5. First observation: PR is already clean → notify ready to merge
+    if (
+      current.state === 'open' &&
+      current.ciState === 'SUCCESS' &&
+      !current.hasUnresolvedThreads &&
+      current.mergeable === 'MERGEABLE' &&
+      task.status === 'review'
+    ) {
+      console.log(`✅ PR is clean and ready for task ${task.id} (first observation): ${prRef}`);
+      await updateTask(task.id, {
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+      return;
+    }
+
     // No actionable state found, just record initial state
     console.log(`📝 Initial state recorded for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}`);
     return;
