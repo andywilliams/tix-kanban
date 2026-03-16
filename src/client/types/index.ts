@@ -2,7 +2,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  status: 'backlog' | 'in-progress' | 'auto-review' | 'review' | 'done';
+  status: 'backlog' | 'in-progress' | 'auto-review' | 'review' | 'verified' | 'done';
   priority: number;
   assignee?: string; // Who the task is assigned to (email/name)
   persona?: string; // AI persona type for task handling

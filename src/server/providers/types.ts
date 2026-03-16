@@ -3,7 +3,7 @@
 export interface TicketData {
   id: string;
   title: string;
-  status: 'backlog' | 'in-progress' | 'review' | 'done';
+  status: 'backlog' | 'in-progress' | 'review' | 'verified' | 'done';
   description?: string;
   priority?: number;
   assignee?: string;

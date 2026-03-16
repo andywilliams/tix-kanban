@@ -27,6 +27,7 @@ const columns = [
   { id: 'backlog', title: 'Backlog' },
   { id: 'in-progress', title: 'In Progress' },
   { id: 'review', title: 'Review' },
+  { id: 'verified', title: 'Verified ✓' },
   { id: 'done', title: 'Done' },
 ] as const;
 
