@@ -73,8 +73,8 @@ async function postTaskUpdate(task: Task, persona: Persona, message: string): Pr
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
 const DEFAULT_MAX_TURNS: Record<'task' | 'research' | 'evaluation', number> = {
-  task: 12,
-  research: 20,
+  task: 25,
+  research: 30,
   evaluation: 4,
 };
 
