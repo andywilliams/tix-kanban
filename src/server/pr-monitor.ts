@@ -5,7 +5,7 @@ import { execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 import { parsePRLinks } from './pr-utils.js';
-import { updateTask, getTask } from './storage.js';
+import { updateTask, getTask, getAllTasks } from './storage.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -266,7 +266,6 @@ export async function processReviewTasksPRStatus(): Promise<void> {
     console.log('🔍 Monitoring PRs for review tasks...');
 
     const state = await loadPRMonitorState();
-    const { getAllTasks } = await import('./storage.js');
     const tasks = await getAllTasks();
 
     // Get all tasks in review status (or that have PR links)
