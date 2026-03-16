@@ -183,6 +183,9 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
             ('priority' in triggerValue && typeof (triggerValue as any).priority !== 'number')
           ) {
             errors.push(`Field "triggers.${triggerKey}" must be a boolean or a config object { enabled?: boolean, priority?: number }`);
+          } else if (!('enabled' in triggerValue)) {
+            // Config object without enabled — trigger will be inactive. Warn so the user knows.
+            warnings.push(`Field "triggers.${triggerKey}" is a config object without "enabled: true" — trigger will not fire. Add "enabled: true" to activate it.`);
           }
         }
       }

@@ -109,10 +109,6 @@ export async function resolvePersonaInvocation(
   };
 }
 
-/**
- * Coordinate multiple personas responding to an event
- */
-
 // Export sub-modules
 export {
   // Event triggers

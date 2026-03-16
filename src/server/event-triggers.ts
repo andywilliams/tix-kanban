@@ -89,33 +89,33 @@ export async function initializeTriggerSystem(): Promise<void> {
 
   for (const persona of personas) {
     if (persona.triggers) {
-      const eventTypes = [...new Set(
-        Object.entries(persona.triggers)
-          .filter(([key, val]) => {
-            // onLinkAdded only supports boolean, other triggers support config objects
-            if (key === 'onLinkAdded') {
-              return val === true && TRIGGER_KEY_TO_EVENT_TYPE[key];
-            }
-            const isEnabled = val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
-            return isEnabled && TRIGGER_KEY_TO_EVENT_TYPE[key];
-          })
-          .map(([key]) => TRIGGER_KEY_TO_EVENT_TYPE[key])
-      )];
+      // Build per-event-type triggers to honour per-trigger priority from config objects
+      const enabledEntries = Object.entries(persona.triggers)
+        .filter(([key, val]) => {
+          if (!TRIGGER_KEY_TO_EVENT_TYPE[key]) return false;
+          if (key === 'onLinkAdded') return val === true;
+          return val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
+        });
 
-      if (eventTypes.length > 0) {
+      for (const [key, val] of enabledEntries) {
+        const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
+        // Per-trigger priority overrides top-level persona trigger priority
+        const perTriggerPriority = (typeof val === 'object' && val !== null && typeof (val as any).priority === 'number')
+          ? (val as any).priority
+          : undefined;
+        const priority = perTriggerPriority ?? persona.triggers?.priority ?? 100;
+
         const trigger: PersonaTrigger = {
           personaId: persona.id,
-          eventTypes,
+          eventTypes: [eventType],
           conditions: persona.triggers?.conditions,
-          priority: persona.triggers?.priority ?? 100,
+          priority,
         };
 
-        for (const eventType of eventTypes) {
-          if (!triggerSubscriptions.has(eventType)) {
-            triggerSubscriptions.set(eventType, []);
-          }
-          triggerSubscriptions.get(eventType)!.push(trigger);
+        if (!triggerSubscriptions.has(eventType)) {
+          triggerSubscriptions.set(eventType, []);
         }
+        triggerSubscriptions.get(eventType)!.push(trigger);
       }
     }
   }
