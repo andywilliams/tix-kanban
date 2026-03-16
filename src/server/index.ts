@@ -14,7 +14,7 @@ import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js
 async function refreshPersonaSystemState(label: string): Promise<void> {
   const all = await getAllPersonas();
   loadPermissionsFromPersonas(all);
-  await initializeTriggerSystem();
+  await initializeTriggerSystem(all);
   console.log(`[persona-system] Refreshed after ${label}`);
 }
 import {

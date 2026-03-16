@@ -84,11 +84,11 @@ const triggerSubscriptions = new Map<string, PersonaTrigger[]>();
 /**
  * Initialize trigger system - load persona trigger configs
  */
-export async function initializeTriggerSystem(): Promise<void> {
+export async function initializeTriggerSystem(preloadedPersonas?: Persona[]): Promise<void> {
   // Clear existing subscriptions to avoid accumulating duplicates on re-init
   triggerSubscriptions.clear();
 
-  const personas = await getAllPersonas();
+  const personas = preloadedPersonas ?? await getAllPersonas();
 
   for (const persona of personas) {
     if (persona.triggers) {
