@@ -61,6 +61,7 @@ export function setInvocationPermissions(
 
 /**
  * Get invocation permissions for a persona
+ * @internal - Reserved for future use (admin UI, debugging)
  */
 export function getInvocationPermissions(
   personaId: string
@@ -70,6 +71,7 @@ export function getInvocationPermissions(
 
 /**
  * Remove invocation permissions for a persona
+ * @internal - Reserved for future use (persona deletion, admin operations)
  */
 export function removeInvocationPermissions(personaId: string): void {
   invocationPermissions.delete(personaId);
@@ -246,6 +248,7 @@ export function getActiveInvocationCount(personaId: string): number {
 
 /**
  * Clear all active invocations for a persona
+ * @internal - Reserved for future use (error recovery, cleanup operations)
  */
 export function clearActiveInvocations(personaId: string): void {
   activeInvocations.delete(personaId);

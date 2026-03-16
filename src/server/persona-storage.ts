@@ -5,6 +5,7 @@ import { Persona, PersonaStats, PersonaTriggers } from '../client/types/index.js
 import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from './agent-memory.js';
 import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
+import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -882,6 +883,11 @@ export async function initializePersonas(): Promise<void> {
         console.error(`Failed to load YAML personas from ${dir}:`, yamlError);
       }
     }
+
+    // Load invocation permissions from all personas
+    const allPersonas = await getAllPersonas();
+    loadPermissionsFromPersonas(allPersonas);
+    console.log('🔐 Loaded invocation permissions from persona configs');
   } catch (error) {
     console.error('Failed to initialize personas:', error);
   }

@@ -190,6 +190,7 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
 /**
  * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
  * Returns Persona objects sorted by priority (highest first)
+ * @internal - Reserved for future use (simplified trigger lookup without context)
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
   return getPersonasByTriggerKeyWithContext(triggerKey, {});
@@ -310,6 +311,10 @@ export async function emitTestFailure(taskId: string, testPath: string, errorMes
   });
 }
 
+/**
+ * Emit a CI passed event for a task
+ * @internal - Reserved for future use (GitHub Actions integration, CI webhook handlers)
+ */
 export async function emitCIPassed(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
   return emitEvent({
     type: 'ci_passed',
