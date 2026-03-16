@@ -132,7 +132,6 @@ async function fetchPRDetails(repo: string, number: number): Promise<{
     `;
 
     const [owner, repoName] = repo.split('/');
-    const variables = { owner, repo: repoName, number };
 
     const { stdout } = await execFile(
       'gh',
@@ -204,7 +203,8 @@ function determineCIState(checks: PRCheckStatus[]): 'SUCCESS' | 'FAILURE' | 'PEN
     c.conclusion === 'TIMED_OUT' ||
     c.conclusion === 'CANCELLED' ||
     c.conclusion === 'ACTION_REQUIRED' ||
-    c.status === 'FAILURE'
+    c.status === 'FAILURE' ||
+    c.status === 'ERROR'
   );
 
   if (hasFailure) return 'FAILURE';
@@ -327,6 +327,9 @@ export async function processReviewTasksPRStatus(): Promise<void> {
 
         // Take action based on PR state changes
         await handlePRStateChanges(fullTask, pr, previousSnapshot, currentSnapshot, hasNewThreads, unresolvedCount);
+
+        // Re-fetch task data to avoid stale comment data when multiple PRs update the same task
+        fullTask.comments = (await getTask(task.id))?.comments || fullTask.comments;
       }
     }
 
@@ -358,8 +361,14 @@ async function handlePRStateChanges(
 ): Promise<void> {
   const prRef = `${pr.repo}#${pr.number}`;
 
+  // Skip transition logic on first run (no previous snapshot) - only record initial state
+  if (!previous) {
+    console.log(`📝 Initial state recorded for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}`);
+    return;
+  }
+
   // 1. PR merged → move to done
-  if (current.state === 'merged' && previous?.state !== 'merged') {
+  if (current.state === 'merged' && previous.state !== 'merged') {
     console.log(`✅ PR merged for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       status: 'done',
@@ -398,7 +407,7 @@ async function handlePRStateChanges(
   }
 
   // 3. CI failure → notify and keep in review
-  if (current.ciState === 'FAILURE' && previous?.ciState !== 'FAILURE') {
+  if (current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
     console.log(`❌ CI failed for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
@@ -416,7 +425,7 @@ async function handlePRStateChanges(
   }
 
   // 4. Merge conflicts → spawn developer to rebase
-  if (current.mergeable === 'CONFLICTING' && previous?.mergeable !== 'CONFLICTING') {
+  if (current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
     console.log(`⚠️ Merge conflicts detected for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
@@ -444,9 +453,9 @@ async function handlePRStateChanges(
   ) {
     // Only add comment if this is a transition (not already clean)
     const wasClean =
-      previous?.ciState === 'SUCCESS' &&
-      !previous?.hasUnresolvedThreads &&
-      previous?.mergeable === 'MERGEABLE';
+      previous.ciState === 'SUCCESS' &&
+      !previous.hasUnresolvedThreads &&
+      previous.mergeable === 'MERGEABLE';
 
     if (!wasClean) {
       console.log(`✅ PR is clean and ready for task ${task.id}: ${prRef}`);
