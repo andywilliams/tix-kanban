@@ -116,7 +116,7 @@ function isBlockedHostname(hostname: string): boolean {
     if (normalized.startsWith('fe80')) return true;           // link-local
     // Only block fc/fd for actual IPv6 addresses (fc00::/7 unique-local)
     // These MUST be IPv6 (contain colon) to avoid blocking domains like fcm.googleapis.com
-    if (normalized.match(/^(fc|fd)[\da-f]{1,3}:/i)) return true;
+    if (normalized.match(/^(fc|fd)[\da-f]{0,3}:/i)) return true;
     if (normalized.startsWith('::ffff:')) {
       // IPv4-mapped IPv6 — extract embedded IPv4 and re-check
       const embedded = normalized.slice(7);
