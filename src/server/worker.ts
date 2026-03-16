@@ -84,6 +84,12 @@ const MODEL_ALIASES: Record<string, string> = {
   'opus': 'claude-opus-4-6',
   'sonnet': 'claude-sonnet-4-6',
   'haiku': 'claude-haiku-4-5-20250515',
+  // Legacy full model names → latest versions
+  'claude-opus-4-20250514': 'claude-opus-4-6',
+  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
+  'claude-sonnet-4-5-20241022': 'claude-sonnet-4-6',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+  'claude-3-opus-20240229': 'claude-opus-4-6',
 };
 
 function resolveModelAlias(model: string | undefined): string | undefined {
