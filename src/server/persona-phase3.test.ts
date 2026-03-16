@@ -8,6 +8,7 @@ import {
   registerOrchestrator,
   resolvePersonaInvocation,
   clearAllTriggers,
+  getTriggeredPersonas,
   type TriggerEvent,
   type PersonaTrigger,
 } from './persona-phase3.js';
@@ -17,16 +18,20 @@ describe('Phase 3: Event Triggers', () => {
     clearAllTriggers();
   });
 
-  it('should register a trigger without throwing', async () => {
+  it('should register a trigger and make it retrievable', async () => {
     const trigger: PersonaTrigger = {
       personaId: 'qa-reviewer',
       eventTypes: ['pr_opened'],
       priority: 100,
     };
-    await expect(registerTrigger(trigger)).resolves.not.toThrow();
+    await registerTrigger(trigger);
+    const subscribers = getTriggeredPersonas('pr_opened');
+    expect(subscribers).toHaveLength(1);
+    expect(subscribers[0].personaId).toBe('qa-reviewer');
+    expect(subscribers[0].priority).toBe(100);
   });
 
-  it('should register a conditional trigger without throwing', async () => {
+  it('should register a conditional trigger and preserve conditions', async () => {
     const trigger: PersonaTrigger = {
       personaId: 'backend-specialist',
       eventTypes: ['test_failure'],
@@ -35,14 +40,26 @@ describe('Phase 3: Event Triggers', () => {
       ],
       priority: 100,
     };
-    await expect(registerTrigger(trigger)).resolves.not.toThrow();
+    await registerTrigger(trigger);
+    const subscribers = getTriggeredPersonas('test_failure');
+    expect(subscribers).toHaveLength(1);
+    expect(subscribers[0].personaId).toBe('backend-specialist');
+    expect(subscribers[0].conditions).toEqual([
+      { field: 'tags', operator: 'contains', value: 'backend' },
+    ]);
   });
 
-  it('should register multiple triggers with different priorities', async () => {
+  it('should order multiple triggers by priority (highest first)', async () => {
     const high: PersonaTrigger = { personaId: 'security-scanner', eventTypes: ['pr_opened'], priority: 200 };
     const low: PersonaTrigger = { personaId: 'qa-reviewer', eventTypes: ['pr_opened'], priority: 100 };
-    await expect(registerTrigger(high)).resolves.not.toThrow();
-    await expect(registerTrigger(low)).resolves.not.toThrow();
+    await registerTrigger(high);
+    await registerTrigger(low);
+    const subscribers = getTriggeredPersonas('pr_opened');
+    expect(subscribers).toHaveLength(2);
+    expect(subscribers[0].personaId).toBe('security-scanner');
+    expect(subscribers[0].priority).toBe(200);
+    expect(subscribers[1].personaId).toBe('qa-reviewer');
+    expect(subscribers[1].priority).toBe(100);
   });
 });
 
