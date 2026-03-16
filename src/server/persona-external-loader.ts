@@ -114,9 +114,9 @@ function isBlockedHostname(hostname: string): boolean {
   // Block IPv6 private/special ranges.
   if (normalized.includes(':')) {
     if (normalized.startsWith('fe80')) return true;           // link-local
-    // Only block fc/fd for actual IPv6 addresses (must contain colon)
-    // This avoids blocking legitimate domains like fcm.googleapis.com
-    if ((normalized.startsWith('fc') || normalized.startsWith('fd'))) return true; // unique-local
+    // Only block fc/fd for actual IPv6 addresses (fc00::/7 unique-local)
+    // These MUST be IPv6 (contain colon) to avoid blocking domains like fcm.googleapis.com
+    if (normalized.match(/^(fc|fd)[\da-f]{1,3}:/i)) return true;
     if (normalized.startsWith('::ffff:')) {
       // IPv4-mapped IPv6 — extract embedded IPv4 and re-check
       const embedded = normalized.slice(7);
@@ -170,8 +170,11 @@ async function validateExternalUrl(rawUrl: string): Promise<URL> {
       throw new Error(`Security violation: URL hostname resolves to a blocked internal address: ${rawUrl}`);
     }
   } catch (err) {
+    // Re-throw security violations as-is to preserve the specific error message
     if (err instanceof Error && err.message.startsWith('Security violation:')) throw err;
-    throw new Error(`Security violation: Unable to resolve hostname for ${rawUrl}`);
+    // For other errors (DNS lookup failures), wrap in security violation
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Security violation: Unable to resolve hostname for ${rawUrl}: ${errorMsg}`);
   }
 
   return parsed;

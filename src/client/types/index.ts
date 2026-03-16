@@ -174,7 +174,7 @@ export interface PersonaTriggers {
   onAssignmentChanged?: boolean | PersonaTriggerConfig;
   onPriorityChanged?: boolean | PersonaTriggerConfig;
   onCommentAdded?: boolean | PersonaTriggerConfig;
-  onLinkAdded?: boolean;
+  onLinkAdded?: boolean | PersonaTriggerConfig;
   onDueDateApproaching?: boolean | PersonaTriggerConfig;
   // Phase 3: Event trigger conditions
   conditions?: Array<{

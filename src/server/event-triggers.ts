@@ -93,7 +93,7 @@ export async function initializeTriggerSystem(): Promise<void> {
       const enabledEntries = Object.entries(persona.triggers)
         .filter(([key, val]) => {
           if (!TRIGGER_KEY_TO_EVENT_TYPE[key]) return false;
-          if (key === 'onLinkAdded') return val === true;
+          // onLinkAdded doesn't have a separate handler in worker.ts, so treat like other triggers
           return val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
         });
 
