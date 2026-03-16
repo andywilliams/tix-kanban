@@ -203,6 +203,7 @@ function determineCIState(checks: PRCheckStatus[]): 'SUCCESS' | 'FAILURE' | 'PEN
     c.conclusion === 'TIMED_OUT' ||
     c.conclusion === 'CANCELLED' ||
     c.conclusion === 'ACTION_REQUIRED' ||
+    c.conclusion === 'STARTUP_FAILURE' ||
     c.status === 'FAILURE' ||
     (c.status as string) === 'ERROR'
   );
@@ -421,7 +422,7 @@ async function handlePRStateChanges(
   }
 
   // 3. CI failure → notify and keep in review
-  if (current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+  if (task.status === 'review' && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
     console.log(`❌ CI failed for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
@@ -439,7 +440,7 @@ async function handlePRStateChanges(
   }
 
   // 4. Merge conflicts → spawn developer to rebase
-  if (current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
+  if (task.status === 'review' && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
     console.log(`⚠️ Merge conflicts detected for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
