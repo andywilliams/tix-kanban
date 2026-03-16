@@ -269,9 +269,9 @@ export async function processReviewTasksPRStatus(): Promise<void> {
     const state = await loadPRMonitorState();
     const tasks = await getAllTasks();
 
-    // Get all tasks in review status (or that have PR links)
+    // Get only tasks in review status that have PR links
     const reviewTasks = tasks.filter(
-      t => t.status === 'review' || (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+      t => t.status === 'review' && (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
     );
 
     if (reviewTasks.length === 0) {
