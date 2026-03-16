@@ -15,6 +15,9 @@ import { Persona } from '../client/types/index.js';
 import { evaluateTriggerCondition } from './condition-utils.js';
 
 // Shared mapping from worker.ts style trigger keys to internal TriggerEventType
+// NOTE: onCIPassed mapping is defined here for Phase 4 persona trigger subscription setup.
+// The actual emitCIPassed call happens in the worker polling loop (worker.ts), not via
+// webhooks. This event-driven path is reserved for Phase 5 webhook integration.
 export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPROpened: 'pr_opened',
   onPRMerged: 'pr_merged',
@@ -191,6 +194,7 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
  * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
  * Returns Persona objects sorted by priority (highest first)
  * @internal - Reserved for future use (simplified trigger lookup without context)
+ * @deprecated - Use getPersonasByTriggerKeyWithContext for full condition evaluation
  */
 export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
   return getPersonasByTriggerKeyWithContext(triggerKey, {});

@@ -61,7 +61,7 @@ export function setInvocationPermissions(
 
 /**
  * Get invocation permissions for a persona
- * @phase5 - Intentionally exported for Phase 5 admin UI integration; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP admin UI integration; no callers yet by design
  */
 export function getInvocationPermissions(
   personaId: string
@@ -71,7 +71,7 @@ export function getInvocationPermissions(
 
 /**
  * Remove invocation permissions for a persona
- * @phase5 - Intentionally exported for Phase 5 persona lifecycle hooks; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP persona lifecycle hooks; no callers yet by design
  */
 export function removeInvocationPermissions(personaId: string): void {
   invocationPermissions.delete(personaId);
@@ -183,9 +183,7 @@ export function checkInvocationPermission(
 
 /**
  * Enforce invocation permission (throws on denial)
- * 
- * NOTE: This is a Phase 4 API entry point - currently unused but reserved for
- * future wiring into the invocation permission enforcement pipeline.
+ * @internal Reserved for Phase 5 BYOP integration - wiring into invocation pipeline TBD
  */
 export function enforceInvocationPermission(
   attempt: InvocationAttempt
@@ -248,7 +246,7 @@ export function getActiveInvocationCount(personaId: string): number {
 
 /**
  * Clear all active invocations for a persona
- * @phase5 - Intentionally exported for Phase 5 error recovery; no callers yet by design
+ * @internal Reserved for Phase 5 BYOP error recovery; no callers yet by design
  */
 export function clearActiveInvocations(personaId: string): void {
   activeInvocations.delete(personaId);
