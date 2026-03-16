@@ -217,6 +217,8 @@ export function getActiveInvocationCount(personaId: string): number {
  * This extends the YAML schema to support an 'invocations' field
  */
 export function loadPermissionsFromPersonas(personas: Persona[]): void {
+  // Clear stale entries first — personas may have had invocations removed or been deleted
+  invocationPermissions.clear();
   personas.forEach(persona => {
     // Check if persona has invocation configuration
     // Persona.invocations is typed via InvocationConfig (no as any needed)
