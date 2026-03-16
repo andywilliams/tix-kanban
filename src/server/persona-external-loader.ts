@@ -9,7 +9,6 @@ import {
   PersonaYamlSchema, 
   validatePersonaYaml, 
   ValidationResult,
-  idFromFilename,
   yamlToPersona
 } from './persona-yaml-loader.js';
 import jsYaml from 'js-yaml';

@@ -5,18 +5,6 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { initializeTriggerSystem } from './event-triggers.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
-
-/**
- * Refresh persona-derived runtime state after a CRUD mutation.
- * Uses a single getAllPersonas() call to update invocation permissions,
- * then kicks off trigger system re-initialization (which fetches internally).
- */
-async function refreshPersonaSystemState(label: string): Promise<void> {
-  const all = await getAllPersonas();
-  loadPermissionsFromPersonas(all);
-  await initializeTriggerSystem(all);
-  console.log(`[persona-system] Refreshed after ${label}`);
-}
 import {
   getAllTasks,
   getTask,
@@ -84,6 +72,19 @@ import {
   updatePersonaStats
 } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+
+/**
+ * Refresh persona-derived runtime state after a CRUD mutation.
+ * Uses a single getAllPersonas() call to feed both invocation permissions
+ * and trigger system re-initialization, avoiding a redundant storage read.
+ */
+async function refreshPersonaSystemState(label: string): Promise<void> {
+  const all = await getAllPersonas();
+  loadPermissionsFromPersonas(all);
+  await initializeTriggerSystem(all);
+  console.log(`[persona-system] Refreshed after ${label}`);
+}
+
 import { loadExternalPersona, loadExternalPersonas, clearPersonaCache, ExternalPersonaSource } from './persona-external-loader.js';
 import {
   getGitHubConfig,
