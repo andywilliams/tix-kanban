@@ -204,7 +204,7 @@ function determineCIState(checks: PRCheckStatus[]): 'SUCCESS' | 'FAILURE' | 'PEN
     c.conclusion === 'CANCELLED' ||
     c.conclusion === 'ACTION_REQUIRED' ||
     c.status === 'FAILURE' ||
-    c.status === 'ERROR'
+    (c.status as string) === 'ERROR'
   );
 
   if (hasFailure) return 'FAILURE';
@@ -321,14 +321,21 @@ export async function processReviewTasksPRStatus(): Promise<void> {
           hasUnresolvedThreads: unresolvedCount > 0,
         };
 
-        // Store snapshot
-        state.tasks[task.id][prKey] = currentSnapshot;
-
-        // Take action based on PR state changes
+        // Take action based on PR state changes BEFORE storing snapshot
+        // (Bug 3 fix: process transitions first, then store snapshot after)
         await handlePRStateChanges(fullTask, pr, previousSnapshot, currentSnapshot, hasNewThreads, unresolvedCount);
 
-        // Re-fetch task data to avoid stale comment data when multiple PRs update the same task
-        fullTask.comments = (await getTask(task.id))?.comments || fullTask.comments;
+        // Bug 1 fix: re-fetch entire task (not just comments) to get latest status
+        // before processing next PR
+        const updatedTask = await getTask(task.id);
+        if (!updatedTask) continue;
+        
+        // Update fullTask with fresh data for next iteration
+        Object.assign(fullTask, updatedTask);
+
+        // Store snapshot AFTER handlePRStateChanges runs
+        // (Bug 3 fix: this ensures subsequent transitions aren't missed)
+        state.tasks[task.id][prKey] = currentSnapshot;
       }
     }
 
@@ -366,22 +373,30 @@ async function handlePRStateChanges(
     return;
   }
 
-  // 1. PR merged → move to done
+  // 1. PR merged → move to done (only if in review/verified status)
+  // Bug 2 fix: Don't move auto-review/in-progress tasks to done here -
+  // let the auto-review system handle cleanup (deleteTaskReviewState, updatePersonaStats)
   if (current.state === 'merged' && previous.state !== 'merged') {
-    console.log(`✅ PR merged for task ${task.id}: ${prRef}`);
-    await updateTask(task.id, {
-      status: 'done',
-      comments: [
-        ...(task.comments || []),
-        {
-          id: Math.random().toString(36).substr(2, 9),
-          taskId: task.id,
-          body: `✅ **PR merged**: ${prRef}\n\nThis task is now complete.`,
-          author: 'PR Monitor (system)',
-          createdAt: new Date(),
-        },
-      ],
-    });
+    // Only move to done if task is in review status
+    // Tasks in auto-review or in-progress should be handled by their respective systems
+    if (task.status === 'review') {
+      console.log(`✅ PR merged for task ${task.id}: ${prRef}`);
+      await updateTask(task.id, {
+        status: 'done',
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `✅ **PR merged**: ${prRef}\n\nThis task is now complete.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+    } else {
+      console.log(`ℹ️ PR merged for task ${task.id}: ${prRef}, but task is in "${task.status}" status - skipping auto-move to done`);
+    }
     return;
   }
 
