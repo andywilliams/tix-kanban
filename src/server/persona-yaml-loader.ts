@@ -251,8 +251,12 @@ export function validatePersonaYaml(data: unknown): ValidationResult {
         errors.push('Field "invocations.allowAll" must be a boolean');
       }
       
-      if (inv.maxConcurrent !== undefined && typeof inv.maxConcurrent !== 'number') {
-        errors.push('Field "invocations.maxConcurrent" must be a number');
+      if (inv.maxConcurrent !== undefined) {
+        if (typeof inv.maxConcurrent !== 'number' || !Number.isFinite(inv.maxConcurrent)) {
+          errors.push('Field "invocations.maxConcurrent" must be a number');
+        } else if (!Number.isInteger(inv.maxConcurrent) || inv.maxConcurrent < 1) {
+          errors.push('Field "invocations.maxConcurrent" must be a positive integer');
+        }
       }
     }
   }
