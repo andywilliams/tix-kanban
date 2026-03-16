@@ -118,7 +118,13 @@ export async function initializeTriggerSystem(): Promise<void> {
         if (!triggerSubscriptions.has(eventType)) {
           triggerSubscriptions.set(eventType, []);
         }
-        triggerSubscriptions.get(eventType)!.push(trigger);
+        
+        // Deduplicate: skip if this persona already has a trigger for this event type
+        const existingTriggers = triggerSubscriptions.get(eventType)!;
+        const personaExists = existingTriggers.some(t => t.personaId === persona.id);
+        if (!personaExists) {
+          existingTriggers.push(trigger);
+        }
       }
     }
   }

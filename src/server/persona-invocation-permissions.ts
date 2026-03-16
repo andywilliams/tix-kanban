@@ -63,6 +63,7 @@ export function setInvocationPermissions(
  * Get invocation permissions for a persona
  * @internal Reserved for Phase 5 BYOP admin UI integration; no callers yet by design
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getInvocationPermissions(
   personaId: string
 ): InvocationPermission | null {
@@ -73,6 +74,7 @@ export function getInvocationPermissions(
  * Remove invocation permissions for a persona
  * @internal Reserved for Phase 5 BYOP persona lifecycle hooks; no callers yet by design
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function removeInvocationPermissions(personaId: string): void {
   invocationPermissions.delete(personaId);
   console.log(`[invocation-permissions] Removed permissions for ${personaId}`);
@@ -185,6 +187,7 @@ export function checkInvocationPermission(
  * Enforce invocation permission (throws on denial)
  * @internal Reserved for Phase 5 BYOP integration - wiring into invocation pipeline TBD
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function enforceInvocationPermission(
   attempt: InvocationAttempt
 ): void {
@@ -248,6 +251,7 @@ export function getActiveInvocationCount(personaId: string): number {
  * Clear all active invocations for a persona
  * @internal Reserved for Phase 5 BYOP error recovery; no callers yet by design
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function clearActiveInvocations(personaId: string): void {
   activeInvocations.delete(personaId);
 }

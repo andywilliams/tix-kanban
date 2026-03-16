@@ -35,7 +35,7 @@ export function evaluateFieldCondition(condition: FieldCondition, task: any): bo
     case 'matches':
       if (typeof fieldValue === 'string' && typeof condition.value === 'string') {
         const rawPattern = condition.value;
-        if (rawPattern.length > 200 || /(\(.+[+*?]\)[+*?]|\[.+\][+*]{2})/.test(rawPattern)) {
+        if (rawPattern.length > 200 || /(\(.+?[+*?]\)[+*?]|\[.+?\][+*]{2})/.test(rawPattern)) {
           console.warn(`[condition-utils] Potentially unsafe regex pattern rejected: "${rawPattern}"`);
           return false;
         }
