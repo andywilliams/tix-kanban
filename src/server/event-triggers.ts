@@ -12,16 +12,15 @@
 import { readTask, logActivity } from './storage.js';
 import { getAllPersonas, getPersona } from './persona-storage.js';
 import { Persona } from '../client/types/index.js';
-import { evaluateFieldCondition } from './condition-utils.js';
+import { evaluateTriggerCondition } from './condition-utils.js';
 
-// Shared mapping from worker.ts style trigger keys to internal TriggerEventType.
-// Keep this as the single source of truth to avoid duplicate mappings.
-export const WORKER_TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
+// Shared mapping from worker.ts style trigger keys to internal TriggerEventType
+export const TRIGGER_KEY_TO_EVENT_TYPE: Record<string, TriggerEventType> = {
   onPROpened: 'pr_opened',
   onPRMerged: 'pr_merged',
   onPRClosed: 'pr_closed',
   onPRReviewRequested: 'pr_review_requested',
-  onCIPassed: 'test_success',
+  onCIPassed: 'ci_passed',
   onTestSuccess: 'test_success',
   onTestFailure: 'test_failure',
   onStatusChange: 'status_change',
@@ -39,6 +38,7 @@ export type TriggerEventType =
   | 'pr_merged'
   | 'pr_closed'
   | 'pr_review_requested'
+  | 'ci_passed'
   | 'test_failure'
   | 'test_success'
   | 'status_change'
@@ -89,36 +89,40 @@ export async function initializeTriggerSystem(): Promise<void> {
 
   for (const persona of personas) {
     if (persona.triggers) {
-      const eventTypes = [...new Set(
-        Object.entries(persona.triggers)
-          .filter(([key, val]) => {
-            const isEnabled = val === true || (typeof val === 'object' && val !== null && 'enabled' in val && (val as any).enabled === true);
-            return isEnabled && WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key];
-          })
-          .map(([key]) => WORKER_TRIGGER_KEY_TO_EVENT_TYPE[key])
-      )];
+      // Build per-event-type triggers to honour per-trigger priority from config objects
+      const enabledEntries = Object.entries(persona.triggers)
+        .filter(([key, val]) => {
+          if (!TRIGGER_KEY_TO_EVENT_TYPE[key]) return false;
+          if (key === 'onLinkAdded') return val === true;
+          return val === true || (typeof val === 'object' && val !== null && (val as any).enabled === true);
+        });
 
-      if (eventTypes.length > 0) {
+      for (const [key, val] of enabledEntries) {
+        const eventType = TRIGGER_KEY_TO_EVENT_TYPE[key];
+        // Per-trigger priority overrides top-level persona trigger priority
+        const perTriggerPriority = (typeof val === 'object' && val !== null && typeof (val as any).priority === 'number')
+          ? (val as any).priority
+          : undefined;
+        const priority = perTriggerPriority ?? persona.triggers?.priority ?? 100;
+
         const trigger: PersonaTrigger = {
           personaId: persona.id,
-          eventTypes,
+          eventTypes: [eventType],
           conditions: persona.triggers?.conditions,
-          priority: persona.triggers?.priority ?? 100,
+          priority,
         };
 
-        for (const eventType of eventTypes) {
-          if (!triggerSubscriptions.has(eventType)) {
-            triggerSubscriptions.set(eventType, []);
-          }
-          triggerSubscriptions.get(eventType)!.push(trigger);
+        if (!triggerSubscriptions.has(eventType)) {
+          triggerSubscriptions.set(eventType, []);
         }
+        triggerSubscriptions.get(eventType)!.push(trigger);
       }
     }
   }
-
-  // Keep ordering consistent with registerTrigger(): highest priority first.
-  for (const subscribers of triggerSubscriptions.values()) {
-    subscribers.sort((a, b) => b.priority - a.priority);
+  
+  // Sort all trigger arrays by priority (descending)
+  for (const triggers of triggerSubscriptions.values()) {
+    triggers.sort((a, b) => b.priority - a.priority);
   }
   
   console.log(`🎯 Initialized ${triggerSubscriptions.size} event trigger types with ${personas.length} persona subscriptions`);
@@ -183,78 +187,60 @@ export function getTriggeredPersonas(eventType: TriggerEventType): PersonaTrigge
   return triggerSubscriptions.get(eventType) || [];
 }
 
-export async function getPersonasByTriggerKeyWithContext(
-  triggerKey: string,
-  task?: { id: string } | null,
-  metadata?: TriggerEvent['metadata']
-): Promise<Persona[]> {
-  const triggersWithConditions = await getTriggersByTriggerKey(triggerKey);
-  if (triggersWithConditions.length === 0) {
-    return [];
-  }
-
-  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
-  if (!eventType) {
-    return [];
-  }
-
-  const personas: Persona[] = [];
-  for (const { persona, conditions } of triggersWithConditions) {
-    if (!persona) {
-      continue;
-    }
-
-    if (conditions && conditions.length > 0) {
-      if (!task) {
-        continue;
-      }
-      const syntheticEvent: TriggerEvent = {
-        type: eventType,
-        taskId: task.id,
-        metadata,
-        timestamp: new Date(),
-      };
-      const allMatch = conditions.every((condition) => evaluateCondition(condition, task, syntheticEvent));
-      if (!allMatch) {
-        continue;
-      }
-    }
-
-    personas.push(persona);
-  }
-
-  return personas;
+/**
+ * Get triggered personas by worker.ts style trigger key (e.g., 'onTaskStarted')
+ * Returns Persona objects sorted by priority (highest first)
+ */
+export async function getPersonasByTriggerKey(triggerKey: string): Promise<Persona[]> {
+  return getPersonasByTriggerKeyWithContext(triggerKey, {});
 }
 
 /**
- * Get triggered personas with their trigger conditions by worker.ts style trigger key
- * Returns array of { persona, conditions, priority } for condition evaluation
+ * Get triggered personas by worker.ts style trigger key and evaluate trigger conditions.
+ * If conditions are present and no task context is provided, the persona is excluded.
  */
-export async function getTriggersByTriggerKey(triggerKey: string): Promise<Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }>> {
-  const eventType = WORKER_TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
+export async function getPersonasByTriggerKeyWithContext(
+  triggerKey: string,
+  context: { task?: any; metadata?: Record<string, any> }
+): Promise<Persona[]> {
+  const eventType = TRIGGER_KEY_TO_EVENT_TYPE[triggerKey];
   if (!eventType) {
     return [];
   }
-  
+
   const triggers = getTriggeredPersonas(eventType);
   if (triggers.length === 0) {
     return [];
   }
-  
-  // Convert PersonaTrigger[] to array with persona objects and their conditions
-  const result: Array<{ persona: Persona | null; conditions?: TriggerCondition[]; priority: number }> = [];
+
+  const matched: Array<{ persona: Persona; priority: number }> = [];
   for (const trigger of triggers) {
     const persona = await getPersona(trigger.personaId);
-    result.push({
-      persona,
-      conditions: trigger.conditions,
-      priority: trigger.priority,
-    });
-  }
-  
-  return result;
-}
+    if (!persona) {
+      continue;
+    }
 
+    if (!trigger.conditions || trigger.conditions.length === 0) {
+      matched.push({ persona, priority: trigger.priority });
+      continue;
+    }
+
+    if (!context.task) {
+      continue;
+    }
+
+    const allMatch = trigger.conditions.every(condition => {
+      return evaluateTriggerCondition(condition, context.task, context.metadata);
+    });
+
+    if (allMatch) {
+      matched.push({ persona, priority: trigger.priority });
+    }
+  }
+
+  matched.sort((a, b) => b.priority - a.priority);
+  return matched.map((entry) => entry.persona);
+}
 /**
  * Emit an event and get the list of personas that should respond
  */
@@ -282,7 +268,7 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
     
     // Evaluate conditions
     const allMatch = trigger.conditions.every(condition => {
-      return evaluateCondition(condition, task, event);
+      return evaluateTriggerCondition(condition, task, event.metadata);
     });
     
     if (allMatch) {
@@ -304,21 +290,6 @@ export async function emitEvent(event: TriggerEvent): Promise<string[]> {
 }
 
 /**
- * Evaluate a trigger condition against task/event data
- */
-export function evaluateCondition(condition: TriggerCondition, task: any, event: TriggerEvent): boolean {
-  // metadata.* fields are resolved against event metadata, not the task
-  if (condition.field.startsWith('metadata.')) {
-    const metadataKey = condition.field.substring(9);
-    const metaValue = event.metadata?.[metadataKey];
-    if (metaValue === undefined) return false;
-    return evaluateFieldCondition({ ...condition, field: '_meta' }, { _meta: metaValue });
-  }
-
-  return evaluateFieldCondition(condition, task);
-}
-
-/**
  * Helper to emit common event types
  */
 export async function emitPROpened(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
@@ -335,6 +306,15 @@ export async function emitTestFailure(taskId: string, testPath: string, errorMes
     type: 'test_failure',
     taskId,
     metadata: { testPath, errorMessage },
+    timestamp: new Date(),
+  });
+}
+
+export async function emitCIPassed(taskId: string, prUrl: string, prNumber: number): Promise<string[]> {
+  return emitEvent({
+    type: 'ci_passed',
+    taskId,
+    metadata: { url: prUrl, prNumber },
     timestamp: new Date(),
   });
 }
