@@ -603,9 +603,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           for (const persona of getTriggeredPersonas(personas, 'onCIPassed', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onCIPassed', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
-          // Also emit via the event-triggers subscription pathway so personas registered
-          // through initializeTriggerSystem / registerTrigger receive the ci_passed event
-          emitCIPassed(fullTask.id, pr.url || '', pr.number).catch(() => {/* non-fatal */});
+          // Note: emitCIPassed is intentionally NOT called here to avoid duplicate log entries.
+          // The polling path above handles persona invocations directly. emitCIPassed is
+          // reserved for external callers (e.g. CI webhooks) that bypass the polling loop.
         }
 
         if (ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
