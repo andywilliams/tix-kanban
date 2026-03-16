@@ -368,8 +368,87 @@ async function handlePRStateChanges(
 ): Promise<void> {
   const prRef = `${pr.repo}#${pr.number}`;
 
-  // Skip transition logic on first run (no previous snapshot) - only record initial state
+  // On first observation (no previous snapshot), check current state and take immediate action
+  // if the PR is already in a terminal/actionable state
   if (!previous) {
+    console.log(`📝 First observation for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}, hasThreads=${current.hasUnresolvedThreads}`);
+
+    // 1. PR already merged → move to done
+    if (current.state === 'merged' && task.status === 'review') {
+      console.log(`✅ PR already merged for task ${task.id}: ${prRef}`);
+      await updateTask(task.id, {
+        status: 'done',
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `✅ **PR already merged**: ${prRef}\n\nThis task is now complete.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+      return;
+    }
+
+    // 2. CI already failing → notify
+    if (current.ciState === 'FAILURE' && task.status === 'review') {
+      console.log(`❌ CI already failed for task ${task.id}: ${prRef}`);
+      await updateTask(task.id, {
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `❌ **CI checks already failed** on ${prRef}\n\nPlease review the failed checks and fix any issues.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+      return;
+    }
+
+    // 3. Already has merge conflicts → notify
+    if (current.mergeable === 'CONFLICTING' && task.status === 'review') {
+      console.log(`⚠️ Merge conflicts already detected for task ${task.id}: ${prRef}`);
+      await updateTask(task.id, {
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `⚠️ **Merge conflicts already detected** on ${prRef}\n\nPlease rebase or merge the target branch to resolve conflicts.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+      // TODO: Integrate with persona system to spawn developer for rebase
+      return;
+    }
+
+    // 4. Already has review threads → notify
+    if (current.hasUnresolvedThreads && unresolvedCount > 0 && task.status === 'review') {
+      console.log(`💬 Review threads already present for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
+      await updateTask(task.id, {
+        comments: [
+          ...(task.comments || []),
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            body: `💬 **Review comments already present** on ${prRef}\n\n${unresolvedCount} unresolved thread(s) found. Please address the feedback.`,
+            author: 'PR Monitor (system)',
+            createdAt: new Date(),
+          },
+        ],
+      });
+      // Keep in review status - human or persona needs to address comments
+      return;
+    }
+
+    // No actionable state found, just record initial state
     console.log(`📝 Initial state recorded for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}`);
     return;
   }
