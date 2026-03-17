@@ -583,6 +583,13 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
     
     const repoPath = path.join(workspacePath, repoName);
     
+    // Validate resolved path stays within workspace
+    const resolvedPath = path.resolve(repoPath);
+    const resolvedWorkspace = path.resolve(workspacePath);
+    if (!resolvedPath.startsWith(resolvedWorkspace + path.sep) && resolvedPath !== resolvedWorkspace) {
+      return null; // Path traversal detected
+    }
+    
     try {
       const stat = await fs.stat(repoPath);
       if (stat.isDirectory()) {
