@@ -521,7 +521,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    baseInstruction.push(`Reply on the GitHub thread using: \`gh pr comment ${metadata.prNumber} --repo ${metadata.repo} --body "your message"\``);
+    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/[comment_id]/replies -f body="your reply"\``);
   }
 
   baseInstruction.push('');
