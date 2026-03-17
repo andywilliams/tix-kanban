@@ -653,6 +653,15 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         seenThreadIds = unresolvedThreads.map(t => t.id);
       }
       
+      // First observation: pre-populate seenThreadIds with existing threads so they 
+      // don't fire spuriously on next poll (avoids the bug where empty seenThreadIds 
+      // on first poll causes all existing threads to appear "new" on second poll)
+      if (!previous) {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        seenThreadIds = unresolvedThreads.map(t => t.id);
+      }
+      
       const current: PRSnapshot = { 
         state, 
         ciState: effectiveCiState,
@@ -664,8 +673,6 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous || isMigration) {
         // First observation OR migration: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
-        // Also skip thread check - seenThreadIds starts empty, so all existing threads 
-        // would incorrectly fire onCommentAdded on first observation
         if (state === 'open') {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
