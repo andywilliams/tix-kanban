@@ -34,7 +34,7 @@ import {
   releaseSpeakingTurn,
   getChannel
 } from './chat-storage.js';
-import { getAllTasks, createTask, getTask, updateTask, addCommentToTask } from './storage.js';
+import { getAllTasks, createTask, getTask, updateTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona, Task, Comment } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
@@ -661,19 +661,11 @@ This conversation is about the task described above. Keep your responses relevan
           }
         } catch (actionErr) {
           console.error(`Action failed:`, actionErr);
-          // Map action types to user-friendly error messages
-          const errorMessages: Record<string, string> = {
-            create_task: 'create that ticket',
-            update_task: 'update that task',
-            add_comment: 'add a comment',
-            read_file: 'read that file',
-          };
-          const actionVerb = errorMessages[action.action] || 'perform that action';
           await addMessage(
             originalMessage.channelId,
             persona.name,
             'persona',
-            `⚠️ I tried to ${actionVerb} but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
+            `⚠️ I tried to create that ticket but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
           );
         }
       }
@@ -1121,11 +1113,7 @@ async function executeAction(
       if (action.tags !== undefined) updates.tags = action.tags;
 
       const task = await updateTask(action.taskId, updates, persona.name);
-
-      if (!task) {
-        throw new Error(`Task not found: ${action.taskId}`);
-      }
-
+      
       const changes = Object.keys(updates).join(', ');
       return `✏️ **Updated task** ${task.id}: ${changes}`;
     }
@@ -1135,18 +1123,24 @@ async function executeAction(
         throw new Error('Task ID and comment body are required');
       }
 
-      // Validate task exists first
-      const existingTask = await getTask(action.taskId);
-      if (!existingTask) {
+      const task = await getTask(action.taskId);
+      if (!task) {
         throw new Error(`Task ${action.taskId} not found`);
       }
 
-      // Use shared atomic function to add comment (fixes race condition + deduplicates logic)
-      const task = await addCommentToTask(action.taskId, action.body, persona.name);
-      if (!task) {
-        return `❌ Failed to add comment: task ${action.taskId} not found`;
-      }
+      const comment: Comment = {
+        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        taskId: action.taskId,
+        author: persona.name,
+        body: action.body,
+        createdAt: new Date()
+      };
 
+      task.comments = task.comments || [];
+      task.comments.push(comment);
+      
+      await updateTask(action.taskId, { comments: task.comments }, persona.name);
+      
       return `💬 **Comment added** to task ${task.id}`;
     }
 

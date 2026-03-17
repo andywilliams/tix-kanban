@@ -17,7 +17,6 @@ import { getAllStandupEntries, StandupEntry } from './standup-storage.js';
 import { getAllReports } from './reports-storage.js';
 import { searchKnowledgeDocs, getAllKnowledgeDocs, KnowledgeMetadata } from './knowledge-storage.js';
 import { Persona, Task } from '../client/types/index.js';
-import { estimateTokens } from './token-budget.js';
 
 // Token budget limits
 const MAX_WORKSPACE_CONTEXT_TOKENS = 2000;
@@ -207,22 +206,24 @@ export async function buildWorkspaceContext(options?: {
     context.recentStandups = (await getAllStandupEntries()).slice(0, 3);
     try { context.recentReports = (await getAllReports()).slice(0, 3); } catch {}
   }
-  context.estimatedTokens = context.repos.length * 100 + 400;
+  context.estimatedTokens = context.repos.length * 100 + 400 + context.knowledge.length * 80 + context.recentStandups.length * 150 + context.recentReports.length * 100;
   
-  // Token budgeting: trim repos if over limit (only repos are rendered)
+  // Token budgeting: trim sections if over limit
   if (opts.maxTokens && context.estimatedTokens > opts.maxTokens) {
     const ratio = opts.maxTokens / context.estimatedTokens;
-    // Trim repos while keeping minimum
+    // Proportionally trim arrays while keeping minimums
     if (context.repos.length > 1) context.repos = context.repos.slice(0, Math.max(1, Math.floor(context.repos.length * ratio)));
+    if (context.knowledge.length > 1) context.knowledge = context.knowledge.slice(0, Math.max(1, Math.floor(context.knowledge.length * ratio)));
+    if (context.recentStandups.length > 1) context.recentStandups = context.recentStandups.slice(0, Math.max(1, Math.floor(context.recentStandups.length * ratio)));
+    if (context.recentReports.length > 1) context.recentReports = context.recentReports.slice(0, Math.max(1, Math.floor(context.recentReports.length * ratio)));
     // Recalculate estimated tokens after trimming
-    context.estimatedTokens = context.repos.length * 100 + 400;
+    context.estimatedTokens = context.repos.length * 100 + 400 + context.knowledge.length * 80 + context.recentStandups.length * 150 + context.recentReports.length * 100;
   }
   return context;
 }
 
 export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: number = MAX_WORKSPACE_CONTEXT_TOKENS): string {
   const sections: string[] = [];
-  // Note: Board state is provided separately via buildFilteredBoardContext - don't duplicate it here
   if (context.repos.length > 0) {
     sections.push('## Workspace Repositories\n');
     for (const repo of context.repos.slice(0, 5)) {
@@ -233,9 +234,34 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
       sections.push('');
     }
   }
-
+  sections.push('## Board State\n');
+  sections.push(`**Total tasks:** ${context.board.totalTasks}`);
+  sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
+  sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
+  sections.push(`- Review: ${context.board.byStatus.review}`);
+  sections.push(`- Done: ${context.board.byStatus.done}\n`);
+  if (context.board.inProgress.length > 0) {
+    sections.push('**Currently in progress:**');
+    for (const task of context.board.inProgress) sections.push(`- ${task.title} (${task.persona || 'unassigned'})`);
+    sections.push('');
+  }
+  if (context.board.highPriorityBacklog.length > 0) {
+    sections.push('**High-priority backlog:**');
+    for (const task of context.board.highPriorityBacklog) sections.push(`- ${task.title} (priority ${task.priority})`);
+    sections.push('');
+  }
+  if (context.board.blocked.length > 0) {
+    sections.push('**Blocked tasks:**');
+    for (const task of context.board.blocked) sections.push(`- ${task.title}${task.reason ? ` — ${task.reason}` : ''}`);
+    sections.push('');
+  }
+  if (context.board.stale.length > 0) {
+    sections.push('**Stale tasks (no updates in 7+ days):**');
+    for (const task of context.board.stale) sections.push(`- ${task.title} (${task.daysSinceUpdate} days)`);
+    sections.push('');
+  }
   const fullContent = sections.join('\n');
-  const estimatedTokens = estimateTokens(fullContent);
+  const estimatedTokens = Math.ceil(fullContent.length / 4);
   return estimatedTokens > tokenBudget ? fullContent.substring(0, tokenBudget * 4) + '\n\n_[Context truncated to fit token budget]_' : fullContent;
 }
 

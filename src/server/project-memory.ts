@@ -1,31 +1,12 @@
 /**
  * Project Memory System - Shared knowledge base for all personas
- * 
- * NOTE: Scaffolded for future integration. Functions are used by chat-tools.ts when wired in.
  */
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { estimateTokens } from './token-budget.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PROJECT_MEMORY_PATH = path.join(STORAGE_DIR, 'project-memory.json');
-
-// Module-level promise chain to serialize write operations
-let writeChain: Promise<any> = Promise.resolve();
-
-async function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = writeChain;
-  let resolveNext!: (value: T) => void;
-  writeChain = new Promise<T>(resolve => { resolveNext = resolve; });
-  try {
-    await prev;
-    return await fn();
-  } finally {
-    resolveNext(undefined as T);
-  }
-}
-
 
 export type ProjectMemoryCategory = 'architecture' | 'convention' | 'lesson' | 'process' | 'decision' | 'context';
 
@@ -58,45 +39,25 @@ function extractKeywords(content: string): string[] {
 }
 
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
-  return withWriteLock(async () => {
-    const memory = await getProjectMemory(); const lower = content.toLowerCase();
-    // Bidirectional match: exact match OR existing includes new OR new includes existing (fixes false positives)
-    const existing = memory.entries.find(e => e.category === category && (
-      e.content.toLowerCase() === lower || 
-      e.content.toLowerCase().includes(lower.slice(0, 50)) ||
-      lower.includes(e.content.toLowerCase().slice(0, 50))
-    ));
-    if (existing) { 
-      existing.content = content; 
-      existing.importance = Math.max(existing.importance, importance); 
-      existing.updatedAt = new Date().toISOString(); 
-      existing.mergedCount = (existing.mergedCount || 1) + 1; 
-      // Recalculate keywords after merging (fixes stale keywords issue)
-      existing.keywords = extractKeywords(content);
-      await saveProjectMemory(memory); 
-      return existing; 
-    }
-    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
-    memory.entries.push(entry); await saveProjectMemory(memory); return entry;
-  });
+  const memory = await getProjectMemory(); const lower = content.toLowerCase();
+  const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
+  if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
+  const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
+  memory.entries.push(entry); await saveProjectMemory(memory); return entry;
 }
 
 export async function removeProjectMemoryEntry(id: string): Promise<boolean> {
-  return withWriteLock(async () => {
-    const memory = await getProjectMemory(); const before = memory.entries.length;
-    memory.entries = memory.entries.filter(e => e.id !== id);
-    if (memory.entries.length < before) { await saveProjectMemory(memory); return true; } return false;
-  });
+  const memory = await getProjectMemory(); const before = memory.entries.length;
+  memory.entries = memory.entries.filter(e => e.id !== id);
+  if (memory.entries.length < before) { await saveProjectMemory(memory); return true; } return false;
 }
 
 export async function updateProjectMemoryEntry(id: string, updates: Partial<Pick<ProjectMemoryEntry, 'content'|'category'|'importance'>>): Promise<ProjectMemoryEntry|null> {
-  return withWriteLock(async () => {
-    const memory = await getProjectMemory(); const entry = memory.entries.find(e => e.id === id); if (!entry) return null;
-    if (updates.content !== undefined) { entry.content = updates.content; entry.keywords = extractKeywords(updates.content); }
-    if (updates.category !== undefined) entry.category = updates.category;
-    if (updates.importance !== undefined) entry.importance = updates.importance;
-    entry.updatedAt = new Date().toISOString(); await saveProjectMemory(memory); return entry;
-  });
+  const memory = await getProjectMemory(); const entry = memory.entries.find(e => e.id === id); if (!entry) return null;
+  if (updates.content !== undefined) { entry.content = updates.content; entry.keywords = extractKeywords(updates.content); }
+  if (updates.category !== undefined) entry.category = updates.category;
+  if (updates.importance !== undefined) entry.importance = updates.importance;
+  entry.updatedAt = new Date().toISOString(); await saveProjectMemory(memory); return entry;
 }
 
 export async function searchProjectMemory(query: string, options: {category?: ProjectMemoryCategory; minImportance?: number; limit?: number} = {}): Promise<ProjectMemoryEntry[]> {
@@ -110,14 +71,11 @@ export async function getRelevantProjectMemory(context: string, maxEntries: numb
   const memory = await getProjectMemory(); const lower = context.toLowerCase(); const words = lower.split(/\s+/).filter(w => w.length > 3);
   const scored = memory.entries.map(entry => {
     let score = 0; const content = entry.content.toLowerCase();
-    let hasMatch = false;
-    for (const k of entry.keywords) if (lower.includes(k)) { score += 3; hasMatch = true; }
-    for (const w of words) if (content.includes(w)) { score += 1; hasMatch = true; }
-    // Only add importance bonus when there's keyword/word match (fixes relevance filter)
-    if (hasMatch) score += entry.importance / 2;
+    for (const k of entry.keywords) if (lower.includes(k)) score += 3;
+    for (const w of words) if (content.includes(w)) score += 1;
+    score += entry.importance / 2;
     const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-    // Only apply recency bonus if there's a keyword/word match (fixes recency leak)
-    if (hasMatch && days < 30) score += 1;
+    if (days < 30) score += 1;
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);
@@ -131,7 +89,7 @@ export async function renderProjectMemory(maxTokens: number = 3000, contextQuery
   for (const e of entries) { if (!byCat.has(e.category)) byCat.set(e.category, []); byCat.get(e.category)!.push(e); }
   const labels: Record<ProjectMemoryCategory, string> = { architecture: '🏗️  Architecture & Design', convention: '📏 Conventions & Standards', lesson: '💡 Lessons Learned', process: '⚙️  Process & Workflow', decision: '🎯 Key Decisions', context: '📝 General Context' };
   for (const [cat, ents] of byCat) { out += `### ${labels[cat]}\n\n`; for (const e of ents) out += `- ${e.importance >= 8 ? '⚠️ ' : ''}${e.content} _(ID: ${e.id})_\n`; out += '\n'; }
-  const tokens = estimateTokens(out); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
+  const tokens = Math.ceil(out.length / 4); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
   return out;
 }
 
