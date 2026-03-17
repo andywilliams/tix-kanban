@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatChannel, ChatMessage, Persona, Task } from '../types';
 import TypingIndicator from './chat/TypingIndicator';
 import ToolResultRenderer from './chat/ToolResultRenderer';
@@ -49,9 +49,14 @@ export default function ChatPanel({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [pendingTicket, setPendingTicket] = useState<PendingTicket | null>(null);
   const [showSlashCommands, setShowSlashCommands] = useState(false);
+  const [newMessagesIndicator, setNewMessagesIndicator] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const prevMessagesLengthRef = useRef<number>(0);
+  const isAtBottomRef = useRef<boolean>(true);
+  const userScrolledUpRef = useRef<boolean>(false);
 
   // Inject typing animation keyframes into DOM once on mount
   useEffect(() => {
@@ -68,6 +73,67 @@ export default function ChatPanel({
   useLayoutEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
+
+  // Detect scroll position and track if user has scrolled up
+  const checkIsAtBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    
+    const threshold = 50; // pixels from bottom to consider "at bottom"
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+    return isAtBottom;
+  }, []);
+
+  // Handle scroll event to detect when user manually scrolls up
+  const handleScroll = useCallback(() => {
+    const isAtBottom = checkIsAtBottom();
+    isAtBottomRef.current = isAtBottom;
+    userScrolledUpRef.current = !isAtBottom;
+    
+    // Hide new messages indicator when user scrolls to bottom
+    if (isAtBottom) {
+      setNewMessagesIndicator(false);
+    }
+  }, [checkIsAtBottom]);
+
+  // Smart scroll effect: only auto-scroll when user is at bottom
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !currentChannel?.messages) return;
+    
+    const currentLength = currentChannel.messages.length;
+    const prevLength = prevMessagesLengthRef.current;
+    const newMessagesArrived = currentLength > prevLength;
+    
+    if (newMessagesArrived) {
+      // Check if user was at bottom before the new messages
+      const wasAtBottom = isAtBottomRef.current;
+      
+      if (wasAtBottom) {
+        // User is at bottom - auto-scroll to show new message
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        // User has scrolled up - show indicator, don't scroll
+        setNewMessagesIndicator(true);
+      }
+    }
+    
+    prevMessagesLengthRef.current = currentLength;
+  }, [currentChannel?.messages]);
+
+  // Initialize scroll tracking on container mount
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleScroll);
+    // Initial check
+    isAtBottomRef.current = checkIsAtBottom();
+    
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [handleScroll, checkIsAtBottom]);
 
   // Slash command detection
   useEffect(() => {
@@ -309,7 +375,7 @@ export default function ChatPanel({
       )}
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div ref={messagesContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {!currentChannel && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
             <p>Select a channel to start chatting</p>
@@ -388,6 +454,39 @@ export default function ChatPanel({
             onConfirm={handleConfirmTicket}
             onCancel={() => setPendingTicket(null)}
           />
+        )}
+        
+        {/* New messages indicator - shows when user has scrolled up and new messages arrive */}
+        {newMessagesIndicator && (
+          <button
+            onClick={() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              setNewMessagesIndicator(false);
+            }}
+            style={{
+              position: 'sticky',
+              bottom: '0.5rem',
+              alignSelf: 'center',
+              padding: '0.5rem 1rem',
+              background: 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              transition: 'all 0.2s',
+              zIndex: 10,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-hover)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent)'; }}
+          >
+            ↓ New message
+          </button>
         )}
         
         <div ref={messagesEndRef} />
