@@ -419,20 +419,7 @@ async function executeAddComment(input: any, persona: Persona): Promise<ToolResu
     return { success: false, content: '', error: `Task not found: ${input.taskId}` };
   }
 
-  // Create comment object - matches agent-chat.ts behavior
-  // NOTE: This duplicates addComment action in agent-chat.ts. Will be consolidated in future.
-  const comment = {
-    id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    taskId: input.taskId,
-    author: persona.name,
-    body: input.body,
-    createdAt: new Date()
-  };
-
-  // Persist comment to task entity using atomic newComment pattern
-  await storageUpdateTask(input.taskId, { newComment: comment }, persona.name);
-
-  // Also add to task channel for chat history
+  // Add comment to task channel
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
 
