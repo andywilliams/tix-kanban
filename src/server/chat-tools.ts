@@ -530,8 +530,8 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
       return { success: true, content: `No matches found for: ${input.query}` };
     }
 
-    // Format results (file:line:content)
-    const results = stdout.trim().split('\n').map(line => {
+    // Format results (file:line:content) and limit
+    const results = stdout.trim().split('\n').slice(0, limit).map(line => {
       const match = line.match(/^(.+?):(\d+):(.+)$/);
       if (match) {
         const [, filePath, lineNum, content] = match;
