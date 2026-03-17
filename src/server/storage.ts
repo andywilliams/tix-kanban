@@ -3,6 +3,14 @@ import path from 'path';
 import os from 'os';
 import { Task, Link, ActivityLog, Comment } from '../client/types/index.js';
 
+const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
+const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
+const SUMMARY_FILE = path.join(STORAGE_DIR, '_summary.json');
+const MAX_ACTIVITY_PER_TASK = 100;
+
+// Per-task mutex to serialize read-modify-write operations
+const taskLocks = new Map<string, Promise<any>>();
+
 /**
  * Atomically add a comment to a task.
  * Uses task lock to prevent race conditions.
@@ -49,14 +57,6 @@ export async function addCommentToTask(
     return updatedTask;
   });
 }
-
-const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
-const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
-const SUMMARY_FILE = path.join(STORAGE_DIR, '_summary.json');
-const MAX_ACTIVITY_PER_TASK = 100;
-
-// Per-task mutex to serialize read-modify-write operations
-const taskLocks = new Map<string, Promise<any>>();
 
 export async function withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
   const prev = taskLocks.get(taskId) || Promise.resolve();
@@ -291,18 +291,10 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
     }
 
     // Handle newComment: extract from updates, add to comments array, log activity
-    const { newComment, ...restUpdates } = updates as Task & { newComment?: Partial<Comment> };
+    const { newComment, ...restUpdates } = updates as Task & { newComment?: Comment };
     let comments = existingTask.comments || [];
     if (newComment) {
-      // Generate full Comment object with all required fields
-      const fullComment: Comment = {
-        id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-        taskId,
-        body: newComment.body || '',
-        author: actor,
-        createdAt: new Date(),
-      };
-      comments = [...comments, fullComment];
+      comments = [...comments, newComment];
       restUpdates.comments = comments;
     }
 

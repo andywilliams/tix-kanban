@@ -1,7 +1,16 @@
 /**
  * Project Memory System - Shared knowledge base for all personas
  * 
- * NOTE: Scaffolded for future integration. Functions are used by chat-tools.ts when wired in.
+ * TODO: Wire up to chat system - import and use in persona orchestration
+ *       Currently scaffolded but not connected to the application.
+ *       
+ * @see src/server/index.ts - Where this module should be integrated
+ * @see src/shared/types.ts - ProjectMemoryEntry type definitions
+ * 
+ * Planned integration:
+ * - Import addProjectMemoryEntry() to capture learnings from chat
+ * - Import getRelevantProjectMemory() to provide context to personas
+ * - Import renderProjectMemory() to include in persona prompts
  */
 import fs from 'fs/promises';
 import path from 'path';
@@ -25,7 +34,6 @@ async function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
     resolveNext(undefined as T);
   }
 }
-
 
 export type ProjectMemoryCategory = 'architecture' | 'convention' | 'lesson' | 'process' | 'decision' | 'context';
 
@@ -60,23 +68,20 @@ function extractKeywords(content: string): string[] {
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
   return withWriteLock(async () => {
     const memory = await getProjectMemory(); const lower = content.toLowerCase();
-    // Bidirectional match: exact match OR existing includes new OR new includes existing (fixes false positives)
-    const existing = memory.entries.find(e => e.category === category && (
-      e.content.toLowerCase() === lower || 
-      e.content.toLowerCase().includes(lower.slice(0, 50)) ||
-      lower.includes(e.content.toLowerCase().slice(0, 50))
-    ));
+    const newKeywords = extractKeywords(content);
+    const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
     if (existing) { 
       existing.content = content; 
+      // Merge keywords from duplicate into existing entry (dedupe combined)
+      const combinedKeywords = [...new Set([...existing.keywords, ...newKeywords])];
+      existing.keywords = combinedKeywords.slice(0, 10); // Keep max 10 keywords
       existing.importance = Math.max(existing.importance, importance); 
       existing.updatedAt = new Date().toISOString(); 
       existing.mergedCount = (existing.mergedCount || 1) + 1; 
-      // Recalculate keywords after merging (fixes stale keywords issue)
-      existing.keywords = extractKeywords(content);
       await saveProjectMemory(memory); 
       return existing; 
     }
-    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
+    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: newKeywords, source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
     memory.entries.push(entry); await saveProjectMemory(memory); return entry;
   });
 }
@@ -109,15 +114,15 @@ export async function searchProjectMemory(query: string, options: {category?: Pr
 export async function getRelevantProjectMemory(context: string, maxEntries: number = 10): Promise<ProjectMemoryEntry[]> {
   const memory = await getProjectMemory(); const lower = context.toLowerCase(); const words = lower.split(/\s+/).filter(w => w.length > 3);
   const scored = memory.entries.map(entry => {
-    let score = 0; const content = entry.content.toLowerCase();
-    let hasMatch = false;
+    let score = 0; let hasMatch = false; const content = entry.content.toLowerCase();
     for (const k of entry.keywords) if (lower.includes(k)) { score += 3; hasMatch = true; }
     for (const w of words) if (content.includes(w)) { score += 1; hasMatch = true; }
-    // Only add importance bonus when there's keyword/word match (fixes relevance filter)
-    if (hasMatch) score += entry.importance / 2;
-    const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-    // Only apply recency bonus if there's a keyword/word match (fixes recency leak)
-    if (hasMatch && days < 30) score += 1;
+    // Only add importance and recency bonuses when there's an actual textual match
+    if (hasMatch) {
+      score += entry.importance / 2;
+      const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
+      if (days < 30) score += 1;
+    }
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);

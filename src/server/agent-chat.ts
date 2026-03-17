@@ -34,7 +34,7 @@ import {
   releaseSpeakingTurn,
   getChannel
 } from './chat-storage.js';
-import { getAllTasks, createTask, getTask, updateTask, addCommentToTask } from './storage.js';
+import { getAllTasks, createTask, getTask, updateTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona, Task, Comment } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
@@ -548,7 +548,7 @@ This conversation is about the task described above. Keep your responses relevan
     // Get workspace context (repos, board overview, recent reports)
     let workspaceContext = '';
     try {
-      const wsContext = await getCachedWorkspaceContext();
+      const wsContext = await getCachedWorkspaceContext(false, { includeBoard: false });
       workspaceContext = renderWorkspaceContext(wsContext, 800); // Reserve ~800 tokens
     } catch (error) {
       console.warn(`Failed to get workspace context: ${error}`);
@@ -1135,16 +1135,28 @@ async function executeAction(
         throw new Error('Task ID and comment body are required');
       }
 
-      // Validate task exists first
+      const comment: Comment = {
+        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        taskId: action.taskId,
+        author: persona.name,
+        body: action.body,
+        createdAt: new Date()
+      };
+
+      // Read task and build updated comments array
       const existingTask = await getTask(action.taskId);
       if (!existingTask) {
         throw new Error(`Task ${action.taskId} not found`);
       }
 
-      // Use shared atomic function to add comment (fixes race condition + deduplicates logic)
-      const task = await addCommentToTask(action.taskId, action.body, persona.name);
+      const existingComments = existingTask.comments || [];
+      const updatedComments = [...existingComments, comment];
+
+      // Pass comments array to updateTask
+      const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
+
       if (!task) {
-        return `❌ Failed to add comment: task ${action.taskId} not found`;
+        return `❌ Failed to add comment - task may have been deleted`;
       }
 
       return `💬 **Comment added** to task ${task.id}`;

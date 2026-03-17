@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatChannel, ChatMessage, Persona } from '../types';
 
-// Typing animation keyframes - defined at module scope as a constant (not a hook)
+// Typing indicator animation keyframes
 const typingKeyframes = `
   @keyframes typing {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-3px); opacity: 1; }
+    0% { opacity: 0.2; }
+    20% { opacity: 1; }
+    100% { opacity: 0.2; }
   }
 `;
 
@@ -40,6 +41,17 @@ export default function ChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChannel?.messages]);
+
+  // Inject keyframes into DOM via style tag
+  useEffect(() => {
+    const styleId = 'chat-panel-typing-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = typingKeyframes;
+      document.head.appendChild(style);
+    }
+  }, []);
 
   useEffect(() => {
     if (messageInput.includes('@')) {
@@ -169,7 +181,6 @@ export default function ChatPanel({
       zIndex: 50, display: 'flex', flexDirection: 'column',
       boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
     }}>
-      <style>{typingKeyframes}</style>
       {/* Header */}
       <div style={{
         padding: '1rem', borderBottom: '1px solid var(--border)',

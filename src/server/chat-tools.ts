@@ -11,18 +11,10 @@ import { addMessage } from './chat-storage.js';
 import { getUserSettings } from './user-settings.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-
-/**
- * Escape shell metacharacters to prevent injection
- */
-function escapeShellArg(arg: string): string {
-  return arg.replace(/[\\`$"{}()\[\]|;&<> \t\n#*~?]/g, '\\$&');
-}
 
 /**
  * Tool definition for Claude's tool_use API
@@ -132,7 +124,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
           properties: {
             status: {
               type: 'string',
-              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
+              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
             },
             priority: {
               type: 'number',
@@ -161,7 +153,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
         status: {
           type: 'string',
           description: 'Filter by status',
-          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
+          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
         },
         assignee: {
           type: 'string',
@@ -422,21 +414,17 @@ async function executeGetTask(input: any): Promise<ToolResult> {
 }
 
 async function executeAddComment(input: any, persona: Persona): Promise<ToolResult> {
-  // Validate task exists first
   const task = await getTask(input.taskId);
   if (!task) {
     return { success: false, content: '', error: `Task not found: ${input.taskId}` };
   }
 
-  // Add comment to task channel (chat persistence)
+  // Add comment to task channel
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
 
-  // Atomically add comment to task using shared function (fixes race condition)
-  const updatedTask = await addCommentToTask(input.taskId, input.body, persona.name);
-  if (!updatedTask) {
-    return { success: false, content: '', error: `Failed to add comment to task ${input.taskId}` };
-  }
+  // Persist comment to task
+  await addCommentToTask(input.taskId, input.body, persona.name);
 
   return { success: true, content: `Added comment to task ${input.taskId}` };
 }
@@ -484,7 +472,7 @@ async function executeListFiles(input: any): Promise<ToolResult> {
 
   const dirPath = path.join(repoPath, input.path);
   
-  // Path traversal check: resolve to absolute path and verify it stays within repo
+  // Path traversal check: verify path stays within repo
   const resolvedPath = path.resolve(dirPath);
   const resolvedRepoPath = path.resolve(repoPath);
   if (!resolvedPath.startsWith(resolvedRepoPath + path.sep) && resolvedPath !== resolvedRepoPath) {
@@ -493,7 +481,7 @@ async function executeListFiles(input: any): Promise<ToolResult> {
   
   try {
     if (input.recursive) {
-      // Use find for recursive listing with execFileAsync (avoids shell escaping issues)
+      // Use find for recursive listing - spawn with args array to prevent injection
       const { stdout } = await execFileAsync('find', [dirPath, '-type', 'f'], { maxBuffer: 1024 * 1024 });
       const files = stdout.trim().split('\n')
         .map(f => path.relative(repoPath, f))
@@ -534,9 +522,9 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     const filePattern = input.filePattern || '*';
     
     // Use grep for searching - spawn with args array to prevent injection
-    // Use -F for fixed-string mode (treats pattern literally, no regex)
-    // Pass query directly without escaping since -F makes it literal
+    // Use -F for fixed-string mode, no regex escaping needed
     const { stdout } = await execFileAsync('grep', ['-rn', '-F', input.query, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
+    
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
     }
@@ -578,9 +566,13 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
     return null;
   }
   
-  // Check for path traversal sequences and absolute paths (including Windows drive letters)
-  const normalized = repoName.toLowerCase();
-  if (repoName.includes('..') || repoName.includes('/') || repoName.includes('\\') || /^[a-z]:/.test(normalized)) {
+  // Check for path traversal sequences
+  if (repoName.includes('..') || repoName.includes('/') || repoName.includes('\\')) {
+    return null;
+  }
+
+  // Check for Windows drive letters (e.g., "C:", "D:")
+  if (/^[a-z]:$/i.test(repoName)) {
     return null;
   }
 
@@ -599,7 +591,7 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
     
     const repoPath = path.join(workspacePath, repoName);
     
-    // Validate resolved path stays within workspace (defense in depth)
+    // Validate resolved path stays within workspace
     const resolvedPath = path.resolve(repoPath);
     const resolvedWorkspace = path.resolve(workspacePath);
     if (!resolvedPath.startsWith(resolvedWorkspace + path.sep) && resolvedPath !== resolvedWorkspace) {
