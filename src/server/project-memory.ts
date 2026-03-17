@@ -60,8 +60,22 @@ function extractKeywords(content: string): string[] {
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
   return withWriteLock(async () => {
     const memory = await getProjectMemory(); const lower = content.toLowerCase();
-    const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
-    if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
+    // Bidirectional match: exact match OR existing includes new OR new includes existing (fixes false positives)
+    const existing = memory.entries.find(e => e.category === category && (
+      e.content.toLowerCase() === lower || 
+      e.content.toLowerCase().includes(lower.slice(0, 50)) ||
+      lower.includes(e.content.toLowerCase().slice(0, 50))
+    ));
+    if (existing) { 
+      existing.content = content; 
+      existing.importance = Math.max(existing.importance, importance); 
+      existing.updatedAt = new Date().toISOString(); 
+      existing.mergedCount = (existing.mergedCount || 1) + 1; 
+      // Recalculate keywords after merging (fixes stale keywords issue)
+      existing.keywords = extractKeywords(content);
+      await saveProjectMemory(memory); 
+      return existing; 
+    }
     const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
     memory.entries.push(entry); await saveProjectMemory(memory); return entry;
   });
@@ -96,11 +110,14 @@ export async function getRelevantProjectMemory(context: string, maxEntries: numb
   const memory = await getProjectMemory(); const lower = context.toLowerCase(); const words = lower.split(/\s+/).filter(w => w.length > 3);
   const scored = memory.entries.map(entry => {
     let score = 0; const content = entry.content.toLowerCase();
-    for (const k of entry.keywords) if (lower.includes(k)) score += 3;
-    for (const w of words) if (content.includes(w)) score += 1;
-    score += entry.importance / 2;
+    let hasMatch = false;
+    for (const k of entry.keywords) if (lower.includes(k)) { score += 3; hasMatch = true; }
+    for (const w of words) if (content.includes(w)) { score += 1; hasMatch = true; }
+    // Only add importance bonus when there's keyword/word match (fixes relevance filter)
+    if (hasMatch) score += entry.importance / 2;
     const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-    if (days < 30) score += 1;
+    // Only apply recency bonus if there's a keyword/word match (fixes recency leak)
+    if (hasMatch && days < 30) score += 1;
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);

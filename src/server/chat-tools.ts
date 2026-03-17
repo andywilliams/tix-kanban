@@ -484,6 +484,13 @@ async function executeListFiles(input: any): Promise<ToolResult> {
 
   const dirPath = path.join(repoPath, input.path);
   
+  // Path traversal check: resolve to absolute path and verify it stays within repo
+  const resolvedPath = path.resolve(dirPath);
+  const resolvedRepoPath = path.resolve(repoPath);
+  if (!resolvedPath.startsWith(resolvedRepoPath + path.sep) && resolvedPath !== resolvedRepoPath) {
+    return { success: false, content: '', error: 'Path traversal attempt detected' };
+  }
+  
   try {
     if (input.recursive) {
       // Use find for recursive listing with execFileAsync (avoids shell escaping issues)
