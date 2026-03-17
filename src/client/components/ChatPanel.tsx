@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatChannel, ChatMessage, Persona } from '../types';
 
+// Typing animation keyframes - defined at module scope as a constant (not a hook)
+const typingKeyframes = `
+  @keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+`;
+
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
