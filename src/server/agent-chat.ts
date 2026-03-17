@@ -1155,7 +1155,11 @@ async function executeAction(
       // Pass comments array to updateTask
       const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
 
-      return `💬 **Comment added** to task ${task?.id}`;
+      if (!task) {
+        return `❌ Failed to add comment - task may have been deleted`;
+      }
+
+      return `💬 **Comment added** to task ${task.id}`;
     }
 
     case 'create_reminder': {

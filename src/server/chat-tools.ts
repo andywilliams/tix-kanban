@@ -571,6 +571,11 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
     return null;
   }
 
+  // Check for Windows drive letters (e.g., "C:", "D:")
+  if (/^[a-z]:$/i.test(repoName)) {
+    return null;
+  }
+
   const settings = await getUserSettings();
   
   // Check if repo is in repoPaths mapping
