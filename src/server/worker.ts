@@ -521,7 +521,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    baseInstruction.push('Reply on the GitHub thread using: `gh pr comment ${metadata.prNumber} --repo ${metadata.repo} --body "your message"`');
+    baseInstruction.push(`Reply on the GitHub thread using: \`gh pr comment ${metadata.prNumber} --repo ${metadata.repo} --body "your message"\``);
   }
 
   baseInstruction.push('');
@@ -582,7 +582,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[]; metadata?: any }>();
 
   const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string, metadata?: any): void => {
-    const key = `${task.id}|${persona.id}|${eventType}`;
+    // Include threadId in key for onCommentAdded to avoid overwriting multiple threads
+    const threadIdSuffix = eventType === 'onCommentAdded' && metadata?.threadId ? `|${metadata.threadId}` : '';
+    const key = `${task.id}|${persona.id}|${eventType}${threadIdSuffix}`;
     const existing = pendingInvocations.get(key);
     if (existing) {
       existing.details.push(detail);
@@ -638,44 +640,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
       const effectiveCiState = ciState ?? previous?.ciState ?? null;
       
-      // Check for new review threads/comments (only on open PRs)
+      // seenThreadIds is initialized from previous state; on first observation it's empty
+      // Thread check only runs on subsequent observations (inside else block below)
       let seenThreadIds = previous?.seenThreadIds || [];
-      const lastThreadCheck = previous?.lastThreadCheck;
-      
-      if (state === 'open') {
-        const threads = await getPRReviewThreads(pr.repo, pr.number);
-        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-        
-        for (const thread of unresolvedThreads) {
-          if (!seenThreadIds.includes(thread.id)) {
-            // New unresolved thread detected
-            const firstComment = thread.comments[0];
-            if (firstComment) {
-              const metadata = {
-                prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
-                prNumber: pr.number,
-                repo: pr.repo,
-                threadId: thread.id,
-                author: firstComment.author,
-                body: firstComment.body,
-                path: firstComment.path,
-                line: firstComment.line,
-                createdAt: firstComment.createdAt,
-                allComments: thread.comments.map(c => ({
-                  author: c.author,
-                  body: c.body,
-                  createdAt: c.createdAt,
-                })),
-              };
-              
-              for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
-                enqueueInvocation(fullTask, persona, 'onCommentAdded', `New review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
-              }
-            }
-            seenThreadIds.push(thread.id);
-          }
-        }
-      }
       
       const current: PRSnapshot = { 
         state, 
@@ -688,7 +655,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous || isMigration) {
         // First observation OR migration: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
-        // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
+        // Also skip thread check - seenThreadIds starts empty, so all existing threads 
+        // would incorrectly fire onCommentAdded on first observation
         if (state === 'open') {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
@@ -723,9 +691,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
                   path: firstComment.path,
                   line: firstComment.line,
                   createdAt: firstComment.createdAt,
-                  firstCommentId: firstComment.databaseId,
                   allComments: thread.comments.map(c => ({
-                    id: c.id,
                     author: c.author,
                     body: c.body,
                     createdAt: c.createdAt,
