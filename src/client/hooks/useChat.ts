@@ -164,8 +164,8 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
         return channel;
       }));
 
-      // Update current channel if it matches
-      if (currentChannel?.id === channelId) {
+      // Update current channel if it matches (use ref to avoid stale closure)
+      if (currentChannelRef.current?.id === channelId) {
         setCurrentChannel(prev => prev ? {
           ...prev,
           messages: data.messages.map((msg: any) => ({
@@ -174,10 +174,40 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
           }))
         } : null);
       }
+
+      // Also fetch channel state (speakingPersona for typing indicator)
+      try {
+        const stateResponse = await fetch(`/api/chat/${channelId}/state`);
+        if (stateResponse.ok) {
+          const stateData = await stateResponse.json();
+          // Update current channel with speakingPersona
+          if (currentChannelRef.current?.id === channelId) {
+            setCurrentChannel(prev => prev ? {
+              ...prev,
+              speakingPersona: stateData.speakingPersona,
+              speakingSince: stateData.speakingSince ? new Date(stateData.speakingSince) : undefined,
+            } : null);
+          }
+          // Update channels list too
+          setChannels(prev => prev.map(channel => {
+            if (channel.id === channelId) {
+              return {
+                ...channel,
+                speakingPersona: stateData.speakingPersona,
+                speakingSince: stateData.speakingSince ? new Date(stateData.speakingSince) : undefined,
+              };
+            }
+            return channel;
+          }));
+        }
+      } catch (stateErr) {
+        // Non-critical - typing indicator is nice-to-have
+        console.error('Error fetching channel state:', stateErr);
+      }
     } catch (err) {
       console.error('Error fetching messages:', err);
     }
-  }, [currentChannel]);
+  }, []);
 
   // Send a message
   const sendMessage = useCallback(async (channelId: string, content: string, replyTo?: string) => {

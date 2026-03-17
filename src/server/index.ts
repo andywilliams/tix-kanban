@@ -2213,6 +2213,25 @@ app.get('/api/chat/:channelId/messages', async (req, res) => {
   }
 });
 
+// GET /api/chat/:channelId/state - Get channel state (speakingPersona, etc.)
+app.get('/api/chat/:channelId/state', async (req, res) => {
+  try {
+    const chId = req.params.channelId;
+    const channel = await getChannel(chId);
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+    res.json({
+      speakingPersona: channel.speakingPersona,
+      speakingSince: channel.speakingSince,
+      lastActivity: channel.lastActivity,
+    });
+  } catch (error) {
+    console.error('GET /api/chat/' + req.params.channelId + '/state error:', error);
+    res.status(500).json({ error: 'Failed to fetch channel state' });
+  }
+});
+
 // POST /api/chat/:channelId/messages - Send a message to a channel
 app.post('/api/chat/:channelId/messages', async (req, res) => {
   try {
