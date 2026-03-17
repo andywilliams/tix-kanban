@@ -607,9 +607,9 @@ export async function getPRReviewThreads(repo: string, prNumber: number): Promis
     }
 
     const query = `
-      query {
-        repository(owner: "${owner}", name: "${name}") {
-          pullRequest(number: ${prNumber}) {
+      query($owner: String!, $name: String!, $prNumber: Int!) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $prNumber) {
             reviewThreads(first: 30) {
               nodes {
                 id
@@ -633,7 +633,7 @@ export async function getPRReviewThreads(repo: string, prNumber: number): Promis
     `;
 
     const { stdout } = await exec(
-      `gh api graphql -f query='${query.replace(/'/g, "'\\''")}'`,
+      `gh api graphql -F owner="$owner" -F name="$name" -F prNumber=$prNumber -f query='${query.replace(/'/g, "'\\''")}'`,
       { timeout: 15000, maxBuffer: 5 * 1024 * 1024 }
     );
 
