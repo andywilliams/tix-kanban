@@ -22,6 +22,7 @@ import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from '.
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
+import { processReviewTasksPRStatus } from './pr-monitor.js';
 import {
   generateStandupEntry,
   saveStandupEntry,
@@ -1508,7 +1509,10 @@ async function runWorkerCycle(): Promise<void> {
     console.warn('Failed to clear expired cache:', error);
   }
 
-  // First, process any auto-review tasks
+  // First, monitor PRs for review tasks (detect merged PRs, new comments, CI failures, conflicts)
+  await processReviewTasksPRStatus();
+
+  // Then, process any auto-review tasks
   await processAutoReviewTasks();
 
   // Get all tasks
