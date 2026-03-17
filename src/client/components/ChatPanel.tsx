@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatChannel, ChatMessage, Persona } from '../types';
+import { ChatChannel, ChatMessage, Persona, Task } from '../types';
+import TypingIndicator from './chat/TypingIndicator';
+import ToolResultRenderer from './chat/ToolResultRenderer';
+import TicketPreviewCard from './chat/TicketPreviewCard';
+import BoardSummary from './chat/BoardSummary';
 
 // Typing indicator animation keyframes
 const typingKeyframes = `
@@ -17,14 +21,23 @@ interface ChatPanelProps {
   channels: ChatChannel[];
   personas: Persona[];
   currentUser: string;
+  tasks?: Task[]; // For /board command
   onSendMessage: (channelId: string, content: string, replyTo?: string) => void;
   onSwitchChannel: (channel: ChatChannel) => void;
   onCreateTaskChannel: (taskId: string, taskTitle: string) => void;
   onCreatePersonaChannel?: (personaId: string, personaName: string, personaEmoji: string) => Promise<ChatChannel>;
 }
 
+interface PendingTicket {
+  title: string;
+  description: string;
+  priority: number;
+  assignee?: string;
+  tags?: string[];
+}
+
 export default function ChatPanel({ 
-  isOpen, onClose, currentChannel, channels, personas, currentUser,
+  isOpen, onClose, currentChannel, channels, personas, currentUser, tasks = [],
   onSendMessage, onSwitchChannel, onCreateTaskChannel, onCreatePersonaChannel 
 }: ChatPanelProps) {
   const [showPersonaList, setShowPersonaList] = useState(false);
@@ -34,15 +47,13 @@ export default function ChatPanel({
   const [mentionSuggestions, setMentionSuggestions] = useState<Persona[]>([]);
   const [mentionQuery, setMentionQuery] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
+  const [pendingTicket, setPendingTicket] = useState<PendingTicket | null>(null);
+  const [showSlashCommands, setShowSlashCommands] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentChannel?.messages]);
-
-  // Inject keyframes into DOM via style tag
+  // Inject typing animation keyframes into DOM once on mount
   useEffect(() => {
     const styleId = 'chat-panel-typing-styles';
     if (!document.getElementById(styleId)) {
@@ -53,6 +64,20 @@ export default function ChatPanel({
     }
   }, []);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [currentChannel?.messages]);
+
+  // Slash command detection
+  useEffect(() => {
+    if (messageInput.startsWith('/')) {
+      setShowSlashCommands(true);
+    } else {
+      setShowSlashCommands(false);
+    }
+  }, [messageInput]);
+
+  // @mention detection
   useEffect(() => {
     if (messageInput.includes('@')) {
       const atIndex = messageInput.lastIndexOf('@', cursorPosition);
@@ -71,16 +96,74 @@ export default function ChatPanel({
     setShowMentionSuggestions(false);
   }, [messageInput, cursorPosition, personas]);
 
+  const handleSlashCommand = (command: string) => {
+    const cmd = command.toLowerCase().trim();
+    
+    if (cmd === '/board') {
+      // Insert board summary in chat
+      setMessageInput('');
+      setShowSlashCommands(false);
+      setReplyToMessage(null);
+      // Send a special message that will render BoardSummary
+      onSendMessage(currentChannel!.id, '📊 /board', replyToMessage?.id);
+      return;
+    }
+    
+    if (cmd === '/status') {
+      // Show current channel status
+      setMessageInput('');
+      setShowSlashCommands(false);
+      setReplyToMessage(null);
+      onSendMessage(currentChannel!.id, '📊 /status', replyToMessage?.id);
+      return;
+    }
+    
+    if (cmd.startsWith('/create ')) {
+      // Quick ticket creation - extract title from ORIGINAL input, not lowercased
+      const title = command.substring(8).trim();
+      if (title) {
+        setPendingTicket({
+          title,
+          description: 'Created via /create command',
+          priority: 400, // Normal priority
+        });
+      }
+      setMessageInput('');
+      setShowSlashCommands(false);
+      setReplyToMessage(null);
+      return;
+    }
+    
+    // Unknown command - send as regular message
+    setMessageInput('');
+    setShowSlashCommands(false);
+    setReplyToMessage(null);
+    onSendMessage(currentChannel!.id, command, replyToMessage?.id);
+  };
+
   const handleSendMessage = () => {
     if (!messageInput.trim() || !currentChannel) return;
+    
+    // Check for slash commands
+    if (messageInput.startsWith('/')) {
+      handleSlashCommand(messageInput);
+      return;
+    }
+    
     onSendMessage(currentChannel.id, messageInput.trim(), replyToMessage?.id);
     setMessageInput('');
     setReplyToMessage(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
-    else if (e.key === 'Escape') setReplyToMessage(null);
+    if (e.key === 'Enter' && !e.shiftKey) { 
+      e.preventDefault(); 
+      handleSendMessage(); 
+    }
+    else if (e.key === 'Escape') {
+      setReplyToMessage(null);
+      setPendingTicket(null);
+    }
   };
 
   const handleMentionSelect = (persona: Persona) => {
@@ -92,77 +175,6 @@ export default function ChatPanel({
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
-  const formatMessageContent = (content: string): JSX.Element => {
-    // Check for tool result patterns (task creation, board state)
-    const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Za-z0-9]+)\)(.*)/);
-    if (taskCreatedMatch) {
-      const [, title, taskId, rest] = taskCreatedMatch;
-      return (
-        <div style={{
-          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-          borderRadius: '0.5rem', padding: '0.75rem', marginTop: '0.5rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '1.2rem' }}>📋</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Ticket Created</span>
-          </div>
-          <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{title}</div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              ID: <code style={{ background: 'var(--bg-primary)', padding: '0.1rem 0.3rem', borderRadius: '0.2rem' }}>{taskId}</code>
-              {rest}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const reminderMatch = content.match(/⏰ \*\*Reminder set\*\* for (.+?): "(.+?)"/);
-    if (reminderMatch) {
-      const [, time, message] = reminderMatch;
-      return (
-        <div style={{
-          background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)',
-          borderRadius: '0.5rem', padding: '0.75rem', marginTop: '0.5rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '1.2rem' }}>⏰</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Reminder Set</span>
-          </div>
-          <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            <div style={{ marginBottom: '0.25rem' }}>{message}</div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>📅 {time}</div>
-          </div>
-        </div>
-      );
-    }
-
-    // Regular message formatting with @mentions
-    const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
-    const parts = content.split(mentionRegex);
-    return (
-      <span>
-        {parts.map((part, index) => {
-          if (index % 2 === 1) {
-            const persona = personas.find(p => p.name === part);
-            return (
-              <span key={index} style={{
-                background: 'var(--accent)', color: 'white',
-                padding: '0.1rem 0.4rem', borderRadius: '0.3rem', fontWeight: 600,
-                fontSize: '0.85em', display: 'inline-flex', alignItems: 'center',
-                gap: '0.2rem', verticalAlign: 'baseline'
-              }} title={persona ? `${persona.emoji} ${persona.description}` : undefined}>
-                {persona?.emoji && <span style={{ fontSize: '0.9em' }}>{persona.emoji}</span>}
-                @{part}
-              </span>
-            );
-          }
-          return part;
-        })}
-      </span>
-    );
-  };
-
   const formatTimestamp = (date: Date): string => {
     const diff = Date.now() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
@@ -171,6 +183,21 @@ export default function ChatPanel({
     if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
     return new Date(date).toLocaleDateString();
   };
+
+  const handleConfirmTicket = () => {
+    if (pendingTicket && currentChannel) {
+      // Send a message to create the ticket
+      const message = `Create ticket: "${pendingTicket.title}" with priority ${pendingTicket.priority}`;
+      onSendMessage(currentChannel.id, message);
+      setPendingTicket(null);
+    }
+  };
+
+  const slashCommands = [
+    { command: '/create <title>', description: 'Quick ticket creation' },
+    { command: '/board', description: 'Show board summary' },
+    { command: '/status', description: 'Show channel status' },
+  ];
 
   if (!isOpen) return null;
 
@@ -264,12 +291,12 @@ export default function ChatPanel({
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  (e.target as HTMLElement).style.borderColor = 'var(--accent)';
-                  (e.target as HTMLElement).style.background = 'var(--bg-secondary)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-secondary)';
                 }}
                 onMouseLeave={(e) => {
-                  (e.target as HTMLElement).style.borderColor = 'var(--border)';
-                  (e.target as HTMLElement).style.background = 'var(--bg-primary)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-primary)';
                 }}
               >
                 <span style={{ fontSize: '1rem' }}>{persona.emoji}</span>
@@ -288,85 +315,78 @@ export default function ChatPanel({
           </div>
         )}
         
-        {currentChannel?.messages.map(message => (
-          <div key={message.id} className="chat-message-group">
-            {message.replyTo && (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--accent)', opacity: 0.6 }}>
-                Replying to previous message
+        {currentChannel?.messages.map(message => {
+          // Check for special board command
+          if (message.content === '📊 /board') {
+            return (
+              <div key={message.id}>
+                <BoardSummary tasks={tasks} />
               </div>
-            )}
-            
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-              <div style={{
-                width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
-                flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)', fontWeight: '500'
-              }}>
-                {message.authorType === 'persona' 
-                  ? personas.find(p => p.name === message.author)?.emoji || '🤖'
-                  : message.author[0]?.toUpperCase()
-                }
-              </div>
-              
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
-                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                    {message.authorType === 'persona' 
-                      ? personas.find(p => p.name === message.author)?.name || message.author
-                      : message.author
-                    }
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {formatTimestamp(message.createdAt)}
-                  </span>
+            );
+          }
+
+          return (
+            <div key={message.id} className="chat-message-group">
+              {message.replyTo && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--accent)', opacity: 0.6 }}>
+                  Replying to previous message
                 </div>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', wordBreak: 'break-word', lineHeight: '1.5' }}>
-                  {formatMessageContent(message.content)}
-                </div>
-              </div>
+              )}
               
-              <button onClick={() => setReplyToMessage(message)} className="chat-reply-btn"
-                style={{ padding: '0.4rem', background: 'none', border: 'none', cursor: 'pointer', opacity: 0, fontSize: '0.8rem', color: 'var(--text-muted)', borderRadius: '0.25rem', transition: 'all 0.2s' }}
-                title="Reply"
-                onMouseEnter={(e) => { e.target.style.background = 'var(--bg-tertiary)'; e.target.style.color = 'var(--text-primary)'; }}
-                onMouseLeave={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-muted)'; }}>
-                ↩️
-              </button>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                <div style={{
+                  width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
+                  flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)', fontWeight: '500'
+                }}>
+                  {message.authorType === 'persona' 
+                    ? personas.find(p => p.name === message.author)?.emoji || '🤖'
+                    : message.author[0]?.toUpperCase()
+                  }
+                </div>
+                
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                      {message.authorType === 'persona' 
+                        ? personas.find(p => p.name === message.author)?.name || message.author
+                        : message.author
+                      }
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {formatTimestamp(message.createdAt)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                    <ToolResultRenderer content={message.content} personas={personas} />
+                  </div>
+                </div>
+                
+                <button onClick={() => setReplyToMessage(message)} className="chat-reply-btn"
+                  style={{ padding: '0.4rem', background: 'none', border: 'none', cursor: 'pointer', opacity: 0, fontSize: '0.8rem', color: 'var(--text-muted)', borderRadius: '0.25rem', transition: 'all 0.2s' }}
+                  title="Reply"
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                  ↩️
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         
         {/* Typing indicator */}
-        {currentChannel?.speakingPersona && (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', opacity: 0.7 }}>
-            <div style={{
-              width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
-              flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)'
-            }}>
-              {personas.find(p => p.id === currentChannel.speakingPersona)?.emoji || '🤖'}
-            </div>
-            <div style={{ flex: 1, paddingTop: '0.5rem' }}>
-              <div style={{ 
-                display: 'inline-block',
-                background: 'var(--bg-tertiary)', 
-                borderRadius: '1rem',
-                padding: '0.75rem 1rem',
-                fontSize: '0.875rem',
-                color: 'var(--text-muted)'
-              }}>
-                <span style={{ fontWeight: 500 }}>
-                  {personas.find(p => p.id === currentChannel.speakingPersona)?.name || 'AI'}
-                </span>
-                {' is thinking'}
-                <span className="typing-dots">
-                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0s' }}>.</span>
-                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0.2s' }}>.</span>
-                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0.4s' }}>.</span>
-                </span>
-              </div>
-            </div>
-          </div>
+        {currentChannel?.speakingPersona && (() => {
+          const persona = personas.find(p => p.id === currentChannel.speakingPersona);
+          return persona ? <TypingIndicator persona={persona} /> : null;
+        })()}
+
+        {/* Pending ticket preview */}
+        {pendingTicket && (
+          <TicketPreviewCard
+            ticket={pendingTicket}
+            onConfirm={handleConfirmTicket}
+            onCancel={() => setPendingTicket(null)}
+          />
         )}
         
         <div ref={messagesEndRef} />
@@ -388,8 +408,8 @@ export default function ChatPanel({
                 fontSize: '0.875rem', padding: '0.25rem 0.5rem', borderRadius: '0.25rem',
                 transition: 'background 0.2s'
               }}
-              onMouseEnter={(e) => { e.target.style.background = 'rgba(59, 130, 246, 0.1)'; }}
-              onMouseLeave={(e) => { e.target.style.background = 'none'; }}>
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
               ✕ Cancel
             </button>
           </div>
@@ -397,7 +417,34 @@ export default function ChatPanel({
             color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', 
             whiteSpace: 'nowrap', fontSize: '0.8rem', fontStyle: 'italic'
           }}>
-            {formatMessageContent(replyToMessage.content)}
+            <ToolResultRenderer content={replyToMessage.content} personas={personas} />
+          </div>
+        </div>
+      )}
+
+      {/* Slash command suggestions */}
+      {showSlashCommands && (
+        <div style={{ padding: '0 1rem' }}>
+          <div style={{
+            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            borderRadius: '0.75rem', maxHeight: '10rem', overflowY: 'auto',
+            boxShadow: '0 -8px 16px rgba(0,0,0,0.15)', marginBottom: '0.5rem'
+          }}>
+            {slashCommands.map(cmd => (
+              <button key={cmd.command} onClick={() => { setMessageInput(cmd.command.split('<')[0].trim()); inputRef.current?.focus(); }}
+                style={{
+                  width: '100%', padding: '0.75rem', textAlign: 'left',
+                  display: 'flex', flexDirection: 'column', gap: '0.25rem',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)',
+                  borderRadius: '0.5rem', margin: '0.25rem', transition: 'background 0.15s'
+                }}
+                className="chat-slash-option"
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
+                <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: 600 }}>{cmd.command}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{cmd.description}</div>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -419,8 +466,8 @@ export default function ChatPanel({
                   borderRadius: '0.5rem', margin: '0.25rem', transition: 'background 0.15s'
                 }}
                 className="chat-mention-option"
-                onMouseEnter={(e) => { e.target.style.background = 'var(--bg-tertiary)'; }}
-                onMouseLeave={(e) => { e.target.style.background = 'none'; }}>
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ fontSize: '1.1rem' }}>{persona.emoji}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{persona.name}</div>
@@ -442,7 +489,7 @@ export default function ChatPanel({
               onChange={(e) => { setMessageInput(e.target.value); setCursorPosition(e.target.selectionStart); }}
               onKeyDown={handleKeyDown}
               onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart)}
-              placeholder="Type a message... Use @name to mention"
+              placeholder="Type a message... Use @name to mention or /command"
               rows={2}
               style={{
                 flex: 1, background: 'var(--bg-primary)', border: '2px solid var(--border)',
@@ -461,8 +508,8 @@ export default function ChatPanel({
                 fontWeight: 600, fontSize: '0.875rem', transition: 'all 0.2s',
                 minWidth: '4rem', height: '2.75rem'
               }}
-              onMouseEnter={(e) => { if (messageInput.trim()) e.target.style.background = 'var(--accent-hover)'; }}
-              onMouseLeave={(e) => { if (messageInput.trim()) e.target.style.background = 'var(--accent)'; }}>
+              onMouseEnter={(e) => { if (messageInput.trim()) e.currentTarget.style.background = 'var(--accent-hover)'; }}
+              onMouseLeave={(e) => { if (messageInput.trim()) e.currentTarget.style.background = 'var(--accent)'; }}>
               Send
             </button>
           </div>
