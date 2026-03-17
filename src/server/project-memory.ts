@@ -4,6 +4,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { estimateTokens } from './token-budget.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PROJECT_MEMORY_PATH = path.join(STORAGE_DIR, 'project-memory.json');
@@ -89,7 +90,7 @@ export async function renderProjectMemory(maxTokens: number = 3000, contextQuery
   for (const e of entries) { if (!byCat.has(e.category)) byCat.set(e.category, []); byCat.get(e.category)!.push(e); }
   const labels: Record<ProjectMemoryCategory, string> = { architecture: '🏗️  Architecture & Design', convention: '📏 Conventions & Standards', lesson: '💡 Lessons Learned', process: '⚙️  Process & Workflow', decision: '🎯 Key Decisions', context: '📝 General Context' };
   for (const [cat, ents] of byCat) { out += `### ${labels[cat]}\n\n`; for (const e of ents) out += `- ${e.importance >= 8 ? '⚠️ ' : ''}${e.content} _(ID: ${e.id})_\n`; out += '\n'; }
-  const tokens = Math.ceil(out.length / 4); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
+  const tokens = estimateTokens(out); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
   return out;
 }
 

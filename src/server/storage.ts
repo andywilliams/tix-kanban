@@ -243,41 +243,63 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
       return null;
     }
 
+    // Handle newComment: extract from updates, add to comments array, log activity
+    const { newComment, ...restUpdates } = updates as Task & { newComment?: Comment };
+    let comments = existingTask.comments || [];
+    if (newComment) {
+      comments = [...comments, newComment];
+      restUpdates.comments = comments;
+    }
+
     // Track activities for significant changes
     const existingActivity = existingTask.activity || [];
     const newActivity: ActivityLog[] = [...existingActivity];
 
+    // Track comment_added activity
+    if (newComment) {
+      const commentActivity: ActivityLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId,
+        type: 'comment_added',
+        description: `Comment added by ${actor}`,
+        actor,
+        timestamp: new Date(),
+        metadata: { commentId: newComment.id }
+      };
+      newActivity.push(commentActivity);
+    }
+
     // Track status changes
-    if (updates.status && updates.status !== existingTask.status) {
+    if (restUpdates.status && restUpdates.status !== existingTask.status) {
       const statusActivity: ActivityLog = {
         id: Math.random().toString(36).substr(2, 9),
         taskId,
         type: 'status_change',
-        description: `Status changed from '${existingTask.status}' to '${updates.status}'`,
+        description: `Status changed from '${existingTask.status}' to '${restUpdates.status}'`,
         actor,
         timestamp: new Date(),
-        metadata: { from: existingTask.status, to: updates.status }
+        metadata: { from: existingTask.status, to: restUpdates.status }
       };
       newActivity.push(statusActivity);
     }
 
     // Track assignment changes
-    if (updates.assignee !== undefined && updates.assignee !== existingTask.assignee) {
+    if (restUpdates.assignee !== undefined && restUpdates.assignee !== existingTask.assignee) {
       const assignmentActivity: ActivityLog = {
         id: Math.random().toString(36).substr(2, 9),
         taskId,
         type: 'assignment_changed',
-        description: `Assignment changed from '${existingTask.assignee || 'unassigned'}' to '${updates.assignee || 'unassigned'}'`,
+        description: `Assignment changed from '${existingTask.assignee || 'unassigned'}' to '${restUpdates.assignee || 'unassigned'}'`,
         actor,
         timestamp: new Date(),
-        metadata: { from: existingTask.assignee, to: updates.assignee }
+        metadata: { from: existingTask.assignee, to: restUpdates.assignee }
       };
       newActivity.push(assignmentActivity);
     }
 
     const updatedTask: Task = {
       ...existingTask,
-      ...updates,
+      ...restUpdates,
       id: taskId, // Ensure ID doesn't change
       activity: newActivity.slice(-MAX_ACTIVITY_PER_TASK),
       updatedAt: new Date(),

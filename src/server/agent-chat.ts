@@ -1135,13 +1135,19 @@ async function executeAction(
         createdAt: new Date()
       };
 
-      // Pass comment to updateTask for atomic append (avoids race condition)
-      const task = await updateTask(action.taskId, { newComment: comment } as any, persona.name);
-      if (!task) {
+      // Read task and build updated comments array
+      const existingTask = await getTask(action.taskId);
+      if (!existingTask) {
         throw new Error(`Task ${action.taskId} not found`);
       }
 
-      return `💬 **Comment added** to task ${task.id}`;
+      const existingComments = existingTask.comments || [];
+      const updatedComments = [...existingComments, comment];
+
+      // Pass comments array to updateTask
+      const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
+
+      return `💬 **Comment added** to task ${task?.id}`;
     }
 
     case 'create_reminder': {
