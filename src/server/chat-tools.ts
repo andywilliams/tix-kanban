@@ -423,6 +423,9 @@ async function executeAddComment(input: any, persona: Persona): Promise<ToolResu
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
 
+  // Persist comment to task
+  await addCommentToTask(input.taskId, persona.name, input.body);
+
   return { success: true, content: `Added comment to task ${input.taskId}` };
 }
 

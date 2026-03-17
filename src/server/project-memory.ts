@@ -114,12 +114,15 @@ export async function searchProjectMemory(query: string, options: {category?: Pr
 export async function getRelevantProjectMemory(context: string, maxEntries: number = 10): Promise<ProjectMemoryEntry[]> {
   const memory = await getProjectMemory(); const lower = context.toLowerCase(); const words = lower.split(/\s+/).filter(w => w.length > 3);
   const scored = memory.entries.map(entry => {
-    let score = 0; const content = entry.content.toLowerCase();
-    for (const k of entry.keywords) if (lower.includes(k)) score += 3;
-    for (const w of words) if (content.includes(w)) score += 1;
-    score += entry.importance / 2;
-    const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-    if (days < 30) score += 1;
+    let score = 0; let hasMatch = false; const content = entry.content.toLowerCase();
+    for (const k of entry.keywords) if (lower.includes(k)) { score += 3; hasMatch = true; }
+    for (const w of words) if (content.includes(w)) { score += 1; hasMatch = true; }
+    // Only add importance and recency bonuses when there's an actual textual match
+    if (hasMatch) {
+      score += entry.importance / 2;
+      const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
+      if (days < 30) score += 1;
+    }
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);
