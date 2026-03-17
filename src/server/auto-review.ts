@@ -243,10 +243,18 @@ async function spawnReviewSession(
     // Create specialized review prompt
     const reviewPrompt = await createReviewContext(task, reviewer.id, reviewState);
     
+    // Build scoped allowed tools — restrict gh commands to specific PR numbers only
+    // to prevent injection via shell metacharacters after a numeric prefix
+    const linkedPRs = parsePRLinks(task.links);
+    const prToolPatterns = linkedPRs.flatMap(pr =>
+      [`Bash(gh pr diff ${pr.number})`, `Bash(gh pr view ${pr.number})`]
+    );
+    const allowedTools = ['Read', 'web_search', 'web_fetch', ...prToolPatterns].join(',');
+
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       reviewPrompt,
-      ['--allowedTools', 'Read,web_search,web_fetch,Bash(gh pr diff [0-9]*),Bash(gh pr view [0-9]*)'],
+      ['--allowedTools', allowedTools],
       200000 // 3.3 min timeout (process-level timeout)
     );
     
