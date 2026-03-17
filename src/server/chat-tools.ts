@@ -512,8 +512,8 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
       return { success: true, content: `No matches found for: ${input.query}` };
     }
 
-    // Format results (file:line:content)
-    const results = stdout.trim().split('\n').map(line => {
+    // Format results (file:line:content) and apply limit
+    const results = stdout.trim().split('\n').slice(0, limit).map(line => {
       const match = line.match(/^(.+?):(\d+):(.+)$/);
       if (match) {
         const [, filePath, lineNum, content] = match;
@@ -553,11 +553,18 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
 
   // Fallback: check in workspaceDir
   if (settings.workspaceDir) {
-    const workspacePath = settings.workspaceDir.startsWith('~') 
+    let workspacePath = settings.workspaceDir.startsWith('~') 
       ? path.join(process.env.HOME || '', settings.workspaceDir.slice(1))
       : settings.workspaceDir;
     
-    const repoPath = path.join(workspacePath, repoName);
+    // Resolve to absolute paths for security check
+    workspacePath = path.resolve(workspacePath);
+    const repoPath = path.resolve(workspacePath, repoName);
+    
+    // Security check: ensure resolved path is within workspace (prevents path traversal)
+    if (!repoPath.startsWith(workspacePath + path.sep) && repoPath !== workspacePath) {
+      return null;
+    }
     
     try {
       const stat = await fs.stat(repoPath);
