@@ -311,7 +311,21 @@ app.post('/api/tasks', async (req, res) => {
 // PUT /api/tasks/:id - Update task
 app.put('/api/tasks/:id', async (req, res) => {
   try {
-    const { actor, ...updates } = req.body as Partial<Task> & { actor?: string };
+    const { actor, newComment, ...updates } = req.body as Partial<Task> & { actor?: string; newComment?: { body: string } };
+
+    // Validate newComment: if provided, only allow body field (server generates id, author, taskId, createdAt)
+    let validatedNewComment: { body: string } | undefined;
+    if (newComment) {
+      if (typeof newComment.body !== 'string' || !newComment.body.trim()) {
+        return res.status(400).json({ error: 'newComment.body must be a non-empty string' });
+      }
+      validatedNewComment = { body: newComment.body.trim() };
+    }
+
+    // Merge validated newComment back into updates (type cast for storage function)
+    const finalUpdates = validatedNewComment
+      ? { ...updates, newComment: validatedNewComment as any }
+      : updates;
 
     // Get the current task state before updating
     const previousTask = await getTask(req.params.id);
@@ -346,7 +360,7 @@ app.put('/api/tasks/:id', async (req, res) => {
     }
 
     // Update the task
-    const task = await updateTask(req.params.id, updates, actor || 'api');
+    const task = await updateTask(req.params.id, finalUpdates, actor || 'api');
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });

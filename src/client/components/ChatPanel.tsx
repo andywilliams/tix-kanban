@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatChannel, ChatMessage, Persona } from '../types';
 
+// Typing animation keyframes - defined at module scope as a constant (not a hook)
+const typingKeyframes = `
+  @keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+`;
+
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -73,6 +81,51 @@ export default function ChatPanel({
   };
 
   const formatMessageContent = (content: string): JSX.Element => {
+    // Check for tool result patterns (task creation, board state)
+    const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Za-z0-9]+)\)(.*)/);
+    if (taskCreatedMatch) {
+      const [, title, taskId, rest] = taskCreatedMatch;
+      return (
+        <div style={{
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+          borderRadius: '0.5rem', padding: '0.75rem', marginTop: '0.5rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>📋</span>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Ticket Created</span>
+          </div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{title}</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              ID: <code style={{ background: 'var(--bg-primary)', padding: '0.1rem 0.3rem', borderRadius: '0.2rem' }}>{taskId}</code>
+              {rest}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const reminderMatch = content.match(/⏰ \*\*Reminder set\*\* for (.+?): "(.+?)"/);
+    if (reminderMatch) {
+      const [, time, message] = reminderMatch;
+      return (
+        <div style={{
+          background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)',
+          borderRadius: '0.5rem', padding: '0.75rem', marginTop: '0.5rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>⏰</span>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Reminder Set</span>
+          </div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            <div style={{ marginBottom: '0.25rem' }}>{message}</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>📅 {time}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Regular message formatting with @mentions
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
     const parts = content.split(mentionRegex);
     return (
@@ -116,6 +169,7 @@ export default function ChatPanel({
       zIndex: 50, display: 'flex', flexDirection: 'column',
       boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
     }}>
+      <style>{typingKeyframes}</style>
       {/* Header */}
       <div style={{
         padding: '1rem', borderBottom: '1px solid var(--border)',
@@ -270,6 +324,40 @@ export default function ChatPanel({
             </div>
           </div>
         ))}
+        
+        {/* Typing indicator */}
+        {currentChannel?.speakingPersona && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', opacity: 0.7 }}>
+            <div style={{
+              width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
+              flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)'
+            }}>
+              {personas.find(p => p.id === currentChannel.speakingPersona)?.emoji || '🤖'}
+            </div>
+            <div style={{ flex: 1, paddingTop: '0.5rem' }}>
+              <div style={{ 
+                display: 'inline-block',
+                background: 'var(--bg-tertiary)', 
+                borderRadius: '1rem',
+                padding: '0.75rem 1rem',
+                fontSize: '0.875rem',
+                color: 'var(--text-muted)'
+              }}>
+                <span style={{ fontWeight: 500 }}>
+                  {personas.find(p => p.id === currentChannel.speakingPersona)?.name || 'AI'}
+                </span>
+                {' is thinking'}
+                <span className="typing-dots">
+                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0s' }}>.</span>
+                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0.2s' }}>.</span>
+                  <span style={{ animation: 'typing 1.4s infinite', animationDelay: '0.4s' }}>.</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div ref={messagesEndRef} />
       </div>
 

@@ -24,6 +24,8 @@ export interface Task {
   testSuites?: TestSuiteLink[]; // Linked apix test suites as acceptance criteria
   testStatus?: TestSuiteStatus; // Aggregated test status
   conversationState?: ConversationState; // Phase 2: Multi-persona collaboration state
+  // Runtime-only property for atomic comment addition (not persisted to task)
+  newComment?: Partial<Comment>;
 }
 
 export interface ConversationState {
