@@ -232,51 +232,87 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
       sections.push('');
     }
   }
-  sections.push('## Board State\n');
-  sections.push(`**Total tasks:** ${context.board.totalTasks}`);
-  sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
-  sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
-  sections.push(`- Auto-Review: ${context.board.byStatus['auto-review']}`);
-  sections.push(`- Review: ${context.board.byStatus.review}`);
-  sections.push(`- Done: ${context.board.byStatus.done}\n`);
-  if (context.board.inProgress.length > 0) {
-    sections.push('**Currently in progress:**');
-    for (const task of context.board.inProgress) sections.push(`- ${task.title} (${task.persona || 'unassigned'})`);
-    sections.push('');
-  }
-  if (context.board.highPriorityBacklog.length > 0) {
-    sections.push('**High-priority backlog:**');
-    for (const task of context.board.highPriorityBacklog) sections.push(`- ${task.title} (priority ${task.priority})`);
-    sections.push('');
-  }
-  if (context.board.blocked.length > 0) {
-    sections.push('**Blocked tasks:**');
-    for (const task of context.board.blocked) sections.push(`- ${task.title}${task.reason ? ` — ${task.reason}` : ''}`);
-    sections.push('');
-  }
-  if (context.board.stale.length > 0) {
-    sections.push('**Stale tasks (no updates in 7+ days):**');
-    for (const task of context.board.stale) sections.push(`- ${task.title} (${task.daysSinceUpdate} days)`);
-    sections.push('');
+
+  // Only render Board State if board data is present (not all zeros/empty)
+  const hasBoardData = context.board.totalTasks > 0 ||
+    context.board.byStatus.backlog > 0 ||
+    context.board.byStatus['in-progress'] > 0 ||
+    context.board.byStatus['auto-review'] > 0 ||
+    context.board.byStatus.review > 0 ||
+    context.board.byStatus.done > 0 ||
+    context.board.inProgress.length > 0 ||
+    context.board.blocked.length > 0 ||
+    context.board.stale.length > 0 ||
+    context.board.highPriorityBacklog.length > 0;
+
+  if (hasBoardData) {
+    sections.push('## Board State\n');
+    sections.push(`**Total tasks:** ${context.board.totalTasks}`);
+    sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
+    sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
+    sections.push(`- Auto-Review: ${context.board.byStatus['auto-review']}`);
+    sections.push(`- Review: ${context.board.byStatus.review}`);
+    sections.push(`- Done: ${context.board.byStatus.done}\n`);
+    if (context.board.inProgress.length > 0) {
+      sections.push('**Currently in progress:**');
+      for (const task of context.board.inProgress) sections.push(`- ${task.title} (${task.persona || 'unassigned'})`);
+      sections.push('');
+    }
+    if (context.board.highPriorityBacklog.length > 0) {
+      sections.push('**High-priority backlog:**');
+      for (const task of context.board.highPriorityBacklog) sections.push(`- ${task.title} (priority ${task.priority})`);
+      sections.push('');
+    }
+    if (context.board.blocked.length > 0) {
+      sections.push('**Blocked tasks:**');
+      for (const task of context.board.blocked) sections.push(`- ${task.title}${task.reason ? ` — ${task.reason}` : ''}`);
+      sections.push('');
+    }
+    if (context.board.stale.length > 0) {
+      sections.push('**Stale tasks (no updates in 7+ days):**');
+      for (const task of context.board.stale) sections.push(`- ${task.title} (${task.daysSinceUpdate} days)`);
+      sections.push('');
+    }
   }
   const fullContent = sections.join('\n');
   const estimatedTokens = estimateTokens(fullContent);
   return estimatedTokens > tokenBudget ? fullContent.substring(0, tokenBudget * 4) + '\n\n_[Context truncated to fit token budget]_' : fullContent;
 }
 
-let _cachedContext: WorkspaceContext | null = null;
-let _cacheTime: number = 0;
+interface CacheEntry {
+  context: WorkspaceContext;
+  timestamp: number;
+}
+
+const _contextCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+function getCacheKey(options?: Parameters<typeof buildWorkspaceContext>[0]): string {
+  if (!options) return 'default';
+  const parts: string[] = [];
+  if (options.includeRepos !== undefined) parts.push(`repos:${options.includeRepos}`);
+  if (options.includeBoard !== undefined) parts.push(`board:${options.includeBoard}`);
+  if (options.includeKnowledge !== undefined) parts.push(`knowledge:${options.includeKnowledge}`);
+  if (options.includeHistory !== undefined) parts.push(`history:${options.includeHistory}`);
+  if (options.knowledgeQuery) parts.push(`query:${options.knowledgeQuery}`);
+  if (options.maxTokens) parts.push(`tokens:${options.maxTokens}`);
+  return parts.length > 0 ? parts.join(',') : 'default';
+}
+
 export async function getCachedWorkspaceContext(forceRefresh: boolean = false, options?: Parameters<typeof buildWorkspaceContext>[0]): Promise<WorkspaceContext> {
+  const cacheKey = getCacheKey(options);
   const now = Date.now();
-  if (!forceRefresh && _cachedContext && (now - _cacheTime) < CACHE_TTL_MS) return _cachedContext;
-  _cachedContext = await buildWorkspaceContext(options);
-  _cacheTime = now;
-  return _cachedContext;
+  const entry = _contextCache.get(cacheKey);
+
+  if (!forceRefresh && entry && (now - entry.timestamp) < CACHE_TTL_MS) {
+    return entry.context;
+  }
+
+  const context = await buildWorkspaceContext(options);
+  _contextCache.set(cacheKey, { context, timestamp: now });
+  return context;
 }
 
 export function invalidateWorkspaceCache(): void {
-  _cachedContext = null;
-  _cacheTime = 0;
+  _contextCache.clear();
 }
