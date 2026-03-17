@@ -297,6 +297,21 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
       newActivity.push(assignmentActivity);
     }
 
+    // Track comment additions
+    if (updates.comments && updates.comments.length > (existingTask.comments?.length || 0)) {
+      const newCommentCount = updates.comments.length - (existingTask.comments?.length || 0);
+      const commentActivity: ActivityLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId,
+        type: 'comment_added',
+        description: `${newCommentCount} comment${newCommentCount > 1 ? 's' : ''} added`,
+        actor,
+        timestamp: new Date(),
+        metadata: { count: newCommentCount }
+      };
+      newActivity.push(commentActivity);
+    }
+
     const updatedTask: Task = {
       ...existingTask,
       ...restUpdates,
