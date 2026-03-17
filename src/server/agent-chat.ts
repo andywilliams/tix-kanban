@@ -1199,8 +1199,11 @@ async function executeAction(
           ? action.path 
           : path.join(process.cwd(), action.path);
 
+        // Resolve symlinks to prevent symlink bypass attacks
+        const realPath = await fs.realpath(resolvedPath);
+        
         // Security: validate path is within workspace
-        const normalizedPath = path.normalize(resolvedPath);
+        const normalizedPath = path.normalize(realPath);
         const workspaceRoot = process.cwd();
         if (!normalizedPath.startsWith(workspaceRoot + path.sep) && normalizedPath !== workspaceRoot) {
           throw new Error('Path outside workspace not allowed');
