@@ -9,6 +9,7 @@ import {
   getEmbedding,
   getAllEmbeddings,
   deleteEmbedding,
+  clearOpenAIClient,
 } from './embeddings.js';
 
 // Mock OpenAI
@@ -44,6 +45,9 @@ describe('Embeddings', () => {
   const testPersonaDir = path.join(PERSONAS_DIR, testPersonaId);
 
   beforeEach(async () => {
+    // Clear any cached client first
+    clearOpenAIClient();
+    
     // Set API key for tests
     process.env.OPENAI_API_KEY = 'test-key';
     
@@ -72,16 +76,20 @@ describe('Embeddings', () => {
   });
 
   it('should return null when API key is not set', async () => {
+    // Clear any cached client first
+    clearOpenAIClient();
+    
     const oldKey = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
     
-    // Need to recreate the client after deleting the key
-    // The client is lazily initialized, so we need to clear it
+    // Now generateEmbedding should return null since there's no API key
     const embedding = await generateEmbedding(testContent);
     expect(embedding).toBeNull();
     
     // Restore for other tests
     if (oldKey) process.env.OPENAI_API_KEY = oldKey;
+    // Re-clear to pick up the restored key for subsequent tests
+    clearOpenAIClient();
   });
 
   it('should store and retrieve embeddings', async () => {

@@ -6,19 +6,36 @@ import os from 'os';
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 
-// OpenAI client (lazy initialization)
+// OpenAI client (lazy initialization with key tracking)
 let openaiClient: OpenAI | null = null;
+let cachedApiKey: string | null = null;
+
+export function clearOpenAIClient(): void {
+  openaiClient = null;
+  cachedApiKey = null;
+}
 
 function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  // Check if key has changed or been removed
+  if (openaiClient && cachedApiKey !== apiKey) {
+    openaiClient = null;
+    cachedApiKey = null;
+  }
+  
+  // Return cached client if still valid
   if (openaiClient) return openaiClient;
   
-  const apiKey = process.env.OPENAI_API_KEY;
+  // No API key - return null (embedding generation disabled)
   if (!apiKey) {
     console.warn('[Embeddings] OPENAI_API_KEY not set - embedding generation disabled');
     return null;
   }
   
+  // Create new client with current API key
   openaiClient = new OpenAI({ apiKey });
+  cachedApiKey = apiKey;
   return openaiClient;
 }
 
