@@ -6,6 +6,7 @@ import os from 'os';
 import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { parsePRLinks, getPRState } from './pr-utils.js';
+import { getPRReviewThreads, ReviewThread } from './github.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
@@ -182,13 +183,15 @@ const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
 const WORKER_STATE_FILE = path.join(STORAGE_DIR, 'worker-state.json');
 const WORKER_TRIGGER_STATE_FILE = path.join(STORAGE_DIR, 'worker-trigger-state.json');
 
-type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted';
+type TriggerEventType = 'onPROpened' | 'onPRMerged' | 'onPRClosed' | 'onCIPassed' | 'onTestFailure' | 'onTaskStarted' | 'onCommentAdded';
 
 // ParsedPRLink imported from pr-utils
 
 interface PRSnapshot {
   state: 'open' | 'closed' | 'merged' | null;
   ciState: 'SUCCESS' | 'FAILURE' | null;
+  seenThreadIds?: string[]; // Track which review threads we've seen
+  lastThreadCheck?: string; // ISO timestamp of last thread check
 }
 
 interface WorkerTriggerTaskState {
@@ -470,7 +473,7 @@ function getTriggeredPersonas(personas: Persona[], eventType: TriggerEventType, 
   );
 }
 
-function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string): string {
+function buildTriggerInstruction(task: Task, eventType: TriggerEventType, details?: string, metadata?: any): string {
   const eventDescriptionMap: Record<TriggerEventType, string> = {
     onPROpened: 'A pull request was just linked/opened for this task.',
     onPRMerged: 'A linked pull request was just merged for this task.',
@@ -478,25 +481,61 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
     onTestFailure: 'CI checks failed for a linked pull request on this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
-
+    onCommentAdded: 'A new review comment was added to a linked pull request.',
   };
 
-  return [
+  const baseInstruction = [
     task.description,
     '',
     '## Trigger Event Context',
     eventDescriptionMap[eventType],
     ...(details ? [`Details: ${details}`] : []),
-    '',
-    'Take the action implied by your persona role for this trigger and summarize concrete outputs.',
-  ].join('\n');
+  ];
+
+  // Add special context for review comments
+  if (eventType === 'onCommentAdded' && metadata) {
+    baseInstruction.push('');
+    baseInstruction.push('## Review Comment Details');
+    baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
+    baseInstruction.push(`**Author:** ${metadata.author}`);
+    if (metadata.path) {
+      baseInstruction.push(`**File:** ${metadata.path}${metadata.line ? `:${metadata.line}` : ''}`);
+    }
+    baseInstruction.push('');
+    baseInstruction.push('**Comment:**');
+    baseInstruction.push(metadata.body);
+    
+    if (metadata.allComments && metadata.allComments.length > 1) {
+      baseInstruction.push('');
+      baseInstruction.push('**Thread Context (previous comments):**');
+      metadata.allComments.slice(1).forEach((comment: any, i: number) => {
+        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${comment.body}`);
+      });
+    }
+    
+    baseInstruction.push('');
+    baseInstruction.push('## Action Guidance');
+    baseInstruction.push('DECIDE on the right action:');
+    baseInstruction.push('1. **Reply only** - If the comment is informational or you can answer without code changes');
+    baseInstruction.push('2. **Acknowledge + fix** - If the issue is valid and should be fixed in this PR');
+    baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
+    baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
+    baseInstruction.push('');
+    baseInstruction.push('Reply on the GitHub thread using: `gh pr comment ${metadata.prNumber} --repo ${metadata.repo} --body "your message"`');
+  }
+
+  baseInstruction.push('');
+  baseInstruction.push('Take the action implied by your persona role for this trigger and summarize concrete outputs.');
+
+  return baseInstruction.join('\n');
 }
 
 async function invokeTriggerPersona(
   task: Task,
   persona: Persona,
   eventType: TriggerEventType,
-  details?: string
+  details?: string,
+  metadata?: any
 ): Promise<void> {
   try {
     const requiredProviders = getRequiredProviders(task);
@@ -506,7 +545,7 @@ async function invokeTriggerPersona(
 
     const triggeredTask: Task = {
       ...task,
-      description: buildTriggerInstruction(task, eventType, details),
+      description: buildTriggerInstruction(task, eventType, details, metadata),
     };
     const aiResult = await spawnAISession(triggeredTask, persona);
 
@@ -540,16 +579,20 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const triggerState = await loadWorkerTriggerState();
   const personas = await getAllPersonas();
 
-  const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[] }>();
+  const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[]; metadata?: any }>();
 
-  const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string): void => {
+  const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string, metadata?: any): void => {
     const key = `${task.id}|${persona.id}|${eventType}`;
     const existing = pendingInvocations.get(key);
     if (existing) {
       existing.details.push(detail);
+      // Merge metadata if provided
+      if (metadata) {
+        existing.metadata = { ...existing.metadata, ...metadata };
+      }
       return;
     }
-    pendingInvocations.set(key, { task, persona, eventType, details: [detail] });
+    pendingInvocations.set(key, { task, persona, eventType, details: [detail], metadata });
   };
 
   // Trigger when a task moves from backlog to in-progress.
@@ -594,7 +637,52 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // On transient CI fetch failure, preserve the last known ciState so the snapshot
       // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
       const effectiveCiState = ciState ?? previous?.ciState ?? null;
-      const current: PRSnapshot = { state, ciState: effectiveCiState };
+      
+      // Check for new review threads/comments (only on open PRs)
+      let seenThreadIds = previous?.seenThreadIds || [];
+      const lastThreadCheck = previous?.lastThreadCheck;
+      
+      if (state === 'open') {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        
+        for (const thread of unresolvedThreads) {
+          if (!seenThreadIds.includes(thread.id)) {
+            // New unresolved thread detected
+            const firstComment = thread.comments[0];
+            if (firstComment) {
+              const metadata = {
+                prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
+                prNumber: pr.number,
+                repo: pr.repo,
+                threadId: thread.id,
+                author: firstComment.author,
+                body: firstComment.body,
+                path: firstComment.path,
+                line: firstComment.line,
+                createdAt: firstComment.createdAt,
+                allComments: thread.comments.map(c => ({
+                  author: c.author,
+                  body: c.body,
+                  createdAt: c.createdAt,
+                })),
+              };
+              
+              for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
+                enqueueInvocation(fullTask, persona, 'onCommentAdded', `New review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
+              }
+            }
+            seenThreadIds.push(thread.id);
+          }
+        }
+      }
+      
+      const current: PRSnapshot = { 
+        state, 
+        ciState: effectiveCiState,
+        seenThreadIds,
+        lastThreadCheck: new Date().toISOString(),
+      };
       newSnapshots[pr.key] = current;
 
       if (!previous) {
@@ -675,7 +763,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       invocation.task,
       invocation.persona,
       invocation.eventType,
-      invocation.details.join('; ')
+      invocation.details.join('; '),
+      invocation.metadata
     );
   }
 
