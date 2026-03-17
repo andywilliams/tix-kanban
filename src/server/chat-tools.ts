@@ -132,7 +132,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
           properties: {
             status: {
               type: 'string',
-              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
+              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
             },
             priority: {
               type: 'number',
@@ -161,7 +161,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
         status: {
           type: 'string',
           description: 'Filter by status',
-          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
+          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
         },
         assignee: {
           type: 'string',
@@ -430,6 +430,17 @@ async function executeAddComment(input: any, persona: Persona): Promise<ToolResu
   // Add comment to task channel
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
+
+  // Also persist comment to task's comments array
+  const newComment = {
+    id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    taskId: input.taskId,
+    body: input.body,
+    author: persona.name,
+    createdAt: new Date()
+  };
+  const comments = [...(task.comments || []), newComment];
+  await storageUpdateTask(input.taskId, { comments }, persona.name);
 
   return { success: true, content: `Added comment to task ${input.taskId}` };
 }
