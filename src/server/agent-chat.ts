@@ -230,7 +230,7 @@ function buildFilteredBoardContext(
   // Always show tasks relevant to this persona
   if (relevant.length > 0) {
     const lines = relevant
-      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .sort((a, b) => (a.priority ?? 500) - (b.priority ?? 500))
       .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.priority ? ` P${t.priority}` : ''}${t.repo ? ` repo:${t.repo}` : ''}`)
       .join('\n');
     sections.push(`**Your Tasks / Mentioned:**\n${lines}`);
@@ -239,7 +239,7 @@ function buildFilteredBoardContext(
   // Show other active tasks (capped at 15)
   if (activeOther.length > 0) {
     const capped = activeOther
-      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .sort((a, b) => (a.priority ?? 500) - (b.priority ?? 500))
       .slice(0, 15);
     const lines = capped
       .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.assignee ? ` [${t.assignee}]` : ''}${t.priority ? ` P${t.priority}` : ''}`)

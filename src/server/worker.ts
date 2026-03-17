@@ -1333,7 +1333,7 @@ async function processAutoReviewTasks(): Promise<void> {
     const tasks = await getAllTasks();
     const autoReviewTasks = tasks
       .filter(task => task.status === 'auto-review')
-      .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)); // Highest priority first
     
     for (const task of autoReviewTasks) {
       console.log(`🔍 Processing auto-review for task: ${task.title}`);

@@ -228,6 +228,35 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
     }
   }
 
+  // Render board state
+  sections.push('## Board State\n');
+  sections.push(`**Total tasks:** ${context.board.totalTasks}`);
+  sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
+  sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
+  sections.push(`- Auto-Review: ${context.board.byStatus['auto-review']}`);
+  sections.push(`- Review: ${context.board.byStatus.review}`);
+  sections.push(`- Done: ${context.board.byStatus.done}\n`);
+  if (context.board.inProgress.length > 0) {
+    sections.push('**Currently in progress:**');
+    for (const task of context.board.inProgress) sections.push(`- ${task.title} (${task.persona || 'unassigned'})`);
+    sections.push('');
+  }
+  if (context.board.highPriorityBacklog.length > 0) {
+    sections.push('**High-priority backlog:**');
+    for (const task of context.board.highPriorityBacklog) sections.push(`- ${task.title} (priority ${task.priority})`);
+    sections.push('');
+  }
+  if (context.board.blocked.length > 0) {
+    sections.push('**Blocked tasks:**');
+    for (const task of context.board.blocked) sections.push(`- ${task.title}${task.reason ? ` — ${task.reason}` : ''}`);
+    sections.push('');
+  }
+  if (context.board.stale.length > 0) {
+    sections.push('**Stale tasks (no updates in 7+ days):**');
+    for (const task of context.board.stale) sections.push(`- ${task.title} (${task.daysSinceUpdate} days)`);
+    sections.push('');
+  }
+
   const fullContent = sections.join('\n');
   const estimatedTokens = Math.ceil(fullContent.length / 4);
   return estimatedTokens > tokenBudget ? fullContent.substring(0, tokenBudget * 4) + '\n\n_[Context truncated to fit token budget]_' : fullContent;

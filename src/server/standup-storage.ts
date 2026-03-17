@@ -207,7 +207,7 @@ async function scanLocalRepos(hoursAgo: number): Promise<CommitInfo[]> {
   
   // Look for repos in common locations
   const searchPaths = [
-    '/root/clawd/repos',
+    
     path.join(process.env.HOME || '/root', 'repos'),
     path.join(process.env.HOME || '/root', 'code'),
     path.join(process.env.HOME || '/root', 'projects'),
