@@ -644,6 +644,15 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // Thread check only runs on subsequent observations (inside else block below)
       let seenThreadIds = previous?.seenThreadIds || [];
       
+      // Migration case: previous exists but seenThreadIds field is missing (pre-change persisted state)
+      // Treat same as first observation - populate from existing threads without triggering
+      const isMigration = previous && previous.seenThreadIds === undefined;
+      if (isMigration) {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        seenThreadIds = unresolvedThreads.map(t => t.id);
+      }
+      
       const current: PRSnapshot = { 
         state, 
         ciState: effectiveCiState,
