@@ -291,10 +291,18 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
     }
 
     // Handle newComment: extract from updates, add to comments array, log activity
-    const { newComment, ...restUpdates } = updates as Task & { newComment?: Comment };
+    const { newComment, ...restUpdates } = updates as Task & { newComment?: Partial<Comment> };
     let comments = existingTask.comments || [];
     if (newComment) {
-      comments = [...comments, newComment];
+      // Generate full Comment object with all required fields
+      const fullComment: Comment = {
+        id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+        taskId,
+        body: newComment.body || '',
+        author: actor,
+        createdAt: new Date(),
+      };
+      comments = [...comments, fullComment];
       restUpdates.comments = comments;
     }
 
