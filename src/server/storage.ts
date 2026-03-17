@@ -275,9 +275,23 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
       newActivity.push(assignmentActivity);
     }
 
+    // Handle newComment: append to existing comments instead of replacing
+    const newComment = (updates as Record<string, unknown>).newComment as Comment | undefined;
+    let finalComments: Comment[] = existingTask.comments || [];
+    if (newComment) {
+      finalComments = finalComments.concat(newComment);
+    } else if (updates.comments) {
+      // Only replace comments if explicitly provided (not when using newComment)
+      finalComments = updates.comments;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { newComment: _, ...updatesWithoutNewComment } = updates as Record<string, unknown> & { newComment?: Comment };
+
     const updatedTask: Task = {
       ...existingTask,
-      ...updates,
+      ...updatesWithoutNewComment,
+      comments: finalComments,
       id: taskId, // Ensure ID doesn't change
       activity: newActivity.slice(-MAX_ACTIVITY_PER_TASK),
       updatedAt: new Date(),
