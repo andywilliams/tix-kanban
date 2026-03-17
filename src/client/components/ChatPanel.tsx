@@ -10,6 +10,17 @@ const typingKeyframes = `
   }
 `;
 
+// Inject keyframes into DOM via style tag
+useEffect(() => {
+  const styleId = 'chat-panel-typing-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = typingKeyframes;
+    document.head.appendChild(style);
+  }
+}, []);
+
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;

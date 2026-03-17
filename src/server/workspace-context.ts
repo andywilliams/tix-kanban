@@ -207,18 +207,15 @@ export async function buildWorkspaceContext(options?: {
     context.recentStandups = (await getAllStandupEntries()).slice(0, 3);
     try { context.recentReports = (await getAllReports()).slice(0, 3); } catch {}
   }
-  context.estimatedTokens = context.repos.length * 100 + 400 + context.knowledge.length * 80 + context.recentStandups.length * 150 + context.recentReports.length * 100;
+  context.estimatedTokens = context.repos.length * 100 + 400;
   
-  // Token budgeting: trim sections if over limit
+  // Token budgeting: trim repos if over limit
   if (opts.maxTokens && context.estimatedTokens > opts.maxTokens) {
     const ratio = opts.maxTokens / context.estimatedTokens;
-    // Proportionally trim arrays while keeping minimums
+    // Trim repos while keeping minimum of 1
     if (context.repos.length > 1) context.repos = context.repos.slice(0, Math.max(1, Math.floor(context.repos.length * ratio)));
-    if (context.knowledge.length > 1) context.knowledge = context.knowledge.slice(0, Math.max(1, Math.floor(context.knowledge.length * ratio)));
-    if (context.recentStandups.length > 1) context.recentStandups = context.recentStandups.slice(0, Math.max(1, Math.floor(context.recentStandups.length * ratio)));
-    if (context.recentReports.length > 1) context.recentReports = context.recentReports.slice(0, Math.max(1, Math.floor(context.recentReports.length * ratio)));
     // Recalculate estimated tokens after trimming
-    context.estimatedTokens = context.repos.length * 100 + 400 + context.knowledge.length * 80 + context.recentStandups.length * 150 + context.recentReports.length * 100;
+    context.estimatedTokens = context.repos.length * 100 + 400;
   }
   return context;
 }

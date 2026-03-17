@@ -1,7 +1,16 @@
 /**
  * Project Memory System - Shared knowledge base for all personas
  * 
- * NOTE: Scaffolded for future chat tool integration. Not yet imported by application code.
+ * TODO: Wire up to chat system - import and use in persona orchestration
+ *       Currently scaffolded but not connected to the application.
+ *       
+ * @see src/server/index.ts - Where this module should be integrated
+ * @see src/shared/types.ts - ProjectMemoryEntry type definitions
+ * 
+ * Planned integration:
+ * - Import addProjectMemoryEntry() to capture learnings from chat
+ * - Import getRelevantProjectMemory() to provide context to personas
+ * - Import renderProjectMemory() to include in persona prompts
  */
 import fs from 'fs/promises';
 import path from 'path';
