@@ -142,10 +142,12 @@ export async function addMemoryEntry(
   
   await saveStructuredMemory(memory);
   
-  // Generate and store embedding (async, don't block)
-  embedMemoryEntry(personaId, entry.id, content).catch(err => {
+  // Generate and store embedding (awaited to prevent race condition on shared embeddings.json)
+  try {
+    await embedMemoryEntry(personaId, entry.id, content);
+  } catch (err) {
     console.warn(`[Memory] Failed to generate embedding for entry ${entry.id}:`, err);
-  });
+  }
   
   return entry;
 }
