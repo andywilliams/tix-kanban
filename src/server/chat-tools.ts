@@ -11,18 +11,10 @@ import { addMessage } from './chat-storage.js';
 import { getUserSettings } from './user-settings.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-
-/**
- * Escape shell metacharacters to prevent injection
- */
-function escapeShellArg(arg: string): string {
-  return arg.replace(/[\\`$"{}()\[\]|;&<> \t\n#*~?]/g, '\\$&');
-}
 
 /**
  * Tool definition for Claude's tool_use API
@@ -527,9 +519,8 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     const filePattern = input.filePattern || '*';
     
     // Use grep for searching - spawn with args array to prevent injection
-    // Escape regex special chars to treat query as literal string
-    const escapedQuery = input.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const { stdout } = await execFileAsync('grep', ['-rn', '-F', escapedQuery, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
+    // Use -F for fixed-string mode, no regex escaping needed
+    const { stdout } = await execFileAsync('grep', ['-rn', '-F', input.query, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
     
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
@@ -567,6 +558,16 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
  * Helper: Resolve repository name to filesystem path
  */
 async function resolveRepoPath(repoName: string): Promise<string | null> {
+  // Validate repoName to prevent path traversal attacks
+  if (!repoName || typeof repoName !== 'string') {
+    return null;
+  }
+  
+  // Check for path traversal sequences
+  if (repoName.includes('..') || repoName.includes('/') || repoName.includes('\\')) {
+    return null;
+  }
+
   const settings = await getUserSettings();
   
   // Check if repo is in repoPaths mapping
