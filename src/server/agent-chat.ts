@@ -34,7 +34,7 @@ import {
   releaseSpeakingTurn,
   getChannel
 } from './chat-storage.js';
-import { getAllTasks, createTask, getTask, updateTask } from './storage.js';
+import { getAllTasks, createTask, getTask, updateTask, addCommentToTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
 import { Persona, Task, Comment } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
@@ -1135,27 +1135,19 @@ async function executeAction(
         throw new Error('Task ID and comment body are required');
       }
 
-      const comment: Comment = {
-        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        taskId: action.taskId,
-        author: persona.name,
-        body: action.body,
-        createdAt: new Date()
-      };
-
-      // Read task and build updated comments array
+      // Validate task exists first
       const existingTask = await getTask(action.taskId);
       if (!existingTask) {
         throw new Error(`Task ${action.taskId} not found`);
       }
 
-      const existingComments = existingTask.comments || [];
-      const updatedComments = [...existingComments, comment];
+      // Use shared atomic function to add comment (fixes race condition + deduplicates logic)
+      const task = await addCommentToTask(action.taskId, action.body, persona.name);
+      if (!task) {
+        return `❌ Failed to add comment: task ${action.taskId} not found`;
+      }
 
-      // Pass comments array to updateTask
-      const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
-
-      return `💬 **Comment added** to task ${task?.id}`;
+      return `💬 **Comment added** to task ${task.id}`;
     }
 
     case 'create_reminder': {

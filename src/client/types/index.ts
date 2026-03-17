@@ -24,7 +24,11 @@ export interface Task {
   testSuites?: TestSuiteLink[]; // Linked apix test suites as acceptance criteria
   testStatus?: TestSuiteStatus; // Aggregated test status
   conversationState?: ConversationState; // Phase 2: Multi-persona collaboration state
-  newComment?: Comment; // Used for atomic comment append in updateTask (not persisted)
+}
+
+// Internal-only type for atomic comment addition via updateTask (not exposed to REST API)
+export interface TaskUpdateInternal extends Partial<Task> {
+  newComment?: Comment;
 }
 
 export interface ConversationState {

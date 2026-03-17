@@ -3,6 +3,53 @@ import path from 'path';
 import os from 'os';
 import { Task, Link, ActivityLog, Comment } from '../client/types/index.js';
 
+/**
+ * Atomically add a comment to a task.
+ * Uses task lock to prevent race conditions.
+ * Returns the updated task, or null if task not found.
+ */
+export async function addCommentToTask(
+  taskId: string,
+  body: string,
+  author: string
+): Promise<Task | null> {
+  const newComment: Comment = {
+    id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+    taskId,
+    body,
+    author,
+    createdAt: new Date()
+  };
+
+  return withTaskLock(taskId, async () => {
+    const existingTask = await readTask(taskId);
+    if (!existingTask) {
+      return null;
+    }
+
+    const comments = [...(existingTask.comments || []), newComment];
+    const activity = [...(existingTask.activity || []), {
+      id: Math.random().toString(36).slice(2, 11),
+      taskId,
+      type: 'comment_added' as const,
+      description: `Comment added by ${author}`,
+      actor: author,
+      timestamp: new Date(),
+      metadata: { commentId: newComment.id }
+    }];
+
+    const updatedTask = {
+      ...existingTask,
+      comments,
+      activity: activity.slice(-MAX_ACTIVITY_PER_TASK),
+      updatedAt: new Date()
+    };
+
+    await writeTask(updatedTask);
+    return updatedTask;
+  });
+}
+
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
 const SUMMARY_FILE = path.join(STORAGE_DIR, '_summary.json');

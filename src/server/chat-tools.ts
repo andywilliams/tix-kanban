@@ -6,7 +6,7 @@
  */
 
 import { Persona, Task } from '../client/types/index.js';
-import { createTask, updateTask as storageUpdateTask, getAllTasks, getTask } from './storage.js';
+import { createTask, updateTask as storageUpdateTask, getAllTasks, getTask, addCommentToTask } from './storage.js';
 import { addMessage } from './chat-storage.js';
 import { getUserSettings } from './user-settings.js';
 import fs from 'fs/promises';
@@ -422,25 +422,21 @@ async function executeGetTask(input: any): Promise<ToolResult> {
 }
 
 async function executeAddComment(input: any, persona: Persona): Promise<ToolResult> {
+  // Validate task exists first
   const task = await getTask(input.taskId);
   if (!task) {
     return { success: false, content: '', error: `Task not found: ${input.taskId}` };
   }
 
-  // Add comment to task channel
+  // Add comment to task channel (chat persistence)
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
 
-  // Also persist comment to task's comments array
-  const newComment = {
-    id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    taskId: input.taskId,
-    body: input.body,
-    author: persona.name,
-    createdAt: new Date()
-  };
-  const comments = [...(task.comments || []), newComment];
-  await storageUpdateTask(input.taskId, { comments }, persona.name);
+  // Atomically add comment to task using shared function (fixes race condition)
+  const updatedTask = await addCommentToTask(input.taskId, input.body, persona.name);
+  if (!updatedTask) {
+    return { success: false, content: '', error: `Failed to add comment to task ${input.taskId}` };
+  }
 
   return { success: true, content: `Added comment to task ${input.taskId}` };
 }
