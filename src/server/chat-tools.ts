@@ -132,7 +132,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
           properties: {
             status: {
               type: 'string',
-              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
+              enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
             },
             priority: {
               type: 'number',
@@ -161,7 +161,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
         status: {
           type: 'string',
           description: 'Filter by status',
-          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done']
+          enum: ['backlog', 'in-progress', 'review', 'auto-review', 'done', 'archived']
         },
         assignee: {
           type: 'string',
@@ -422,21 +422,14 @@ async function executeGetTask(input: any): Promise<ToolResult> {
 }
 
 async function executeAddComment(input: any, persona: Persona): Promise<ToolResult> {
-  // Validate task exists first
   const task = await getTask(input.taskId);
   if (!task) {
     return { success: false, content: '', error: `Task not found: ${input.taskId}` };
   }
 
-  // Add comment to task channel (chat persistence)
+  // Add comment to task channel
   const channelId = `task-${input.taskId}`;
   await addMessage(channelId, persona.name, 'persona', input.body);
-
-  // Atomically add comment to task using shared function (fixes race condition)
-  const updatedTask = await addCommentToTask(input.taskId, input.body, persona.name);
-  if (!updatedTask) {
-    return { success: false, content: '', error: `Failed to add comment to task ${input.taskId}` };
-  }
 
   return { success: true, content: `Added comment to task ${input.taskId}` };
 }
@@ -448,13 +441,6 @@ async function executeReadFile(input: any): Promise<ToolResult> {
   }
 
   const filePath = path.join(repoPath, input.path);
-  
-  // Path traversal check: resolve to absolute path and verify it stays within repo
-  const resolvedPath = path.resolve(filePath);
-  const resolvedRepoPath = path.resolve(repoPath);
-  if (!resolvedPath.startsWith(resolvedRepoPath + path.sep) && resolvedPath !== resolvedRepoPath) {
-    return { success: false, content: '', error: 'Path traversal attempt detected' };
-  }
   
   try {
     const content = await fs.readFile(filePath, 'utf8');
@@ -484,17 +470,10 @@ async function executeListFiles(input: any): Promise<ToolResult> {
 
   const dirPath = path.join(repoPath, input.path);
   
-  // Path traversal check: resolve to absolute path and verify it stays within repo
-  const resolvedPath = path.resolve(dirPath);
-  const resolvedRepoPath = path.resolve(repoPath);
-  if (!resolvedPath.startsWith(resolvedRepoPath + path.sep) && resolvedPath !== resolvedRepoPath) {
-    return { success: false, content: '', error: 'Path traversal attempt detected' };
-  }
-  
   try {
     if (input.recursive) {
-      // Use find for recursive listing with execFileAsync (avoids shell escaping issues)
-      const { stdout } = await execFileAsync('find', [dirPath, '-type', 'f'], { maxBuffer: 1024 * 1024 });
+      // Use find for recursive listing
+      const { stdout } = await execAsync(`find "${dirPath}" -type f`, { maxBuffer: 1024 * 1024 });
       const files = stdout.trim().split('\n')
         .map(f => path.relative(repoPath, f))
         .filter(f => !f.startsWith('.git/') && !f.startsWith('node_modules/'))
@@ -533,16 +512,16 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     const limit = input.limit || 10;
     const filePattern = input.filePattern || '*';
     
-    // Use grep for searching - spawn with args array to prevent injection
-    // Use -F for fixed-string mode (treats pattern literally, no regex)
-    // Pass query directly without escaping since -F makes it literal
-    const { stdout } = await execFileAsync('grep', ['-rn', '-F', input.query, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
+    // Use grep for searching
+    const grepCmd = `grep -rn "${input.query}" "${repoPath}" --include="${filePattern}" | head -${limit}`;
+    const { stdout } = await execAsync(grepCmd, { maxBuffer: 1024 * 1024 });
+    
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
     }
 
-    // Format results (file:line:content) and limit
-    const results = stdout.trim().split('\n').slice(0, limit).map(line => {
+    // Format results (file:line:content)
+    const results = stdout.trim().split('\n').map(line => {
       const match = line.match(/^(.+?):(\d+):(.+)$/);
       if (match) {
         const [, filePath, lineNum, content] = match;
@@ -573,17 +552,6 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
  * Helper: Resolve repository name to filesystem path
  */
 async function resolveRepoPath(repoName: string): Promise<string | null> {
-  // Validate repoName to prevent path traversal attacks
-  if (!repoName || typeof repoName !== 'string') {
-    return null;
-  }
-  
-  // Check for path traversal sequences and absolute paths (including Windows drive letters)
-  const normalized = repoName.toLowerCase();
-  if (repoName.includes('..') || repoName.includes('/') || repoName.includes('\\') || /^[a-z]:/.test(normalized)) {
-    return null;
-  }
-
   const settings = await getUserSettings();
   
   // Check if repo is in repoPaths mapping
@@ -598,13 +566,6 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
       : settings.workspaceDir;
     
     const repoPath = path.join(workspacePath, repoName);
-    
-    // Validate resolved path stays within workspace (defense in depth)
-    const resolvedPath = path.resolve(repoPath);
-    const resolvedWorkspace = path.resolve(workspacePath);
-    if (!resolvedPath.startsWith(resolvedWorkspace + path.sep) && resolvedPath !== resolvedWorkspace) {
-      return null; // Path traversal detected
-    }
     
     try {
       const stat = await fs.stat(repoPath);
