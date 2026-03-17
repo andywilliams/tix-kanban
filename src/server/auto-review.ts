@@ -247,10 +247,12 @@ async function spawnReviewSession(
     // Build scoped allowed tools — restrict gh commands to specific PR numbers only
     // to prevent injection via shell metacharacters after a numeric prefix
     // Include --repo flag so gh commands resolve against the correct repo
+    // Sanitize repo to prevent tool-permission injection (Bugbot HIGH)
     const linkedPRs = parsePRLinks(task.links);
-    const prToolPatterns = linkedPRs.flatMap(pr =>
-      [`Bash(gh pr diff ${pr.number} --repo ${pr.repo})`, `Bash(gh pr view ${pr.number} --repo ${pr.repo})`]
-    );
+    const prToolPatterns = linkedPRs.flatMap(pr => {
+      const safeRepo = pr.repo.replace(/[^a-zA-Z0-9\-_./]/g, '');
+      return [`Bash(gh pr diff ${pr.number} --repo ${safeRepo})`, `Bash(gh pr view ${pr.number} --repo ${safeRepo})`];
+    });
     const allowedTools = ['Read', 'web_search', 'web_fetch', ...prToolPatterns].join(',');
 
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)

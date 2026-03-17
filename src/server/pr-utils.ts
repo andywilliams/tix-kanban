@@ -13,6 +13,7 @@ export interface ParsedPRLink {
 
 /**
  * Parse GitHub PR links from task links, deduplicating by repo+number.
+ * Validates repo names to prevent injection attacks.
  */
 export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
   const parsed = new Map<string, ParsedPRLink>();
@@ -24,7 +25,15 @@ export function parsePRLinks(links: Task['links']): ParsedPRLink[] {
     if (!match) {
       continue;
     }
-    const repo = match[1];
+    // Sanitize repo to prevent tool-permission injection (Bugbot HIGH)
+    // Only allow alphanumeric, hyphens, underscores, dots, and forward slash
+    const rawRepo = match[1];
+    const repo = rawRepo.replace(/[^a-zA-Z0-9\-_./]/g, '');
+    // Reject if sanitization changed the repo (indicates invalid chars)
+    if (repo !== rawRepo) {
+      console.warn(`Blocked potentially malicious PR link: ${link.url} — repo contained invalid characters`);
+      continue;
+    }
     const number = parseInt(match[2], 10);
     if (!Number.isFinite(number)) {
       continue;
