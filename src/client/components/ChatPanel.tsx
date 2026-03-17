@@ -109,8 +109,19 @@ export default function ChatPanel({
 
   if (!isOpen) return null;
 
+  // Typing indicator keyframes
+  const typingKeyframes = `
+    @keyframes typing {
+      0% { opacity: 0.2; }
+      20% { opacity: 1; }
+      100% { opacity: 0.2; }
+    }
+  `;
+
   return (
-    <div style={{
+    <>
+      <style>{typingKeyframes}</style>
+      <div style={{
       position: 'fixed', right: 0, top: 0, height: '100%', width: '24rem',
       background: 'var(--bg-primary)', borderLeft: '1px solid var(--border)',
       zIndex: 50, display: 'flex', flexDirection: 'column',
