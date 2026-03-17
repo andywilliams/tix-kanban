@@ -655,9 +655,13 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous) {
         // First observation: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
-        // Also skip thread check - seenThreadIds starts empty, so all existing threads 
-        // would incorrectly fire onCommentAdded on first observation
+        // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
         if (state === 'open') {
+          const threads = await getPRReviewThreads(pr.repo, pr.number);
+          const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+          seenThreadIds = unresolvedThreads.map(t => t.id);
+          current.seenThreadIds = seenThreadIds;
+          
           for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
