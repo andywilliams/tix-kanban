@@ -243,6 +243,26 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
       return null;
     }
 
+    // Handle newComment: extract from updates, add to comments array, log activity
+    // This is a runtime-only property that should not be persisted to disk
+    const { newComment, ...restUpdates } = updates as Task & { newComment?: Comment };
+    
+    let comments = [...(existingTask.comments || [])];
+    if (newComment) {
+      comments = [...comments, newComment];
+      
+      // Log comment activity
+      const commentActivity: ActivityLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        taskId,
+        type: 'comment_added',
+        description: `Comment added by ${actor}`,
+        actor,
+        timestamp: new Date(),
+        metadata: { commentId: newComment.id }
+      };
+    }
+
     // Track activities for significant changes
     const existingActivity = existingTask.activity || [];
     const newActivity: ActivityLog[] = [...existingActivity];
@@ -277,7 +297,8 @@ export async function updateTask(taskId: string, updates: Partial<Task>, actor: 
 
     const updatedTask: Task = {
       ...existingTask,
-      ...updates,
+      ...restUpdates,
+      comments,
       id: taskId, // Ensure ID doesn't change
       activity: newActivity.slice(-MAX_ACTIVITY_PER_TASK),
       updatedAt: new Date(),
