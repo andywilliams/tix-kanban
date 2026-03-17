@@ -548,7 +548,7 @@ This conversation is about the task described above. Keep your responses relevan
     // Get workspace context (repos, board overview, recent reports)
     let workspaceContext = '';
     try {
-      const wsContext = await getCachedWorkspaceContext();
+      const wsContext = await getCachedWorkspaceContext(false, { includeBoard: false });
       workspaceContext = renderWorkspaceContext(wsContext, 800); // Reserve ~800 tokens
     } catch (error) {
       console.warn(`Failed to get workspace context: ${error}`);

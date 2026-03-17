@@ -268,10 +268,10 @@ let _cachedContext: WorkspaceContext | null = null;
 let _cacheTime: number = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-export async function getCachedWorkspaceContext(forceRefresh: boolean = false): Promise<WorkspaceContext> {
+export async function getCachedWorkspaceContext(forceRefresh: boolean = false, options?: Parameters<typeof buildWorkspaceContext>[0]): Promise<WorkspaceContext> {
   const now = Date.now();
   if (!forceRefresh && _cachedContext && (now - _cacheTime) < CACHE_TTL_MS) return _cachedContext;
-  _cachedContext = await buildWorkspaceContext();
+  _cachedContext = await buildWorkspaceContext(options);
   _cacheTime = now;
   return _cachedContext;
 }
