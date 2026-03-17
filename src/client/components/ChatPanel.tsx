@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { ChatChannel, ChatMessage, Persona, Task } from '../types';
 import TypingIndicator from './chat/TypingIndicator';
 import ToolResultRenderer from './chat/ToolResultRenderer';
@@ -64,8 +64,9 @@ export default function ChatPanel({
     }
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
+  useLayoutEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [currentChannel?.messages]);
 
   // Slash command detection
