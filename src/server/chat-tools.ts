@@ -520,11 +520,11 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     const limit = input.limit || 10;
     const filePattern = input.filePattern || '*';
     
-    // Use grep for searching with proper escaping
-    const escapedQuery = escapeShellArg(input.query);
-    const escapedPattern = escapeShellArg(filePattern);
-    const grepCmd = `grep -rn "${escapedQuery}" "${repoPath}" --include="${escapedPattern}" | head -${limit}`;
-    const { stdout } = await execAsync(grepCmd, { maxBuffer: 1024 * 1024 });
+    // Use grep for searching - spawn with args array to prevent injection
+    // Use -F for fixed-string mode (treats pattern literally, no regex)
+    // Pass query directly without escaping since -F makes it literal
+    const { stdout } = await execFileAsync('grep', ['-rn', '-F', input.query, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
+    const limited = stdout.split('\n').slice(0, limit).join('\n');
     
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
