@@ -82,6 +82,7 @@ export default function ChatPanel({
 
   const formatMessageContent = (content: string): JSX.Element => {
     // Check for tool result patterns (task creation, board state)
+<<<<<<< HEAD
     const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Za-z0-9]+)\)(.*)/);
     if (taskCreatedMatch) {
       const [, title, taskId, rest] = taskCreatedMatch;
