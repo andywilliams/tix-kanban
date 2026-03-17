@@ -524,8 +524,6 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     // Use -F for fixed-string mode (treats pattern literally, no regex)
     // Pass query directly without escaping since -F makes it literal
     const { stdout } = await execFileAsync('grep', ['-rn', '-F', input.query, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
-    const limited = stdout.split('\n').slice(0, limit).join('\n');
-    
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
     }
@@ -562,6 +560,17 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
  * Helper: Resolve repository name to filesystem path
  */
 async function resolveRepoPath(repoName: string): Promise<string | null> {
+  // Validate repoName to prevent path traversal attacks
+  if (!repoName || typeof repoName !== 'string') {
+    return null;
+  }
+  
+  // Check for path traversal sequences and absolute paths (including Windows drive letters)
+  const normalized = repoName.toLowerCase();
+  if (repoName.includes('..') || repoName.includes('/') || repoName.includes('\\') || /^[a-z]:/.test(normalized)) {
+    return null;
+  }
+
   const settings = await getUserSettings();
   
   // Check if repo is in repoPaths mapping
@@ -576,6 +585,13 @@ async function resolveRepoPath(repoName: string): Promise<string | null> {
       : settings.workspaceDir;
     
     const repoPath = path.join(workspacePath, repoName);
+    
+    // Validate resolved path stays within workspace (defense in depth)
+    const resolvedPath = path.resolve(repoPath);
+    const resolvedWorkspace = path.resolve(workspacePath);
+    if (!resolvedPath.startsWith(resolvedWorkspace + path.sep) && resolvedPath !== resolvedWorkspace) {
+      return null; // Path traversal detected
+    }
     
     try {
       const stat = await fs.stat(repoPath);

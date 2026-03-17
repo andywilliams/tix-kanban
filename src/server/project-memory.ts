@@ -11,6 +11,22 @@ import { estimateTokens } from './token-budget.js';
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PROJECT_MEMORY_PATH = path.join(STORAGE_DIR, 'project-memory.json');
 
+// Module-level promise chain to serialize write operations
+let writeChain: Promise<any> = Promise.resolve();
+
+async function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = writeChain;
+  let resolveNext!: (value: T) => void;
+  writeChain = new Promise<T>(resolve => { resolveNext = resolve; });
+  try {
+    await prev;
+    return await fn();
+  } finally {
+    resolveNext(undefined as T);
+  }
+}
+
+
 export type ProjectMemoryCategory = 'architecture' | 'convention' | 'lesson' | 'process' | 'decision' | 'context';
 
 export interface ProjectMemoryEntry {
