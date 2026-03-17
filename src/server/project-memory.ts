@@ -50,17 +50,21 @@ export async function addProjectMemoryEntry(category: ProjectMemoryCategory, con
 }
 
 export async function removeProjectMemoryEntry(id: string): Promise<boolean> {
-  const memory = await getProjectMemory(); const before = memory.entries.length;
-  memory.entries = memory.entries.filter(e => e.id !== id);
-  if (memory.entries.length < before) { await saveProjectMemory(memory); return true; } return false;
+  return withWriteLock(async () => {
+    const memory = await getProjectMemory(); const before = memory.entries.length;
+    memory.entries = memory.entries.filter(e => e.id !== id);
+    if (memory.entries.length < before) { await saveProjectMemory(memory); return true; } return false;
+  });
 }
 
 export async function updateProjectMemoryEntry(id: string, updates: Partial<Pick<ProjectMemoryEntry, 'content'|'category'|'importance'>>): Promise<ProjectMemoryEntry|null> {
-  const memory = await getProjectMemory(); const entry = memory.entries.find(e => e.id === id); if (!entry) return null;
-  if (updates.content !== undefined) { entry.content = updates.content; entry.keywords = extractKeywords(updates.content); }
-  if (updates.category !== undefined) entry.category = updates.category;
-  if (updates.importance !== undefined) entry.importance = updates.importance;
-  entry.updatedAt = new Date().toISOString(); await saveProjectMemory(memory); return entry;
+  return withWriteLock(async () => {
+    const memory = await getProjectMemory(); const entry = memory.entries.find(e => e.id === id); if (!entry) return null;
+    if (updates.content !== undefined) { entry.content = updates.content; entry.keywords = extractKeywords(updates.content); }
+    if (updates.category !== undefined) entry.category = updates.category;
+    if (updates.importance !== undefined) entry.importance = updates.importance;
+    entry.updatedAt = new Date().toISOString(); await saveProjectMemory(memory); return entry;
+  });
 }
 
 export async function searchProjectMemory(query: string, options: {category?: ProjectMemoryCategory; minImportance?: number; limit?: number} = {}): Promise<ProjectMemoryEntry[]> {
