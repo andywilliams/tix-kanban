@@ -70,7 +70,18 @@ export async function addProjectMemoryEntry(category: ProjectMemoryCategory, con
     const prefix = lower.slice(0, 50);
     // Bidirectional match: existing includes new prefix OR new includes existing prefix (handles short content)
     const existing = memory.entries.find(e => e.category === category && (e.content.toLowerCase().includes(prefix) || lower.startsWith(e.content.toLowerCase().slice(0, 50))));
-    if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
+    if (existing) {
+      // Only overwrite content if new entry is more detailed (longer); keep existing if it's more detailed
+      if (content.length > existing.content.length) {
+        existing.content = content;
+        existing.keywords = extractKeywords(content);
+      }
+      existing.importance = Math.max(existing.importance, importance);
+      existing.updatedAt = new Date().toISOString();
+      existing.mergedCount = (existing.mergedCount || 1) + 1;
+      await saveProjectMemory(memory);
+      return existing;
+    }
     const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
     memory.entries.push(entry); await saveProjectMemory(memory); return entry;
   });
@@ -107,9 +118,12 @@ export async function getRelevantProjectMemory(context: string, maxEntries: numb
     let score = 0; const content = entry.content.toLowerCase();
     for (const k of entry.keywords) if (lower.includes(k)) score += 3;
     for (const w of words) if (content.includes(w)) score += 1;
-    score += entry.importance / 2;
-    const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-    if (days < 30) score += 1;
+    const hasMatch = score > 0;
+    if (hasMatch) {
+      score += entry.importance / 2;
+      const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
+      if (days < 30) score += 1;
+    }
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);
