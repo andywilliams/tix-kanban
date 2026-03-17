@@ -74,7 +74,7 @@ export default function ChatPanel({
 
   const formatMessageContent = (content: string): JSX.Element => {
     // Check for tool result patterns (task creation, board state)
-    const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Z0-9]+)\)(.*)/);
+    const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Za-z0-9]+)\)(.*)/);
     if (taskCreatedMatch) {
       const [, title, taskId, rest] = taskCreatedMatch;
       return (
@@ -161,6 +161,7 @@ export default function ChatPanel({
       zIndex: 50, display: 'flex', flexDirection: 'column',
       boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
     }}>
+      <style>{typingKeyframes}</style>
       {/* Header */}
       <div style={{
         padding: '1rem', borderBottom: '1px solid var(--border)',

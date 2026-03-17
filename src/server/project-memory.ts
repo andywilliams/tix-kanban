@@ -58,11 +58,13 @@ function extractKeywords(content: string): string[] {
 }
 
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
-  const memory = await getProjectMemory(); const lower = content.toLowerCase();
-  const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
-  if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
-  const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
-  memory.entries.push(entry); await saveProjectMemory(memory); return entry;
+  return withWriteLock(async () => {
+    const memory = await getProjectMemory(); const lower = content.toLowerCase();
+    const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
+    if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
+    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
+    memory.entries.push(entry); await saveProjectMemory(memory); return entry;
+  });
 }
 
 export async function removeProjectMemoryEntry(id: string): Promise<boolean> {

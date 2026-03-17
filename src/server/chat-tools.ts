@@ -479,9 +479,8 @@ async function executeListFiles(input: any): Promise<ToolResult> {
   
   try {
     if (input.recursive) {
-      // Use find for recursive listing with proper escaping
-      const escapedDirPath = escapeShellArg(dirPath);
-      const { stdout } = await execAsync(`find "${escapedDirPath}" -type f`, { maxBuffer: 1024 * 1024 });
+      // Use find for recursive listing with execFileAsync (avoids shell escaping issues)
+      const { stdout } = await execFileAsync('find', [dirPath, '-type', 'f'], { maxBuffer: 1024 * 1024 });
       const files = stdout.trim().split('\n')
         .map(f => path.relative(repoPath, f))
         .filter(f => !f.startsWith('.git/') && !f.startsWith('node_modules/'))
