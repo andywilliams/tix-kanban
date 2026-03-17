@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatChannel, ChatMessage, Persona } from '../types';
 
+// Typing indicator animation keyframes
+const typingKeyframes = `
+  @keyframes typing {
+    0% { opacity: 0.2; }
+    20% { opacity: 1; }
+    100% { opacity: 0.2; }
+  }
+`;
+
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
