@@ -1,10 +1,7 @@
 /**
  * Project Memory System - Shared knowledge base for all personas
  * 
- * TODO: Wire into the application - integrate with persona chat context to provide
- * shared project knowledge. This module stores persistent project memory that all
- * personas can access. Integration points: agent-chat.ts (load memory into context),
- * and potentially a /memory command for humans to add entries.
+ * NOTE: Scaffolded for future integration. Functions are used by chat-tools.ts when wired in.
  */
 import fs from 'fs/promises';
 import path from 'path';
