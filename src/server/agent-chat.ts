@@ -1113,7 +1113,11 @@ async function executeAction(
       if (action.tags !== undefined) updates.tags = action.tags;
 
       const task = await updateTask(action.taskId, updates, persona.name);
-      
+
+      if (!task) {
+        throw new Error(`Task not found: ${action.taskId}`);
+      }
+
       const changes = Object.keys(updates).join(', ');
       return `✏️ **Updated task** ${task.id}: ${changes}`;
     }
@@ -1121,11 +1125,6 @@ async function executeAction(
     case 'add_comment': {
       if (!action.taskId || !action.body) {
         throw new Error('Task ID and comment body are required');
-      }
-
-      const task = await getTask(action.taskId);
-      if (!task) {
-        throw new Error(`Task ${action.taskId} not found`);
       }
 
       const comment: Comment = {
@@ -1136,11 +1135,12 @@ async function executeAction(
         createdAt: new Date()
       };
 
-      task.comments = task.comments || [];
-      task.comments.push(comment);
-      
-      await updateTask(action.taskId, { comments: task.comments }, persona.name);
-      
+      // Pass comment to updateTask for atomic append (avoids race condition)
+      const task = await updateTask(action.taskId, { newComment: comment } as any, persona.name);
+      if (!task) {
+        throw new Error(`Task ${action.taskId} not found`);
+      }
+
       return `💬 **Comment added** to task ${task.id}`;
     }
 
