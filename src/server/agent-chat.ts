@@ -548,7 +548,7 @@ This conversation is about the task described above. Keep your responses relevan
     // Get workspace context (repos, board overview, recent reports)
     let workspaceContext = '';
     try {
-      const wsContext = await getCachedWorkspaceContext(false, { includeBoard: false });
+      const wsContext = await getCachedWorkspaceContext();
       workspaceContext = renderWorkspaceContext(wsContext, 800); // Reserve ~800 tokens
     } catch (error) {
       console.warn(`Failed to get workspace context: ${error}`);
@@ -661,19 +661,11 @@ This conversation is about the task described above. Keep your responses relevan
           }
         } catch (actionErr) {
           console.error(`Action failed:`, actionErr);
-          // Map action types to user-friendly error messages
-          const errorMessages: Record<string, string> = {
-            create_task: 'create that ticket',
-            update_task: 'update that task',
-            add_comment: 'add a comment',
-            read_file: 'read that file',
-          };
-          const actionVerb = errorMessages[action.action] || 'perform that action';
           await addMessage(
             originalMessage.channelId,
             persona.name,
             'persona',
-            `⚠️ I tried to ${actionVerb} but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
+            `⚠️ I tried to create that ticket but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
           );
         }
       }
@@ -1121,11 +1113,7 @@ async function executeAction(
       if (action.tags !== undefined) updates.tags = action.tags;
 
       const task = await updateTask(action.taskId, updates, persona.name);
-
-      if (!task) {
-        throw new Error(`Task not found: ${action.taskId}`);
-      }
-
+      
       const changes = Object.keys(updates).join(', ');
       return `✏️ **Updated task** ${task.id}: ${changes}`;
     }
@@ -1133,6 +1121,11 @@ async function executeAction(
     case 'add_comment': {
       if (!action.taskId || !action.body) {
         throw new Error('Task ID and comment body are required');
+      }
+
+      const task = await getTask(action.taskId);
+      if (!task) {
+        throw new Error(`Task ${action.taskId} not found`);
       }
 
       const comment: Comment = {
@@ -1143,22 +1136,11 @@ async function executeAction(
         createdAt: new Date()
       };
 
-      // Read task and build updated comments array
-      const existingTask = await getTask(action.taskId);
-      if (!existingTask) {
-        throw new Error(`Task ${action.taskId} not found`);
-      }
-
-      const existingComments = existingTask.comments || [];
-      const updatedComments = [...existingComments, comment];
-
-      // Pass comments array to updateTask
-      const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
-
-      if (!task) {
-        return `❌ Failed to add comment - task may have been deleted`;
-      }
-
+      task.comments = task.comments || [];
+      task.comments.push(comment);
+      
+      await updateTask(action.taskId, { comments: task.comments }, persona.name);
+      
       return `💬 **Comment added** to task ${task.id}`;
     }
 
