@@ -56,7 +56,9 @@ function extractKeywords(content: string): string[] {
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
   return withWriteLock(async () => {
     const memory = await getProjectMemory(); const lower = content.toLowerCase();
-    const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
+    const prefix = lower.slice(0, 50);
+    // Bidirectional match: existing includes new prefix OR new includes existing prefix (handles short content)
+    const existing = memory.entries.find(e => e.category === category && (e.content.toLowerCase().includes(prefix) || lower.startsWith(e.content.toLowerCase().slice(0, 50))));
     if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
     const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
     memory.entries.push(entry); await saveProjectMemory(memory); return entry;
