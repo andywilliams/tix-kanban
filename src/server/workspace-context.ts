@@ -17,6 +17,7 @@ import { getAllStandupEntries, StandupEntry } from './standup-storage.js';
 import { getAllReports } from './reports-storage.js';
 import { searchKnowledgeDocs, getAllKnowledgeDocs, KnowledgeMetadata } from './knowledge-storage.js';
 import { Persona, Task } from '../client/types/index.js';
+import { estimateTokens } from './token-budget.js';
 
 // Token budget limits
 const MAX_WORKSPACE_CONTEXT_TOKENS = 2000;
@@ -238,6 +239,7 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
   sections.push(`**Total tasks:** ${context.board.totalTasks}`);
   sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
   sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
+  sections.push(`- Auto-Review: ${context.board.byStatus['auto-review']}`);
   sections.push(`- Review: ${context.board.byStatus.review}`);
   sections.push(`- Done: ${context.board.byStatus.done}\n`);
   if (context.board.inProgress.length > 0) {
@@ -261,7 +263,7 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
     sections.push('');
   }
   const fullContent = sections.join('\n');
-  const estimatedTokens = Math.ceil(fullContent.length / 4);
+  const estimatedTokens = estimateTokens(fullContent);
   return estimatedTokens > tokenBudget ? fullContent.substring(0, tokenBudget * 4) + '\n\n_[Context truncated to fit token budget]_' : fullContent;
 }
 
