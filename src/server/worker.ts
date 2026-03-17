@@ -494,16 +494,17 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
 
   // Add special context for review comments
   if (eventType === 'onCommentAdded' && metadata) {
+    const commentId = metadata.firstComment?.id || '[comment_id]';
     baseInstruction.push('');
     baseInstruction.push('## Review Comment Details');
     baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
-    baseInstruction.push(`**Author:** ${metadata.author}`);
-    if (metadata.path) {
-      baseInstruction.push(`**File:** ${metadata.path}${metadata.line ? `:${metadata.line}` : ''}`);
+    baseInstruction.push(`**Author:** ${metadata.firstComment?.author || metadata.author}`);
+    if (metadata.firstComment?.path || metadata.path) {
+      baseInstruction.push(`**File:** ${metadata.firstComment?.path || metadata.path}${metadata.firstComment?.line || metadata.line ? `:${metadata.firstComment?.line || metadata.line}` : ''}`);
     }
     baseInstruction.push('');
     baseInstruction.push('**Comment:**');
-    baseInstruction.push(metadata.body);
+    baseInstruction.push(metadata.firstComment?.body || metadata.body);
     
     if (metadata.allComments && metadata.allComments.length > 1) {
       baseInstruction.push('');
@@ -521,7 +522,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/[comment_id]/replies -f body="your reply"\``);
+    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${commentId}/replies -f body="your reply"\``);
   }
 
   baseInstruction.push('');
@@ -702,12 +703,16 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
                   prNumber: pr.number,
                   repo: pr.repo,
                   threadId: thread.id,
-                  author: firstComment.author,
-                  body: firstComment.body,
-                  path: firstComment.path,
-                  line: firstComment.line,
-                  createdAt: firstComment.createdAt,
+                  firstComment: {
+                    id: firstComment.id,
+                    author: firstComment.author,
+                    body: firstComment.body,
+                    path: firstComment.path,
+                    line: firstComment.line,
+                    createdAt: firstComment.createdAt,
+                  },
                   allComments: thread.comments.map(c => ({
+                    id: c.id,
                     author: c.author,
                     body: c.body,
                     createdAt: c.createdAt,
