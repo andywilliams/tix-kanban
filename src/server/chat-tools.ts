@@ -63,8 +63,8 @@ export function getPersonaTools(persona: Persona): ToolDefinition[] {
     );
   }
 
-  // Codebase tools - available to Developer, Code Reviewer, Tech Writer
-  if (['developer', 'code-reviewer', 'tech-writer'].includes(persona.id)) {
+  // Codebase tools - available to Developer, Code Reviewer, Tech Writer, PM
+  if (['developer', 'code-reviewer', 'tech-writer', 'product-manager'].includes(persona.id)) {
     tools.push(
       TOOL_DEFINITIONS.readFile,
       TOOL_DEFINITIONS.listFiles,
