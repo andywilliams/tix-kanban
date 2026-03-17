@@ -34,9 +34,9 @@ import {
   releaseSpeakingTurn,
   getChannel
 } from './chat-storage.js';
-import { getAllTasks, createTask, getTask } from './storage.js';
+import { getAllTasks, createTask, getTask, updateTask } from './storage.js';
 import { getCachedPRs } from './pr-cache.js';
-import { Persona } from '../client/types/index.js';
+import { Persona, Task, Comment } from '../client/types/index.js';
 import { getRelevantKnowledge } from './persona-knowledge.js';
 import {
   TokenTracker,
@@ -45,6 +45,7 @@ import {
 } from './token-budget.js';
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
+import { renderWorkspaceContext, getCachedWorkspaceContext } from './workspace-context.js';
 
 
 export interface ChatContext {
@@ -544,6 +545,15 @@ This conversation is about the task described above. Keep your responses relevan
       }
     }
 
+    // Get workspace context (repos, board overview, recent reports)
+    let workspaceContext = '';
+    try {
+      const wsContext = await getCachedWorkspaceContext();
+      workspaceContext = renderWorkspaceContext(wsContext, 800); // Reserve ~800 tokens
+    } catch (error) {
+      console.warn(`Failed to get workspace context: ${error}`);
+    }
+
     // Build selective chat history
     const chatHistory = buildSelectiveChatHistory(
       recentMessages, persona, originalMessage, channelType
@@ -564,6 +574,7 @@ This conversation is about the task described above. Keep your responses relevan
       prContext,
       knowledgeContext,
       slackContext,
+      workspaceContext,
       tracker,
       budget
     });
@@ -585,6 +596,7 @@ This conversation is about the task described above. Keep your responses relevan
       prContext: '', // Strip PRs on retry
       knowledgeContext: '', // Strip knowledge on retry
       slackContext: '', // Strip slack on retry
+      workspaceContext: '', // Strip workspace on retry
       tracker: new TokenTracker(),
       budget
     });
@@ -717,12 +729,13 @@ interface PromptContext {
   prContext: string;
   knowledgeContext?: string;
   slackContext?: string;
+  workspaceContext?: string;
   tracker: TokenTracker;
   budget: ReturnType<typeof getDefaultBudget>;
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, workspaceContext, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -762,6 +775,11 @@ function buildChatPrompt(context: PromptContext): string {
 
   // Team awareness
   sections.push(`\n## Your Team\nYou work with these other personas:\n${teamContext}\n\nYou can refer to them naturally in conversation (e.g., "You might also want to ask @Developer about...")`);
+
+  // Workspace context (repos, board summary, reports)
+  if (workspaceContext) {
+    sections.push(`\n## Workspace Context\n${workspaceContext}`);
+  }
 
   // Task context (for task channel conversations) - use budgeted tracker
   if (taskContext) {
@@ -902,25 +920,81 @@ Guidelines for reminders:
 
 ## Special Actions for Product Manager
 
-You have additional capabilities as a Product Manager:
+You have additional capabilities as a PM Coordinator:
 
-1. **Creating Multiple Related Tickets**: You can create several tickets at once by including multiple action blocks
-2. **Detailed Descriptions**: Include acceptance criteria, technical considerations, and dependencies in descriptions
-3. **Strategic Planning**: When creating tickets, think about:
-   - Logical order of implementation
-   - Dependencies between tasks
-   - Which personas are best suited for each task
-   - Realistic time estimates
-   - Risk factors
+### 1. Read Files
 
-Example of creating multiple tickets:
+You can read codebase files to understand architecture before decomposing epics:
+
 \`\`\`action
-{"action":"create_task","title":"Design API endpoints","description":"Design REST API endpoints for user management\\n\\nAcceptance Criteria:\\n- Define endpoint structure\\n- Document request/response formats\\n- Consider authentication requirements","assignee":"developer","priority":300,"tags":["api","design"]}
+{"action":"read_file","path":"src/server/agent-chat.ts"}
+\`\`\`
+
+The file content will appear in the chat conversation. You can read multiple files.
+
+**Security**: Only read files in the project workspace. Path traversal (..) is blocked.
+
+### 2. Propose-Before-Create Pattern
+
+**IMPORTANT**: When decomposing epics, follow this flow:
+
+**Step 1**: Propose tickets in plain chat (NO action blocks yet)
+- Describe each ticket with title, priority, assignee, description
+- Number them clearly
+- Ask for confirmation: "Sound good? Say 'create all' to proceed."
+
+**Step 2**: Wait for user confirmation
+- User can say "do it", "create all", "yes", etc.
+- User can request changes: "change ticket 3 to use QA instead"
+- Refine your proposal based on feedback
+
+**Step 3**: Create tickets only after confirmation
+- Use multiple \`create_task\` action blocks
+- One action block per ticket
+
+### 3. Creating Multiple Related Tickets
+
+After user confirms, create tickets with action blocks:
+
+\`\`\`action
+{"action":"create_task","title":"Add DSS calculation logic","description":"Implement DSS indicator calculation\\n\\nAcceptance Criteria:\\n- Calculate DSS from price data\\n- Return bearish/bullish state\\n- Unit tests pass","assignee":"developer","priority":300,"tags":["indicator","logic"]}
 \`\`\`
 
 \`\`\`action
-{"action":"create_task","title":"Implement user API","description":"Implement the user management API endpoints\\n\\nDependencies:\\n- API design must be complete\\n\\nTechnical Notes:\\n- Use existing auth middleware\\n- Follow RESTful conventions","assignee":"developer","priority":300,"tags":["api","backend"]}
-\`\`\``;
+{"action":"create_task","title":"Wire DSS events into context","description":"Integrate DSS signals into strategy context\\n\\nDependencies:\\n- DSS calculation must be complete\\n\\nAcceptance Criteria:\\n- DSS state available in context\\n- Events trigger correctly","assignee":"developer","priority":300,"tags":["integration","events"]}
+\`\`\`
+
+### 4. Right-Sized Tickets
+
+Each ticket should be completable in **5-10 minutes** by an AI agent:
+- **Single focus**: One clear objective
+- **Too large signals**: >3 implementation bullets, touches >3 files
+- **Break down**: Separate logic from integration, backend from frontend, core from edge cases
+
+### 5. Update Tasks
+
+You can update existing tasks:
+
+\`\`\`action
+{"action":"update_task","taskId":"ABC123","status":"in-progress","assignee":"qa-engineer"}
+\`\`\`
+
+Fields you can update: title, description, status, priority, assignee, tags
+
+### 6. Add Comments
+
+You can comment on tasks:
+
+\`\`\`action
+{"action":"add_comment","taskId":"ABC123","body":"This is blocked waiting for API design to be finalized."}
+\`\`\`
+
+### 7. Query Board State
+
+The board context in this prompt shows current tasks. You can reference it to:
+- Check what's already in progress
+- Avoid duplicate tickets
+- Suggest next priorities based on current workload`;
   }
 
   instructions += `
@@ -1022,6 +1096,54 @@ async function executeAction(
       return `📋 **Ticket created:** ${task.title} (ID: ${task.id})${assigneeText} — Priority: P${action.priority || 400}`;
     }
 
+    case 'update_task': {
+      if (!action.taskId) {
+        throw new Error('Task ID is required');
+      }
+
+      const updates: Partial<Task> = {};
+      if (action.title !== undefined) updates.title = action.title;
+      if (action.description !== undefined) updates.description = action.description;
+      if (action.status !== undefined) updates.status = action.status;
+      if (action.priority !== undefined) updates.priority = action.priority;
+      if (action.assignee !== undefined) {
+        updates.assignee = action.assignee;
+        updates.persona = action.assignee;
+      }
+      if (action.tags !== undefined) updates.tags = action.tags;
+
+      const task = await updateTask(action.taskId, updates, persona.name);
+      
+      const changes = Object.keys(updates).join(', ');
+      return `✏️ **Updated task** ${task.id}: ${changes}`;
+    }
+
+    case 'add_comment': {
+      if (!action.taskId || !action.body) {
+        throw new Error('Task ID and comment body are required');
+      }
+
+      const task = await getTask(action.taskId);
+      if (!task) {
+        throw new Error(`Task ${action.taskId} not found`);
+      }
+
+      const comment: Comment = {
+        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        taskId: action.taskId,
+        author: persona.name,
+        body: action.body,
+        createdAt: new Date()
+      };
+
+      task.comments = task.comments || [];
+      task.comments.push(comment);
+      
+      await updateTask(action.taskId, { comments: task.comments }, persona.name);
+      
+      return `💬 **Comment added** to task ${task.id}`;
+    }
+
     case 'create_reminder': {
       if (!action.message || !action.remindAt) {
         throw new Error('Reminder message and remindAt are required');
@@ -1056,6 +1178,46 @@ async function executeAction(
         hour: '2-digit', minute: '2-digit'
       });
       return `⏰ **Reminder set** for ${formatted}: "${action.message}"`;
+    }
+
+    case 'read_file': {
+      if (!action.path) {
+        throw new Error('File path is required');
+      }
+
+      // Import fs at the top if not already
+      const fs = await import('fs/promises');
+      const path = await import('path');
+
+      try {
+        // Resolve path relative to workspace or absolute
+        const resolvedPath = path.isAbsolute(action.path) 
+          ? action.path 
+          : path.join(process.cwd(), action.path);
+
+        // Security: validate path is within workspace
+        const normalizedPath = path.normalize(resolvedPath);
+        const workspaceRoot = process.cwd();
+        if (!normalizedPath.startsWith(workspaceRoot + path.sep) && normalizedPath !== workspaceRoot) {
+          throw new Error('Path outside workspace not allowed');
+        }
+
+        // Read file content
+        const content = await fs.readFile(normalizedPath, 'utf8');
+        
+        // Truncate very large files
+        const maxLength = 10000; // ~10KB limit for context
+        const truncated = content.length > maxLength;
+        const displayContent = truncated ? content.slice(0, maxLength) + '\n\n[... truncated ...]' : content;
+
+        // Return inline in the conversation (will be part of chat history)
+        return `📄 **Read file:** \`${action.path}\`\n\n\`\`\`\n${displayContent}\n\`\`\``;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`File not found: ${action.path}`);
+        }
+        throw new Error(`Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
     default:
