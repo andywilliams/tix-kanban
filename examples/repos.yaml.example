@@ -1,0 +1,25 @@
+# Repository Registry
+# 
+# Manually configured repositories take priority over auto-discovery.
+# Path can be absolute or use ~ for home directory.
+# 
+# To use: copy this file to data/repos.yaml or ~/.tix-kanban/repos.yaml
+
+repos:
+  - name: apix
+    path: ~/repos/apix
+    description: Agent-friendly API testing CLI
+    stack: [TypeScript, Commander]
+    keyFiles: [src/cli.ts, src/suite.ts, README.md]
+
+  - name: tix-kanban
+    path: ~/repos/tix-kanban
+    description: AI-powered kanban board / work OS
+    stack: [TypeScript, React, Express, Anthropic SDK]
+    keyFiles: [src/server/index.ts, src/client/App.tsx, API-REFERENCE.md]
+
+  - name: btc-cli
+    path: ~/repos/btc-cli
+    description: Bitcoin trading CLI with risk management
+    stack: [TypeScript, Commander, SQLite]
+    keyFiles: [src/cli.ts, src/exchange.ts, RULES.md]

@@ -3007,3 +3007,8 @@ body {
   from { opacity: 0; transform: translateX(1rem); }
   to { opacity: 1; transform: translateX(0); }
 }
+
+@keyframes typing {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}

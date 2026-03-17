@@ -15,7 +15,6 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { estimateTokens } from './token-budget.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PROJECT_MEMORY_PATH = path.join(STORAGE_DIR, 'project-memory.json');
@@ -68,20 +67,11 @@ function extractKeywords(content: string): string[] {
 export async function addProjectMemoryEntry(category: ProjectMemoryCategory, content: string, source: string, importance: number = 5): Promise<ProjectMemoryEntry> {
   return withWriteLock(async () => {
     const memory = await getProjectMemory(); const lower = content.toLowerCase();
-    const newKeywords = extractKeywords(content);
-    const existing = memory.entries.find(e => e.category === category && e.content.toLowerCase().includes(lower.slice(0, 50)));
-    if (existing) { 
-      existing.content = content; 
-      // Merge keywords from duplicate into existing entry (dedupe combined)
-      const combinedKeywords = [...new Set([...existing.keywords, ...newKeywords])];
-      existing.keywords = combinedKeywords.slice(0, 10); // Keep max 10 keywords
-      existing.importance = Math.max(existing.importance, importance); 
-      existing.updatedAt = new Date().toISOString(); 
-      existing.mergedCount = (existing.mergedCount || 1) + 1; 
-      await saveProjectMemory(memory); 
-      return existing; 
-    }
-    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: newKeywords, source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
+    const prefix = lower.slice(0, 50);
+    // Bidirectional match: existing includes new prefix OR new includes existing prefix (handles short content)
+    const existing = memory.entries.find(e => e.category === category && (e.content.toLowerCase().includes(prefix) || lower.startsWith(e.content.toLowerCase().slice(0, 50))));
+    if (existing) { existing.content = content; existing.importance = Math.max(existing.importance, importance); existing.updatedAt = new Date().toISOString(); existing.mergedCount = (existing.mergedCount || 1) + 1; await saveProjectMemory(memory); return existing; }
+    const entry: ProjectMemoryEntry = { id: generateId(), category, content, keywords: extractKeywords(content), source, importance, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mergedCount: 1 };
     memory.entries.push(entry); await saveProjectMemory(memory); return entry;
   });
 }
@@ -114,15 +104,12 @@ export async function searchProjectMemory(query: string, options: {category?: Pr
 export async function getRelevantProjectMemory(context: string, maxEntries: number = 10): Promise<ProjectMemoryEntry[]> {
   const memory = await getProjectMemory(); const lower = context.toLowerCase(); const words = lower.split(/\s+/).filter(w => w.length > 3);
   const scored = memory.entries.map(entry => {
-    let score = 0; let hasMatch = false; const content = entry.content.toLowerCase();
-    for (const k of entry.keywords) if (lower.includes(k)) { score += 3; hasMatch = true; }
-    for (const w of words) if (content.includes(w)) { score += 1; hasMatch = true; }
-    // Only add importance and recency bonuses when there's an actual textual match
-    if (hasMatch) {
-      score += entry.importance / 2;
-      const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
-      if (days < 30) score += 1;
-    }
+    let score = 0; const content = entry.content.toLowerCase();
+    for (const k of entry.keywords) if (lower.includes(k)) score += 3;
+    for (const w of words) if (content.includes(w)) score += 1;
+    score += entry.importance / 2;
+    const days = (Date.now() - new Date(entry.createdAt).getTime()) / (1000*60*60*24);
+    if (days < 30) score += 1;
     return { entry, score };
   });
   return scored.filter(s => s.score > 0).sort((a,b) => b.score - a.score).slice(0, maxEntries).map(s => s.entry);
@@ -136,7 +123,7 @@ export async function renderProjectMemory(maxTokens: number = 3000, contextQuery
   for (const e of entries) { if (!byCat.has(e.category)) byCat.set(e.category, []); byCat.get(e.category)!.push(e); }
   const labels: Record<ProjectMemoryCategory, string> = { architecture: '🏗️  Architecture & Design', convention: '📏 Conventions & Standards', lesson: '💡 Lessons Learned', process: '⚙️  Process & Workflow', decision: '🎯 Key Decisions', context: '📝 General Context' };
   for (const [cat, ents] of byCat) { out += `### ${labels[cat]}\n\n`; for (const e of ents) out += `- ${e.importance >= 8 ? '⚠️ ' : ''}${e.content} _(ID: ${e.id})_\n`; out += '\n'; }
-  const tokens = estimateTokens(out); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
+  const tokens = Math.ceil(out.length / 4); if (tokens > maxTokens) out = out.slice(0, maxTokens * 4) + '\n... (truncated)';
   return out;
 }
 

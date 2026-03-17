@@ -230,7 +230,7 @@ function buildFilteredBoardContext(
   // Always show tasks relevant to this persona
   if (relevant.length > 0) {
     const lines = relevant
-      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .sort((a, b) => (a.priority ?? 500) - (b.priority ?? 500))
       .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.priority ? ` P${t.priority}` : ''}${t.repo ? ` repo:${t.repo}` : ''}`)
       .join('\n');
     sections.push(`**Your Tasks / Mentioned:**\n${lines}`);
@@ -239,7 +239,7 @@ function buildFilteredBoardContext(
   // Show other active tasks (capped at 15)
   if (activeOther.length > 0) {
     const capped = activeOther
-      .sort((a, b) => (a.priority || 500) - (b.priority || 500))
+      .sort((a, b) => (a.priority ?? 500) - (b.priority ?? 500))
       .slice(0, 15);
     const lines = capped
       .map(t => `  - ${t.title} (ID: ${t.id}) [${t.status}]${t.assignee ? ` [${t.assignee}]` : ''}${t.priority ? ` P${t.priority}` : ''}`)
@@ -548,7 +548,7 @@ This conversation is about the task described above. Keep your responses relevan
     // Get workspace context (repos, board overview, recent reports)
     let workspaceContext = '';
     try {
-      const wsContext = await getCachedWorkspaceContext(false, { includeBoard: false });
+      const wsContext = await getCachedWorkspaceContext();
       workspaceContext = renderWorkspaceContext(wsContext, 800); // Reserve ~800 tokens
     } catch (error) {
       console.warn(`Failed to get workspace context: ${error}`);
@@ -661,19 +661,11 @@ This conversation is about the task described above. Keep your responses relevan
           }
         } catch (actionErr) {
           console.error(`Action failed:`, actionErr);
-          // Map action types to user-friendly error messages
-          const errorMessages: Record<string, string> = {
-            create_task: 'create that ticket',
-            update_task: 'update that task',
-            add_comment: 'add a comment',
-            read_file: 'read that file',
-          };
-          const actionVerb = errorMessages[action.action] || 'perform that action';
           await addMessage(
             originalMessage.channelId,
             persona.name,
             'persona',
-            `⚠️ I tried to ${actionVerb} but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
+            `⚠️ I tried to create that ticket but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
           );
         }
       }
@@ -1123,7 +1115,7 @@ async function executeAction(
       const task = await updateTask(action.taskId, updates, persona.name);
 
       if (!task) {
-        throw new Error(`Task not found: ${action.taskId}`);
+        return `❌ Task not found: ${action.taskId}`;
       }
 
       const changes = Object.keys(updates).join(', ');
@@ -1135,6 +1127,11 @@ async function executeAction(
         throw new Error('Task ID and comment body are required');
       }
 
+      const task = await getTask(action.taskId);
+      if (!task) {
+        throw new Error(`Task ${action.taskId} not found`);
+      }
+
       const comment: Comment = {
         id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         taskId: action.taskId,
@@ -1143,22 +1140,11 @@ async function executeAction(
         createdAt: new Date()
       };
 
-      // Read task and build updated comments array
-      const existingTask = await getTask(action.taskId);
-      if (!existingTask) {
-        throw new Error(`Task ${action.taskId} not found`);
-      }
-
-      const existingComments = existingTask.comments || [];
-      const updatedComments = [...existingComments, comment];
-
-      // Pass comments array to updateTask
-      const task = await updateTask(action.taskId, { comments: updatedComments }, persona.name);
-
-      if (!task) {
-        return `❌ Failed to add comment - task may have been deleted`;
-      }
-
+      task.comments = task.comments || [];
+      task.comments.push(comment);
+      
+      await updateTask(action.taskId, { comments: task.comments }, persona.name);
+      
       return `💬 **Comment added** to task ${task.id}`;
     }
 
@@ -1213,8 +1199,11 @@ async function executeAction(
           ? action.path 
           : path.join(process.cwd(), action.path);
 
+        // Resolve symlinks to prevent symlink bypass attacks
+        const realPath = await fs.realpath(resolvedPath);
+        
         // Security: validate path is within workspace
-        const normalizedPath = path.normalize(resolvedPath);
+        const normalizedPath = path.normalize(realPath);
         const workspaceRoot = process.cwd();
         if (!normalizedPath.startsWith(workspaceRoot + path.sep) && normalizedPath !== workspaceRoot) {
           throw new Error('Path outside workspace not allowed');

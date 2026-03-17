@@ -13,11 +13,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { getAllTasks } from './storage.js';
-import { getAllStandupEntries, StandupEntry } from './standup-storage.js';
-import { getAllReports } from './reports-storage.js';
-import { searchKnowledgeDocs, getAllKnowledgeDocs, KnowledgeMetadata } from './knowledge-storage.js';
 import { Persona, Task } from '../client/types/index.js';
-import { estimateTokens } from './token-budget.js';
+import { getUserSettings } from './user-settings.js';
 
 // Token budget limits
 const MAX_WORKSPACE_CONTEXT_TOKENS = 2000;
@@ -73,19 +70,31 @@ export interface BoardSummary {
 export interface WorkspaceContext {
   repos: RepoInfo[];
   board: BoardSummary;
-  knowledge: KnowledgeMetadata[];
-  recentStandups: StandupEntry[];
-  recentReports: any[];
   estimatedTokens: number;
 }
 
 export async function discoverRepos(): Promise<RepoInfo[]> {
   const repos: RepoInfo[] = [];
-  const searchPaths = [
-    path.join(os.homedir(), 'repos'),
-    path.join(os.homedir(), 'code'),
-    path.join(os.homedir(), 'projects'),
-  ];
+  
+  // Get user-configured workspace directory
+  const settings = await getUserSettings();
+  let searchPaths: string[] = [];
+  
+  if (settings.workspaceDir) {
+    // Use user-configured workspace directory
+    const workspacePath = settings.workspaceDir.startsWith('~')
+      ? path.join(os.homedir(), settings.workspaceDir.slice(1))
+      : settings.workspaceDir;
+    searchPaths = [path.resolve(workspacePath)];
+  } else {
+    // Fallback to default search paths
+    searchPaths = [
+      path.join(os.homedir(), 'repos'),
+      path.join(os.homedir(), 'code'),
+      path.join(os.homedir(), 'projects'),
+    ];
+  }
+  
   for (const searchPath of searchPaths) {
     try {
       const entries = await fs.readdir(searchPath, { withFileTypes: true });
@@ -188,25 +197,10 @@ export async function buildWorkspaceContext(options?: {
   const context: WorkspaceContext = {
     repos: [],
     board: { totalTasks: 0, byStatus: { backlog: 0, 'in-progress': 0, 'auto-review': 0, review: 0, done: 0 }, byPersona: {}, inProgress: [], blocked: [], stale: [], recentCompletions: [], highPriorityBacklog: [] },
-    knowledge: [],
-    recentStandups: [],
-    recentReports: [],
     estimatedTokens: 0,
   };
   if (opts.includeRepos) context.repos = await discoverRepos();
   if (opts.includeBoard) context.board = await getBoardSummary();
-  if (opts.includeKnowledge) {
-    if (opts.knowledgeQuery) {
-      const results = await searchKnowledgeDocs({ keywords: opts.knowledgeQuery, limit: 10 });
-      context.knowledge = results.map(r => r.doc);
-    } else {
-      context.knowledge = (await getAllKnowledgeDocs()).slice(0, 10);
-    }
-  }
-  if (opts.includeHistory) {
-    context.recentStandups = (await getAllStandupEntries()).slice(0, 3);
-    try { context.recentReports = (await getAllReports()).slice(0, 3); } catch {}
-  }
   context.estimatedTokens = context.repos.length * 100 + 400;
   
   // Token budgeting: trim repos if over limit
@@ -222,6 +216,7 @@ export async function buildWorkspaceContext(options?: {
 
 export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: number = MAX_WORKSPACE_CONTEXT_TOKENS): string {
   const sections: string[] = [];
+  // Note: Board state is provided separately via buildFilteredBoardContext - don't duplicate it here
   if (context.repos.length > 0) {
     sections.push('## Workspace Repositories\n');
     for (const repo of context.repos.slice(0, 5)) {
@@ -233,86 +228,26 @@ export function renderWorkspaceContext(context: WorkspaceContext, tokenBudget: n
     }
   }
 
-  // Only render Board State if board data is present (not all zeros/empty)
-  const hasBoardData = context.board.totalTasks > 0 ||
-    context.board.byStatus.backlog > 0 ||
-    context.board.byStatus['in-progress'] > 0 ||
-    context.board.byStatus['auto-review'] > 0 ||
-    context.board.byStatus.review > 0 ||
-    context.board.byStatus.done > 0 ||
-    context.board.inProgress.length > 0 ||
-    context.board.blocked.length > 0 ||
-    context.board.stale.length > 0 ||
-    context.board.highPriorityBacklog.length > 0;
-
-  if (hasBoardData) {
-    sections.push('## Board State\n');
-    sections.push(`**Total tasks:** ${context.board.totalTasks}`);
-    sections.push(`- Backlog: ${context.board.byStatus.backlog}`);
-    sections.push(`- In Progress: ${context.board.byStatus['in-progress']}`);
-    sections.push(`- Auto-Review: ${context.board.byStatus['auto-review']}`);
-    sections.push(`- Review: ${context.board.byStatus.review}`);
-    sections.push(`- Done: ${context.board.byStatus.done}\n`);
-    if (context.board.inProgress.length > 0) {
-      sections.push('**Currently in progress:**');
-      for (const task of context.board.inProgress) sections.push(`- ${task.title} (${task.persona || 'unassigned'})`);
-      sections.push('');
-    }
-    if (context.board.highPriorityBacklog.length > 0) {
-      sections.push('**High-priority backlog:**');
-      for (const task of context.board.highPriorityBacklog) sections.push(`- ${task.title} (priority ${task.priority})`);
-      sections.push('');
-    }
-    if (context.board.blocked.length > 0) {
-      sections.push('**Blocked tasks:**');
-      for (const task of context.board.blocked) sections.push(`- ${task.title}${task.reason ? ` — ${task.reason}` : ''}`);
-      sections.push('');
-    }
-    if (context.board.stale.length > 0) {
-      sections.push('**Stale tasks (no updates in 7+ days):**');
-      for (const task of context.board.stale) sections.push(`- ${task.title} (${task.daysSinceUpdate} days)`);
-      sections.push('');
-    }
-  }
+  // Board state is provided separately via buildFilteredBoardContext - don't duplicate it here
+  
   const fullContent = sections.join('\n');
-  const estimatedTokens = estimateTokens(fullContent);
+  const estimatedTokens = Math.ceil(fullContent.length / 4);
   return estimatedTokens > tokenBudget ? fullContent.substring(0, tokenBudget * 4) + '\n\n_[Context truncated to fit token budget]_' : fullContent;
 }
 
-interface CacheEntry {
-  context: WorkspaceContext;
-  timestamp: number;
-}
-
-const _contextCache = new Map<string, CacheEntry>();
+let _cachedContext: WorkspaceContext | null = null;
+let _cacheTime: number = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-function getCacheKey(options?: Parameters<typeof buildWorkspaceContext>[0]): string {
-  if (!options) return 'default';
-  const parts: string[] = [];
-  if (options.includeRepos !== undefined) parts.push(`repos:${options.includeRepos}`);
-  if (options.includeBoard !== undefined) parts.push(`board:${options.includeBoard}`);
-  if (options.includeKnowledge !== undefined) parts.push(`knowledge:${options.includeKnowledge}`);
-  if (options.includeHistory !== undefined) parts.push(`history:${options.includeHistory}`);
-  if (options.knowledgeQuery) parts.push(`query:${options.knowledgeQuery}`);
-  if (options.maxTokens) parts.push(`tokens:${options.maxTokens}`);
-  return parts.length > 0 ? parts.join(',') : 'default';
-}
-
-export async function getCachedWorkspaceContext(forceRefresh: boolean = false, options?: Parameters<typeof buildWorkspaceContext>[0]): Promise<WorkspaceContext> {
-  const cacheKey = getCacheKey(options);
+export async function getCachedWorkspaceContext(forceRefresh: boolean = false): Promise<WorkspaceContext> {
   const now = Date.now();
-  const entry = _contextCache.get(cacheKey);
-
-  if (!forceRefresh && entry && (now - entry.timestamp) < CACHE_TTL_MS) {
-    return entry.context;
-  }
-
-  const context = await buildWorkspaceContext(options);
-  _contextCache.set(cacheKey, { context, timestamp: now });
-  return context;
+  if (!forceRefresh && _cachedContext && (now - _cacheTime) < CACHE_TTL_MS) return _cachedContext;
+  _cachedContext = await buildWorkspaceContext();
+  _cacheTime = now;
+  return _cachedContext;
 }
 
 export function invalidateWorkspaceCache(): void {
-  _contextCache.clear();
+  _cachedContext = null;
+  _cacheTime = 0;
 }
