@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { Persona } from '../client/types/index.js';
 import { getPersona, getAllPersonas } from './persona-storage.js';
+import { embedMemoryEntry, deleteEmbedding, smartSearch } from './memory/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -140,6 +141,14 @@ export async function addMemoryEntry(
   }
   
   await saveStructuredMemory(memory);
+  
+  // Generate and store embedding (awaited to prevent race condition on shared embeddings.json)
+  try {
+    await embedMemoryEntry(personaId, entry.id, content);
+  } catch (err) {
+    console.warn(`[Memory] Failed to generate embedding for entry ${entry.id}:`, err);
+  }
+  
   return entry;
 }
 
@@ -181,45 +190,14 @@ export async function getRelevantMemories(
   limit: number = 10
 ): Promise<MemoryEntry[]> {
   const memory = await getStructuredMemory(personaId);
-  const contextLower = context.toLowerCase();
-  const contextWords = contextLower.split(/\s+/).filter(w => w.length > 3);
   
-  // Score each memory by relevance
-  const scored = memory.entries.map(entry => {
-    let score = 0;
-    const contentLower = entry.content.toLowerCase();
-    
-    // Direct matches
-    for (const word of contextWords) {
-      if (contentLower.includes(word)) {
-        score += 2;
-      }
-    }
-    
-    // Tag matches
-    for (const tag of entry.tags) {
-      if (contextLower.includes(tag.toLowerCase())) {
-        score += 3;
-      }
-    }
-    
-    // Importance boost
-    score += entry.importance === 'high' ? 2 : entry.importance === 'medium' ? 1 : 0;
-    
-    // Recency boost (entries from last 7 days get a boost)
-    const daysOld = (Date.now() - new Date(entry.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysOld < 7) {
-      score += 1;
-    }
-    
-    return { entry, score };
+  // Use smart search (hybrid semantic + keyword with automatic fallback)
+  const results = await smartSearch(personaId, context, memory.entries, {
+    topK: limit,
+    preferHybrid: true,
   });
   
-  return scored
-    .filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(s => s.entry);
+  return results.map(r => r.entry);
 }
 
 // ============================================
@@ -454,16 +432,27 @@ export async function processRememberCommand(
     // Find and remove matching memories
     const memory = await getStructuredMemory(personaId);
     const contentLower = parsed.content.toLowerCase();
-    const originalCount = memory.entries.length;
     
+    const removedEntries = memory.entries.filter(entry =>
+      entry.content.toLowerCase().includes(contentLower)
+    );
     memory.entries = memory.entries.filter(entry => 
       !entry.content.toLowerCase().includes(contentLower)
     );
     
-    const removedCount = originalCount - memory.entries.length;
+    const removedCount = removedEntries.length;
     
     if (removedCount > 0) {
       await saveStructuredMemory(memory);
+      // Clean up orphaned embeddings for removed entries
+      // Use sequential await to prevent race condition on shared embeddings.json file
+      for (const entry of removedEntries) {
+        try {
+          await deleteEmbedding(personaId, entry.id);
+        } catch (err) {
+          console.warn(`[Memory] Failed to delete embedding for entry ${entry.id}:`, err);
+        }
+      }
       return {
         processed: true,
         response: `I've forgotten ${removedCount} ${removedCount === 1 ? 'thing' : 'things'} about that.`,
