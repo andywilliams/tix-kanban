@@ -1,14 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatChannel, ChatMessage, Persona } from '../types';
 
-// Typing animation keyframes - defined at module scope as a constant (not a hook)
-const typingKeyframes = `
-  @keyframes typing {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-3px); opacity: 1; }
-  }
-`;
-
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -82,7 +74,6 @@ export default function ChatPanel({
 
   const formatMessageContent = (content: string): JSX.Element => {
     // Check for tool result patterns (task creation, board state)
-<<<<<<< HEAD
     const taskCreatedMatch = content.match(/📋 \*\*Ticket created:\*\* (.+?) \(ID: ([A-Za-z0-9]+)\)(.*)/);
     if (taskCreatedMatch) {
       const [, title, taskId, rest] = taskCreatedMatch;
@@ -170,7 +161,6 @@ export default function ChatPanel({
       zIndex: 50, display: 'flex', flexDirection: 'column',
       boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
     }}>
-      <style>{typingKeyframes}</style>
       {/* Header */}
       <div style={{
         padding: '1rem', borderBottom: '1px solid var(--border)',

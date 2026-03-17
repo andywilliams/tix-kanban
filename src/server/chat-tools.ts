@@ -477,11 +477,17 @@ async function executeListFiles(input: any): Promise<ToolResult> {
 
   const dirPath = path.join(repoPath, input.path);
   
+  // Path traversal check: verify path stays within repo
+  const resolvedPath = path.resolve(dirPath);
+  const resolvedRepoPath = path.resolve(repoPath);
+  if (!resolvedPath.startsWith(resolvedRepoPath + path.sep) && resolvedPath !== resolvedRepoPath) {
+    return { success: false, content: '', error: 'Path traversal attempt detected' };
+  }
+  
   try {
     if (input.recursive) {
-      // Use find for recursive listing with proper escaping
-      const escapedDirPath = escapeShellArg(dirPath);
-      const { stdout } = await execAsync(`find "${escapedDirPath}" -type f`, { maxBuffer: 1024 * 1024 });
+      // Use find for recursive listing - spawn with args array to prevent injection
+      const { stdout } = await execFileAsync('find', [dirPath, '-type', 'f'], { maxBuffer: 1024 * 1024 });
       const files = stdout.trim().split('\n')
         .map(f => path.relative(repoPath, f))
         .filter(f => !f.startsWith('.git/') && !f.startsWith('node_modules/'))
@@ -520,11 +526,10 @@ async function executeSearchCode(input: any): Promise<ToolResult> {
     const limit = input.limit || 10;
     const filePattern = input.filePattern || '*';
     
-    // Use grep for searching with proper escaping
-    const escapedQuery = escapeShellArg(input.query);
-    const escapedPattern = escapeShellArg(filePattern);
-    const grepCmd = `grep -rn "${escapedQuery}" "${repoPath}" --include="${escapedPattern}" | head -${limit}`;
-    const { stdout } = await execAsync(grepCmd, { maxBuffer: 1024 * 1024 });
+    // Use grep for searching - spawn with args array to prevent injection
+    // Escape regex special chars to treat query as literal string
+    const escapedQuery = input.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const { stdout } = await execFileAsync('grep', ['-rn', '-F', escapedQuery, repoPath, `--include=${filePattern}`], { maxBuffer: 1024 * 1024 });
     
     if (!stdout.trim()) {
       return { success: true, content: `No matches found for: ${input.query}` };
