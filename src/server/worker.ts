@@ -1520,7 +1520,7 @@ async function runWorkerCycle(): Promise<void> {
 
   const backlogTasks = tasks
     .filter(task => task.status === 'backlog' && task.persona)
-    .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)); // Highest priority first
 
   workerState.workload = tasks.filter(task =>
     task.status === 'backlog' || task.status === 'in-progress' || task.status === 'auto-review'
