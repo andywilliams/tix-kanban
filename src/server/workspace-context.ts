@@ -13,9 +13,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { getAllTasks } from './storage.js';
-import { getAllStandupEntries, StandupEntry } from './standup-storage.js';
-import { getAllReports } from './reports-storage.js';
-import { searchKnowledgeDocs, getAllKnowledgeDocs, KnowledgeMetadata } from './knowledge-storage.js';
 import { Persona, Task } from '../client/types/index.js';
 import { getUserSettings } from './user-settings.js';
 
@@ -73,9 +70,6 @@ export interface BoardSummary {
 export interface WorkspaceContext {
   repos: RepoInfo[];
   board: BoardSummary;
-  knowledge: KnowledgeMetadata[];
-  recentStandups: StandupEntry[];
-  recentReports: any[];
   estimatedTokens: number;
 }
 
@@ -203,25 +197,10 @@ export async function buildWorkspaceContext(options?: {
   const context: WorkspaceContext = {
     repos: [],
     board: { totalTasks: 0, byStatus: { backlog: 0, 'in-progress': 0, 'auto-review': 0, review: 0, done: 0 }, byPersona: {}, inProgress: [], blocked: [], stale: [], recentCompletions: [], highPriorityBacklog: [] },
-    knowledge: [],
-    recentStandups: [],
-    recentReports: [],
     estimatedTokens: 0,
   };
   if (opts.includeRepos) context.repos = await discoverRepos();
   if (opts.includeBoard) context.board = await getBoardSummary();
-  if (opts.includeKnowledge) {
-    if (opts.knowledgeQuery) {
-      const results = await searchKnowledgeDocs({ keywords: opts.knowledgeQuery, limit: 10 });
-      context.knowledge = results.map(r => r.doc);
-    } else {
-      context.knowledge = (await getAllKnowledgeDocs()).slice(0, 10);
-    }
-  }
-  if (opts.includeHistory) {
-    context.recentStandups = (await getAllStandupEntries()).slice(0, 3);
-    try { context.recentReports = (await getAllReports()).slice(0, 3); } catch {}
-  }
   context.estimatedTokens = context.repos.length * 100 + 400;
   
   // Token budgeting: trim repos if over limit
