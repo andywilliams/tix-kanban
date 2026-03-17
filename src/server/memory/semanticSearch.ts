@@ -22,7 +22,7 @@ export async function semanticSearch(
   options: { topK?: number; minSimilarity?: number } = {}
 ): Promise<Array<{ entry: MemoryEntry; score: number }>> {
   const topK = options.topK || 10;
-  const minSimilarity = options.minSimilarity || 0.5;
+  const minSimilarity = options.minSimilarity ?? 0.5;
   const queryEmbedding = await generateEmbedding(query);
   if (!queryEmbedding) {
     console.warn('[SemanticSearch] Query embedding generation failed - returning empty results');

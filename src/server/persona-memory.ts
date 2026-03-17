@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import { Persona } from '../client/types/index.js';
 import { getPersona, getAllPersonas } from './persona-storage.js';
-import { embedMemoryEntry, smartSearch } from './memory/index.js';
+import { embedMemoryEntry, deleteEmbedding, smartSearch } from './memory/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -430,16 +430,24 @@ export async function processRememberCommand(
     // Find and remove matching memories
     const memory = await getStructuredMemory(personaId);
     const contentLower = parsed.content.toLowerCase();
-    const originalCount = memory.entries.length;
     
+    const removedEntries = memory.entries.filter(entry =>
+      entry.content.toLowerCase().includes(contentLower)
+    );
     memory.entries = memory.entries.filter(entry => 
       !entry.content.toLowerCase().includes(contentLower)
     );
     
-    const removedCount = originalCount - memory.entries.length;
+    const removedCount = removedEntries.length;
     
     if (removedCount > 0) {
       await saveStructuredMemory(memory);
+      // Clean up orphaned embeddings for removed entries
+      for (const entry of removedEntries) {
+        deleteEmbedding(personaId, entry.id).catch(err => {
+          console.warn(`[Memory] Failed to delete embedding for entry ${entry.id}:`, err);
+        });
+      }
       return {
         processed: true,
         response: `I've forgotten ${removedCount} ${removedCount === 1 ? 'thing' : 'things'} about that.`,
