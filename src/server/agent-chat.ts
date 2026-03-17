@@ -1113,8 +1113,9 @@ async function executeAction(
       if (action.tags !== undefined) updates.tags = action.tags;
 
       const task = await updateTask(action.taskId, updates, persona.name);
+
       if (!task) {
-        return { success: false, error: 'Task not found' };
+        throw new Error(`Task not found: ${action.taskId}`);
       }
 
       const changes = Object.keys(updates).join(', ');

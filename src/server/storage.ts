@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { Task, Link, ActivityLog } from '../client/types/index.js';
+import { Task, Link, ActivityLog, Comment } from '../client/types/index.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const TASKS_DIR = path.join(STORAGE_DIR, 'tasks');
