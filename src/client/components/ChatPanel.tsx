@@ -56,7 +56,6 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
   const isAtBottomRef = useRef<boolean>(true);
-  const userScrolledUpRef = useRef<boolean>(false);
 
   // Inject typing animation keyframes into DOM once on mount
   useEffect(() => {
@@ -69,10 +68,12 @@ export default function ChatPanel({
     }
   }, []);
 
-  // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
-  useLayoutEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-  }, [currentChannel?.messages]);
+  // Reset scroll state when channel changes
+  useEffect(() => {
+    setNewMessagesIndicator(false);
+    isAtBottomRef.current = true;
+    prevMessagesLengthRef.current = 0;
+  }, [currentChannel?.id]);
 
   // Detect scroll position and track if user has scrolled up
   const checkIsAtBottom = useCallback(() => {
@@ -88,7 +89,6 @@ export default function ChatPanel({
   const handleScroll = useCallback(() => {
     const isAtBottom = checkIsAtBottom();
     isAtBottomRef.current = isAtBottom;
-    userScrolledUpRef.current = !isAtBottom;
     
     // Hide new messages indicator when user scrolls to bottom
     if (isAtBottom) {
