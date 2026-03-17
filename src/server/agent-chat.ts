@@ -661,11 +661,19 @@ This conversation is about the task described above. Keep your responses relevan
           }
         } catch (actionErr) {
           console.error(`Action failed:`, actionErr);
+          // Map action types to user-friendly error messages
+          const errorMessages: Record<string, string> = {
+            create_task: 'create that ticket',
+            update_task: 'update that task',
+            add_comment: 'add a comment',
+            read_file: 'read that file',
+          };
+          const actionVerb = errorMessages[action.action] || 'perform that action';
           await addMessage(
             originalMessage.channelId,
             persona.name,
             'persona',
-            `⚠️ I tried to create that ticket but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
+            `⚠️ I tried to ${actionVerb} but hit an error: ${actionErr instanceof Error ? actionErr.message : 'Unknown error'}`
           );
         }
       }

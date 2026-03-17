@@ -1,5 +1,7 @@
 /**
  * Project Memory System - Shared knowledge base for all personas
+ * 
+ * NOTE: Scaffolded for future integration. Functions are used by chat-tools.ts when wired in.
  */
 import fs from 'fs/promises';
 import path from 'path';
