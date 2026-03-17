@@ -40,8 +40,10 @@ export async function getProjectMemory(): Promise<ProjectMemory> {
 }
 
 async function saveProjectMemory(memory: ProjectMemory): Promise<void> {
-  await ensureStorageDir(); memory.lastUpdated = new Date().toISOString();
-  await fs.writeFile(PROJECT_MEMORY_PATH, JSON.stringify(memory, null, 2), 'utf8');
+  return withWriteLock(async () => {
+    await ensureStorageDir(); memory.lastUpdated = new Date().toISOString();
+    await fs.writeFile(PROJECT_MEMORY_PATH, JSON.stringify(memory, null, 2), 'utf8');
+  });
 }
 
 function generateId(): string { return `proj_mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
