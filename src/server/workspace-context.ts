@@ -17,6 +17,7 @@ import { getAllStandupEntries, StandupEntry } from './standup-storage.js';
 import { getAllReports } from './reports-storage.js';
 import { searchKnowledgeDocs, getAllKnowledgeDocs, KnowledgeMetadata } from './knowledge-storage.js';
 import { Persona, Task } from '../client/types/index.js';
+import { getUserSettings } from './user-settings.js';
 
 // Token budget limits
 const MAX_WORKSPACE_CONTEXT_TOKENS = 2000;
@@ -80,11 +81,26 @@ export interface WorkspaceContext {
 
 export async function discoverRepos(): Promise<RepoInfo[]> {
   const repos: RepoInfo[] = [];
-  const searchPaths = [
-    path.join(os.homedir(), 'repos'),
-    path.join(os.homedir(), 'code'),
-    path.join(os.homedir(), 'projects'),
-  ];
+  
+  // Get user-configured workspace directory
+  const settings = await getUserSettings();
+  let searchPaths: string[] = [];
+  
+  if (settings.workspaceDir) {
+    // Use user-configured workspace directory
+    const workspacePath = settings.workspaceDir.startsWith('~')
+      ? path.join(os.homedir(), settings.workspaceDir.slice(1))
+      : settings.workspaceDir;
+    searchPaths = [path.resolve(workspacePath)];
+  } else {
+    // Fallback to default search paths
+    searchPaths = [
+      path.join(os.homedir(), 'repos'),
+      path.join(os.homedir(), 'code'),
+      path.join(os.homedir(), 'projects'),
+    ];
+  }
+  
   for (const searchPath of searchPaths) {
     try {
       const entries = await fs.readdir(searchPath, { withFileTypes: true });
