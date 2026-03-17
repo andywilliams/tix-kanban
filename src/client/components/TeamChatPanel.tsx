@@ -57,7 +57,7 @@ export default function TeamChatPanel({
 
   // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
   useLayoutEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
 
   // Mention autocomplete

@@ -66,7 +66,7 @@ export default function ChatPanel({
 
   // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
   useLayoutEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
 
   // Slash command detection
