@@ -443,10 +443,13 @@ export async function processRememberCommand(
     if (removedCount > 0) {
       await saveStructuredMemory(memory);
       // Clean up orphaned embeddings for removed entries
+      // Use sequential await to prevent race condition on shared embeddings.json file
       for (const entry of removedEntries) {
-        deleteEmbedding(personaId, entry.id).catch(err => {
+        try {
+          await deleteEmbedding(personaId, entry.id);
+        } catch (err) {
           console.warn(`[Memory] Failed to delete embedding for entry ${entry.id}:`, err);
-        });
+        }
       }
       return {
         processed: true,
