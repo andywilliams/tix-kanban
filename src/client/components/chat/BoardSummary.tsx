@@ -12,6 +12,7 @@ export default function BoardSummary({ tasks, compact = false }: BoardSummaryPro
     'in-progress': tasks.filter(t => t.status === 'in-progress'),
     'auto-review': tasks.filter(t => t.status === 'auto-review'),
     review: tasks.filter(t => t.status === 'review'),
+    verified: tasks.filter(t => t.status === 'verified'),
     done: tasks.filter(t => t.status === 'done'),
   };
 
@@ -20,6 +21,7 @@ export default function BoardSummary({ tasks, compact = false }: BoardSummaryPro
     'in-progress': '#3b82f6',
     'auto-review': '#8b5cf6',
     review: '#eab308',
+    verified: '#10b981',
     done: '#22c55e',
   };
 
@@ -28,6 +30,7 @@ export default function BoardSummary({ tasks, compact = false }: BoardSummaryPro
     'in-progress': '🔨',
     'auto-review': '🤖',
     review: '👀',
+    verified: '✓',
     done: '✅',
   };
 

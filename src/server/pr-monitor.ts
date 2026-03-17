@@ -483,7 +483,7 @@ async function handlePRStateChanges(
   if (current.state === 'merged' && previous.state !== 'merged') {
     // Only move to done if task is in review status
     // Tasks in auto-review or in-progress should be handled by their respective systems
-    if (task.status === 'review') {
+    if (task.status === 'review' || task.status === 'verified') {
       console.log(`✅ PR merged for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         status: 'done',
@@ -578,8 +578,8 @@ async function handlePRStateChanges(
     if (!wasClean) {
       console.log(`✅ PR is clean and ready for task ${task.id}: ${prRef}`);
       // Keep in review but add a comment indicating it's ready to merge
-      // TODO: Once 'verified' status is merged, change to: status: 'verified'
       await updateTask(task.id, {
+        status: 'verified',
         comments: [
           ...(task.comments || []),
           {
