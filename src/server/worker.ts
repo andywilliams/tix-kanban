@@ -1321,7 +1321,6 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
     const lgtmBinary = process.env.LGTM_BINARY_PATH || 'lgtm';
 
     // Run lgtm with --auto --batch flags
-    const lgtmCommand = `${lgtmBinary} review ${pr.number} --auto --batch --full-context --usage-context --repo ${pr.repo}`;
     const { stdout, stderr } = await execFile(
       lgtmBinary,
       ['review', String(pr.number), '--auto', '--batch', '--full-context', '--usage-context', '--repo', pr.repo],
@@ -1618,7 +1617,7 @@ async function advanceTaskInPipeline(
       persona: currentStage.persona,
       startedAt: new Date(task.updatedAt), // Approximate start time
       completedAt: new Date(),
-      result: 'success',
+      result: shouldAdvance ? 'success' : 'rejected',
       feedback: output,
       attempt: (pipelineState.stageAttempts[currentStage.id] || 0) + 1,
       outputs: [
