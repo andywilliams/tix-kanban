@@ -1269,6 +1269,41 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
 
 // Run lgtm automated review and parse JSON output
 async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output: string; shouldAdvance: boolean }> {
+  // Helper to format lgtm result
+  function formatLgtmResult(lgtmResult: any): { success: boolean; output: string; shouldAdvance: boolean } {
+    const commentsPosted = lgtmResult.commentsPosted || 0;
+    const duplicatesSkipped = lgtmResult.duplicatesSkipped || 0;
+    const comments = lgtmResult.comments || [];
+
+    if (commentsPosted === 0 && lgtmResult.success) {
+      // No issues - ADVANCE
+      return {
+        success: true,
+        output: `✅ **lgtm Review: PASSED**\n\nNo issues found. PR is ready for the next stage.${duplicatesSkipped > 0 ? `\n\n(${duplicatesSkipped} duplicate comments skipped)` : ''}`,
+        shouldAdvance: true
+      };
+    } else if (commentsPosted > 0) {
+      // Issues found - BOUNCE
+      let issuesList = '';
+      for (const comment of comments) {
+        issuesList += `\n- **${comment.path}:${comment.line}** ${comment.severity ? `(${comment.severity})` : ''}\n  ${comment.body}\n`;
+      }
+
+      return {
+        success: true,
+        output: `⚠️ **lgtm Review: ISSUES FOUND**\n\nFound ${commentsPosted} issue(s) that need attention:${issuesList}\n\n${duplicatesSkipped > 0 ? `(${duplicatesSkipped} duplicate comments skipped)\n\n` : ''}Please address these issues and push an update.`,
+        shouldAdvance: false
+      };
+    } else {
+      // lgtm reported failure
+      return {
+        success: false,
+        output: `⚠️ **lgtm Review: ERROR**\n\nlgtm review failed:\n\`\`\`\n${lgtmResult.error || 'Unknown error'}\n\`\`\`\n\nThis task needs manual review.`,
+        shouldAdvance: false
+      };
+    }
+  }
+
   try {
     // Extract PR information from task links
     const prLinks = parsePRLinks(task.links);
@@ -1340,37 +1375,7 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
     }
 
     // Check result and format output
-    const commentsPosted = lgtmResult.commentsPosted || 0;
-    const duplicatesSkipped = lgtmResult.duplicatesSkipped || 0;
-    const comments = lgtmResult.comments || [];
-
-    if (commentsPosted === 0 && lgtmResult.success) {
-      // No issues - ADVANCE
-      return {
-        success: true,
-        output: `✅ **lgtm Review: PASSED**\n\nNo issues found. PR is ready for the next stage.${duplicatesSkipped > 0 ? `\n\n(${duplicatesSkipped} duplicate comments skipped)` : ''}`,
-        shouldAdvance: true
-      };
-    } else if (commentsPosted > 0) {
-      // Issues found - BOUNCE
-      let issuesList = '';
-      for (const comment of comments) {
-        issuesList += `\n- **${comment.path}:${comment.line}** ${comment.severity ? `(${comment.severity})` : ''}\n  ${comment.body}\n`;
-      }
-
-      return {
-        success: true,
-        output: `⚠️ **lgtm Review: ISSUES FOUND**\n\nFound ${commentsPosted} issue(s) that need attention:${issuesList}\n\n${duplicatesSkipped > 0 ? `(${duplicatesSkipped} duplicate comments skipped)\n\n` : ''}Please address these issues and push an update.`,
-        shouldAdvance: false
-      };
-    } else {
-      // lgtm reported failure
-      return {
-        success: false,
-        output: `⚠️ **lgtm Review: ERROR**\n\nlgtm review failed:\n\`\`\`\n${lgtmResult.error || 'Unknown error'}\n\`\`\`\n\nThis task needs manual review.`,
-        shouldAdvance: false
-      };
-    }
+    return formatLgtmResult(lgtmResult);
   } catch (error: any) {
     console.error('lgtm auto review failed:', error);
 
@@ -1379,37 +1384,7 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
       const stdout = error.stdout.toString();
       try {
         const lgtmResult = JSON.parse(stdout);
-
-        // Check if lgtm reported success despite non-zero exit
-        const commentsPosted = lgtmResult.commentsPosted || 0;
-        const duplicatesSkipped = lgtmResult.duplicatesSkipped || 0;
-        const comments = lgtmResult.comments || [];
-
-        if (commentsPosted === 0 && lgtmResult.success) {
-          return {
-            success: true,
-            output: `✅ **lgtm Review: PASSED**\n\nNo issues found. PR is ready for the next stage.${duplicatesSkipped > 0 ? `\n\n(${duplicatesSkipped} duplicate comments skipped)` : ''}`,
-            shouldAdvance: true
-          };
-        } else if (commentsPosted > 0) {
-          let issuesList = '';
-          for (const comment of comments) {
-            issuesList += `\n- **${comment.path}:${comment.line}** ${comment.severity ? `(${comment.severity})` : ''}\n  ${comment.body}\n`;
-          }
-
-          return {
-            success: true,
-            output: `⚠️ **lgtm Review: ISSUES FOUND**\n\nFound ${commentsPosted} issue(s) that need attention:${issuesList}\n\n${duplicatesSkipped > 0 ? `(${duplicatesSkipped} duplicate comments skipped)\n\n` : ''}Please address these issues and push an update.`,
-            shouldAdvance: false
-          };
-        } else {
-          // lgtm reported failure in JSON
-          return {
-            success: false,
-            output: `⚠️ **lgtm Review: ERROR**\n\nlgtm review failed:\n\`\`\`\n${lgtmResult.error || 'Unknown error'}\n\`\`\`\n\nThis task needs manual review.`,
-            shouldAdvance: false
-          };
-        }
+        return formatLgtmResult(lgtmResult);
       } catch (parseError) {
         // stdout wasn't valid JSON, fall through to error handling
         console.error('Failed to parse lgtm stdout as JSON:', parseError);
