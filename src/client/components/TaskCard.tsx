@@ -34,10 +34,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   // Track previous pipelineId to detect changes
   const prevPipelineIdRef = React.useRef<string | null | undefined>(task.pipelineId);
 
-  // Use prop if provided, otherwise use local state
-  const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
-  const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
-
   // Detect when pipelineId changes and refetch if needed
   useEffect(() => {
     const prevPipelineId = prevPipelineIdRef.current;
