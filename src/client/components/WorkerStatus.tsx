@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 
+interface ActiveSession {
+  personaId: string;
+  taskId: string;
+  startedAt: Date;
+}
+
 interface WorkerState {
   enabled: boolean;
   interval: string;
@@ -7,6 +13,9 @@ interface WorkerState {
   lastTaskId?: string;
   isRunning: boolean;
   workload: number;
+  maxConcurrentPersonas: number;
+  allowDuplicatePersonas: boolean;
+  activeSessions: ActiveSession[];
 }
 
 interface WorkerStatusProps {
@@ -157,6 +166,32 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
             <span className="stat-label">Workload:</span>
             <span className="stat-value">{status.workload} active tasks</span>
           </div>
+          
+          <div className="worker-stat">
+            <span className="stat-label">Concurrency:</span>
+            <span className="stat-value">
+              {status.activeSessions.length}/{status.maxConcurrentPersonas} slots
+              {status.allowDuplicatePersonas && ' (duplicates allowed)'}
+            </span>
+          </div>
+          
+          {status.activeSessions.length > 0 && (
+            <div className="worker-stat">
+              <span className="stat-label">Active Sessions:</span>
+              <div className="active-sessions-list">
+                {status.activeSessions.map((session, idx) => (
+                  <div key={idx} className="active-session">
+                    <span className="session-persona">{session.personaId}</span>
+                    {' → '}
+                    <span className="session-task">{session.taskId}</span>
+                    <span className="session-duration">
+                      {' (' + formatLastRun(session.startedAt.toString()) + ')'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           
           {status.lastTaskId && (
             <div className="worker-stat">
