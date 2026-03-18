@@ -895,22 +895,20 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       continue;
     }
     
-    // Check all human comments for unseen ones (not just the latest)
-    for (const comment of sortedComments) {
-      if (comment.id === lastSeenId) {
-        // We've reached the last seen comment - all subsequent ones are new
-        break;
-      }
-      if (!sortedComments.some(c => c.id === lastSeenId)) {
-        // lastSeenId not found in current comments (was deleted) - treat all as new
-        break;
-      }
-    }
-    
     // Actually find and process all comments after the last seen one
+    // Handle case where lastSeenId was deleted (not found in comments)
+    const lastSeenExists = sortedComments.some(c => c.id === lastSeenId);
+    let foundLastSeen = !lastSeenId || !lastSeenExists; // if no lastSeenId or it was deleted, process all
     let lastProcessedCommentId = lastSeenId;
+    
     for (const comment of sortedComments) {
-      if (comment.id === lastSeenId) break;
+      // Skip until we've passed the lastSeenId
+      if (!foundLastSeen) {
+        if (comment.id === lastSeenId) {
+          foundLastSeen = true;
+        }
+        continue;
+      }
       
       const metadata = {
         taskId: task.id,
