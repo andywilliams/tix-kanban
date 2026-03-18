@@ -269,9 +269,9 @@ export async function processReviewTasksPRStatus(): Promise<void> {
     const state = await loadPRMonitorState();
     const tasks = await getAllTasks();
 
-    // Get only tasks in review status that have PR links
+    // Get only tasks in review or verified status that have PR links
     const reviewTasks = tasks.filter(
-      t => t.status === 'review' && (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+      t => (t.status === 'review' || t.status === 'verified') && (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
     );
 
     if (reviewTasks.length === 0) {
@@ -454,10 +454,11 @@ async function handlePRStateChanges(
       current.ciState === 'SUCCESS' &&
       !current.hasUnresolvedThreads &&
       current.mergeable === 'MERGEABLE' &&
-      task.status === 'review'
+      (task.status === 'review' || task.status === 'verified')
     ) {
       console.log(`✅ PR is clean and ready for task ${task.id} (first observation): ${prRef}`);
       await updateTask(task.id, {
+        status: 'verified',
         comments: [
           ...(task.comments || []),
           {
@@ -505,7 +506,7 @@ async function handlePRStateChanges(
   }
 
   // 2. New unresolved review threads → spawn developer to address
-  if (hasNewThreads && task.status === 'review') {
+  if (hasNewThreads && (task.status === 'review' || task.status === 'verified')) {
     console.log(`💬 New review comments for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
     // TODO: Integrate with persona system to spawn developer
     await updateTask(task.id, {
@@ -525,7 +526,7 @@ async function handlePRStateChanges(
   }
 
   // 3. CI failure → notify and keep in review
-  if (task.status === 'review' && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+  if ((task.status === 'review' || task.status === 'verified') && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
     console.log(`❌ CI failed for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
@@ -543,7 +544,7 @@ async function handlePRStateChanges(
   }
 
   // 4. Merge conflicts → spawn developer to rebase
-  if (task.status === 'review' && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
+  if ((task.status === 'review' || task.status === 'verified') && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
     console.log(`⚠️ Merge conflicts detected for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
       comments: [
