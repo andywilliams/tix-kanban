@@ -58,8 +58,12 @@ function getAppliedMigrations(): string[] {
     
     const rows = sqlite.prepare('SELECT hash FROM __drizzle_migrations').all() as { hash: string }[];
     return rows.map(r => r.hash);
-  } catch {
-    return [];
+  } catch (err: any) {
+    // Only ignore "no such table" errors - re-throw actual database errors
+    if (err?.message?.includes('no such table')) {
+      return [];
+    }
+    throw new Error(`Failed to get applied migrations: ${err?.message || err}`);
   }
 }
 
@@ -86,6 +90,7 @@ insertStmt.run(tag, Date.now());
 }
 
 // Read journal and apply pending migrations
+let migrationsApplied = 0;
 if (existsSync(migrationsFolder) && existsSync(journalPath)) {
   const journal: Journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
   const applied = getAppliedMigrations();
@@ -95,11 +100,18 @@ if (existsSync(migrationsFolder) && existsSync(journalPath)) {
     if (!applied.includes(entry.tag) && existsSync(migrationFile)) {
       const sql = readFileSync(migrationFile, 'utf-8');
       applyMigration(entry.tag, sql);
+      migrationsApplied++;
     }
   }
 }
 
-console.log('✅ Database migrated successfully!');
+if (migrationsApplied > 0) {
+  console.log(`✅ Database migrated successfully! (${migrationsApplied} migration${migrationsApplied > 1 ? 's' : ''} applied)`);
+} else if (!existsSync(migrationsFolder) || !existsSync(journalPath)) {
+  console.log('⚠️ No migrations folder or journal found - skipping migration');
+} else {
+  console.log('✅ Database is up to date - no migrations to apply');
+}
 console.log('Database path:', DB_PATH);
 
 // Verify tables
