@@ -23,7 +23,6 @@ import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from '.
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
-import { processReviewTasksPRStatus } from './pr-monitor.js';
 import {
   generateStandupEntry,
   saveStandupEntry,
@@ -504,13 +503,13 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     }
     baseInstruction.push('');
     baseInstruction.push('**Comment:**');
-    baseInstruction.push(metadata.body);
+    baseInstruction.push(sanitizeForPrompt(metadata.body));
     
     if (metadata.allComments && metadata.allComments.length > 1) {
       baseInstruction.push('');
       baseInstruction.push('**Thread Context (previous comments):**');
       metadata.allComments.slice(1).forEach((comment: any, i: number) => {
-        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${comment.body}`);
+        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${sanitizeForPrompt(comment.body)}`);
       });
     }
     
@@ -522,10 +521,11 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
+    // If firstCommentId is undefined (e.g., plain comment, not review comment), use fallback gh pr review command
     if (metadata.firstCommentId) {
       baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
     } else {
-      baseInstruction.push(`Note: Could not determine comment ID for reply. Use \`gh pr review ${metadata.prNumber} --comment -b "your reply"\` as a fallback.`);
+      baseInstruction.push(`Reply to the PR using: \`gh pr review ${metadata.prNumber} --comment -b "your reply" --repo ${metadata.repo}\``);
     }
   }
 
@@ -647,9 +647,10 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       
       // seenThreadIds is initialized from previous state; on first observation it's empty
       // Thread check only runs on subsequent observations (inside else block below)
-      // Handle migration: if previous exists but seenThreadIds is undefined, treat as first observation
+      // Migration case: if previous exists but seenThreadIds is undefined (pre-existing snapshot),
+      // treat as migration - fetch threads and populate seenThreadIds without firing events
       const isMigration = previous && previous.seenThreadIds === undefined;
-      let seenThreadIds = (previous && !isMigration) ? [...previous.seenThreadIds] : [];
+      let seenThreadIds = isMigration ? [] : (previous?.seenThreadIds || []);
       
       const current: PRSnapshot = { 
         state, 
@@ -660,7 +661,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       newSnapshots[pr.key] = current;
 
       if (!previous || isMigration) {
-        // First observation: only fire onPROpened (PR was just linked to this task)
+        // First observation OR migration: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
         // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
         if (state === 'open') {
@@ -669,8 +670,11 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           seenThreadIds = unresolvedThreads.map(t => t.id);
           current.seenThreadIds = seenThreadIds;
           
-          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
-            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          // Only fire onPROpened for genuinely new observations, not migrations
+          if (!isMigration) {
+            for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+              enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+            }
           }
         }
       } else {
@@ -935,25 +939,29 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
     return true;
   }
 
-  // Only unambiguously research-oriented keywords — avoid common dev words like 'document', 'documentation', 'architecture'
-  const researchKeywords = ['research', 'study', 'investigation', 'knowledge', 'article'];
-  // These only count as research when they appear in the title (not scattered in descriptions)
-  const titleOnlyKeywords = ['analysis', 'report'];
+  // Keywords that should only match against title (too common in regular dev tasks)
+  const titleOnlyKeywords = ['document', 'documentation', 'architecture', 'analysis', 'report'];
+  // Keywords that are explicit research indicators (can check description too)
+  const explicitResearchKeywords = ['research', 'investigate', 'explore', 'rfc', 'adr', 'study', 'investigation', 'knowledge', 'article'];
+  
   const titleLower = task.title.toLowerCase();
+  const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
 
   // Check if task is explicitly tagged as research
-  if (tags.some(tag => [...researchKeywords, ...titleOnlyKeywords].includes(tag.toLowerCase()))) {
+  const allKeywords = [...titleOnlyKeywords, ...explicitResearchKeywords];
+  if (tags.some(tag => allKeywords.includes(tag.toLowerCase()))) {
     return true;
   }
 
-  // Check title for all research keywords
-  if (researchKeywords.some(keyword => titleLower.includes(keyword))) {
-    return true;
-  }
+  // Check title for all keywords (both broad and explicit)
+  const titleMatch = allKeywords.some(keyword => titleLower.includes(keyword));
+  if (titleMatch) return true;
 
-  // Title-only keywords (too common in descriptions to be reliable)
-  return titleOnlyKeywords.some(keyword => titleLower.includes(keyword));
+  // Check description only for explicit research indicators
+  return explicitResearchKeywords.some(keyword =>
+    descriptionLower.includes(keyword)
+  );
 }
 
 // Check if task is a code review task that should use lgtm
@@ -1619,10 +1627,7 @@ async function runWorkerCycle(): Promise<void> {
     console.warn('Failed to clear expired cache:', error);
   }
 
-  // First, monitor PRs for review tasks (detect merged PRs, new comments, CI failures, conflicts)
-  await processReviewTasksPRStatus();
-
-  // Then, process any auto-review tasks
+  // First, process any auto-review tasks
   await processAutoReviewTasks();
 
   // Get all tasks
