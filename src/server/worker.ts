@@ -642,7 +642,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       
       // seenThreadIds is initialized from previous state; on first observation it's empty
       // Thread check only runs on subsequent observations (inside else block below)
-      let seenThreadIds = previous?.seenThreadIds || [];
+      // Handle migration: if previous exists but seenThreadIds is undefined, treat as first observation
+      const isMigration = previous && previous.seenThreadIds === undefined;
+      let seenThreadIds = (previous && !isMigration) ? previous.seenThreadIds : [];
       
       const current: PRSnapshot = { 
         state, 
@@ -652,7 +654,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       };
       newSnapshots[pr.key] = current;
 
-      if (!previous) {
+      if (!previous || isMigration) {
         // First observation: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
         // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
@@ -687,7 +689,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
                   path: firstComment.path,
                   line: firstComment.line,
                   createdAt: firstComment.createdAt,
-                  firstCommentId: firstComment.id,
+                  firstCommentId: firstComment.databaseId,
                   allComments: thread.comments.map(c => ({
                     id: c.id,
                     author: c.author,
@@ -936,7 +938,7 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
   const tags = task.tags || [];
 
   // Check if task is explicitly tagged as research
-  if (tags.some(tag => researchKeywords.includes(tag.toLowerCase()))) {
+  if (tags.some(tag => [...researchKeywords, ...titleOnlyKeywords].includes(tag.toLowerCase()))) {
     return true;
   }
 
