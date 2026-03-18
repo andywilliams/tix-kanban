@@ -1394,10 +1394,6 @@ function removeActiveSession(taskId: string): void {
   }
 }
 
-function isSessionActive(taskId: string): boolean {
-  return workerState.activeSessions.some(s => s.taskId === taskId);
-}
-
 function isPersonaActive(personaId: string): boolean {
   return workerState.activeSessions.some(s => s.personaId === personaId);
 }
@@ -1532,6 +1528,8 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           status: 'backlog',
           agentActivity: undefined,
         });
+        // Clean up any phantom active session
+        removeActiveSession(task.id);
         console.log(`📥 Recovered stale task (no persona) → backlog: ${task.title}`);
         continue;
       }
@@ -1560,6 +1558,8 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
             agentActivity: undefined,
           });
           await executeReviewCycle(task.id);
+          // Clean up any phantom active session
+          removeActiveSession(task.id);
           console.log(`🔍 Recovered stale task → auto-review: ${task.title}`);
         } else {
           await updateTask(task.id, {
@@ -1567,6 +1567,8 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
             comments: updatedComments,
             agentActivity: undefined,
           });
+          // Clean up any phantom active session
+          removeActiveSession(task.id);
           console.log(`✅ Recovered stale task → review: ${task.title}`);
         }
       } else {
@@ -1575,6 +1577,8 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           comments: updatedComments,
           agentActivity: undefined,
         });
+        // Clean up any phantom active session
+        removeActiveSession(task.id);
         console.log(`📥 Recovered stale task → backlog: ${task.title}`);
       }
     } catch (error) {
@@ -1584,6 +1588,8 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
         status: 'backlog',
         agentActivity: undefined,
       });
+      // Clean up any phantom active session
+      removeActiveSession(task.id);
     }
   }
 }
@@ -1648,6 +1654,7 @@ async function runWorkerCycle(): Promise<void> {
 
   // Find eligible tasks (provider access + persona availability)
   const eligibleBacklogTasks: Task[] = [];
+  const personasInCurrentBatch: Set<string> = new Set();
   for (const candidate of backlogTasks) {
     const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
     if (!candidatePersona) continue;
@@ -1676,11 +1683,13 @@ async function runWorkerCycle(): Promise<void> {
     if (!eligible) continue;
 
     // Check if persona is already active (unless duplicates allowed)
-    if (!workerState.allowDuplicatePersonas && isPersonaActive(candidatePersona.id)) {
+    // Also check batch-local set to prevent same persona being scheduled multiple times in single cycle
+    if (!workerState.allowDuplicatePersonas && (isPersonaActive(candidatePersona.id) || personasInCurrentBatch.has(candidatePersona.id))) {
       console.log(`⏭️  Skipping task "${candidate.title}" — persona ${candidatePersona.name} already active on another task`);
       continue;
     }
 
+    personasInCurrentBatch.add(candidatePersona.id);
     eligibleBacklogTasks.push(candidate);
   }
 
