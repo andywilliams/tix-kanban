@@ -27,21 +27,41 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const [localPipeline, setLocalPipeline] = useState<Pipeline | null>(null);
   const [localPipelineState, setLocalPipelineState] = useState<TaskPipelineState | null>(null);
 
+  // Track previous pipelineId to detect changes
+  const prevPipelineIdRef = React.useRef<string | null | undefined>(task.pipelineId);
+
   // Use prop if provided, otherwise use local state
   const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
   const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
 
+  // Bug fix: Detect when pipelineId changes and refetch if needed
   useEffect(() => {
-    if (task.pipelineId) {
-      // Only fetch if no prop pipeline was provided
-      if (propPipeline === undefined) {
-        loadPipelineInfo();
+    const prevPipelineId = prevPipelineIdRef.current;
+    if (task.pipelineId !== prevPipelineId) {
+      prevPipelineIdRef.current = task.pipelineId;
+      
+      if (task.pipelineId) {
+        // Pipeline changed - fetch fresh data if no prop provided
+        if (propPipeline === undefined) {
+          loadPipelineInfo();
+        }
+      } else {
+        // Pipeline was cleared
+        setLocalPipeline(null);
+        setLocalPipelineState(null);
       }
-    } else {
+    }
+  }, [task.pipelineId, propPipeline]);
+
+  // Also keep original effect for initial load
+  useEffect(() => {
+    if (task.pipelineId && propPipeline === undefined) {
+      loadPipelineInfo();
+    } else if (!task.pipelineId) {
       setLocalPipeline(null);
       setLocalPipelineState(null);
     }
-  }, [task.pipelineId, propPipeline]);
+  }, []);
 
   const loadPipelineInfo = async () => {
     if (!task.pipelineId) return;
@@ -75,7 +95,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const priorityColor = getPriorityColor(task.priority);
   const currentStage = pipeline && pipelineStateVal 
     ? pipeline.stages.find(s => s.id === pipelineStateVal.currentStageId)
-    : null;
 
   return (
     <div

@@ -169,7 +169,8 @@ import {
   initializePipelines,
   getTaskPipelineState,
   getAllTaskPipelineStates,
-  updateTaskPipelineState
+  updateTaskPipelineState,
+  deleteTaskPipelineState
 } from './pipeline-storage.js';
 import {
   getAutoReviewConfig,
@@ -365,6 +366,16 @@ app.put('/api/tasks/:id', async (req, res) => {
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // If pipelineId is being cleared (set to null), also delete the pipeline state
+    if (updates.pipelineId === null && previousTask.pipelineId) {
+      try {
+        await deleteTaskPipelineState(req.params.id);
+      } catch (error) {
+        console.error(`Failed to delete pipeline state for task ${req.params.id}:`, error);
+        // Don't fail the request if state deletion fails
+      }
     }
 
     // If task is being marked as done and has a persona, update persona stats
@@ -2597,13 +2608,13 @@ app.post('/api/tasks/:id/assign-pipeline', async (req, res) => {
       return res.status(400).json({ error: 'Pipeline has no stages' });
     }
     
-    // First check if task exists
+    // First check if task exists and update with pipelineId
     const updatedTask = await updateTask(taskId, { pipelineId }, 'system');
     if (!updatedTask) {
       return res.status(404).json({ error: 'Task not found' });
     }
     
-    // Then create the pipeline state
+    // Then create the pipeline state at the first stage
     const firstStage = pipeline.stages[0];
     const pipelineState = {
       taskId,

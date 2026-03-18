@@ -264,7 +264,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
           const data = await response.json();
           onUpdate(data.task);
           setPipelineState(null);
-          setEditedTask(prev => ({ ...prev, pipelineId: undefined }));
+          // Bug fix: Use null instead of undefined so JSON.stringify sends it
+          setEditedTask(prev => ({ ...prev, pipelineId: null }));
         } else {
           const error = await response.json();
           alert(`Failed to clear pipeline: ${error.error}`);
