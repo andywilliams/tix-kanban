@@ -253,10 +253,12 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
         
         // For direct/persona channels, extract from channel ID
         if (isDirectChannel) {
-          const match = channelId.match(/^(?:direct|persona)-(.+)$/);
-          if (match) {
-            personaId = match[1];
-          }
+          // direct-{personaId}-{userId} -> personaId
+          // persona-{personaId} -> personaId
+          personaId = channelId
+            .replace(/^direct-/, '')
+            .replace(/-[^-]+$/, '')
+            .replace(/^persona-/, '');
         }
         
         // For @mentions, extract first mentioned persona
