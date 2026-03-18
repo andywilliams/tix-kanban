@@ -396,6 +396,7 @@ async function handlePRStateChanges(
     if (current.ciState === 'FAILURE' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`❌ CI already failed for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
@@ -414,6 +415,7 @@ async function handlePRStateChanges(
     if (current.mergeable === 'CONFLICTING' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`⚠️ Merge conflicts already detected for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
@@ -433,6 +435,7 @@ async function handlePRStateChanges(
     if (current.hasUnresolvedThreads && unresolvedCount > 0 && (task.status === 'review' || task.status === 'verified')) {
       console.log(`💬 Review threads already present for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
