@@ -42,10 +42,7 @@ import {
 import {
   trackTaskStarted,
   trackTaskCompleted,
-  trackTaskFailed,
-  trackPRCreated,
-  trackPRMerged,
-  trackReviewCompleted
+  trackTaskFailed
 } from './activityTracker.js';
 
 

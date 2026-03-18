@@ -30,6 +30,7 @@ interface UseChatReturn {
   streamingMessageId: string | null;
   streamingText: string;
   isThinking: boolean;
+  streamingChannelId: string | null;
 }
 
 export function useChat(currentUser: string = 'User'): UseChatReturn {

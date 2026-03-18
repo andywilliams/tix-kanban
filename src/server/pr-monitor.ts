@@ -509,7 +509,16 @@ async function handlePRStateChanges(
         const [repo] = prRef.split('#');
         const prNumber = parseInt(prRef.split('#')[1] || '0', 10);
         const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
-        await trackPRMerged(task.persona, task.persona, task.id, current.repo, current.number, prUrl);
+        // Map persona ID to display name
+        const personaNameMap: Record<string, string> = {
+          'developer': 'Developer',
+          'qa': 'QA',
+          'devops': 'DevOps',
+          'security': 'Security',
+          'docs': 'Docs'
+        };
+        const personaName = personaNameMap[task.persona] || task.persona;
+        await trackPRMerged(task.persona, personaName, task.id, current.repo, current.number, prUrl);
       }
     } else {
       console.log(`ℹ️ PR merged for task ${task.id}: ${prRef}, but task is in "${task.status}" status - skipping auto-move to done`);
