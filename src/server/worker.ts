@@ -928,9 +928,11 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
     return true;
   }
 
-  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation', 'knowledge', 'article', 'documentation', 'document', 'architecture'];
+  // Only unambiguously research-oriented keywords — avoid common dev words like 'document', 'documentation', 'architecture'
+  const researchKeywords = ['research', 'study', 'investigation', 'knowledge', 'article'];
+  // These only count as research when they appear in the title (not scattered in descriptions)
+  const titleOnlyKeywords = ['analysis', 'report'];
   const titleLower = task.title.toLowerCase();
-  const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
 
   // Check if task is explicitly tagged as research
@@ -938,10 +940,13 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
     return true;
   }
 
-  // Check if title or description contains research keywords
-  return researchKeywords.some(keyword =>
-    titleLower.includes(keyword) || descriptionLower.includes(keyword)
-  );
+  // Check title for all research keywords
+  if (researchKeywords.some(keyword => titleLower.includes(keyword))) {
+    return true;
+  }
+
+  // Title-only keywords (too common in descriptions to be reliable)
+  return titleOnlyKeywords.some(keyword => titleLower.includes(keyword));
 }
 
 // Check if task is a code review task that should use lgtm
