@@ -504,13 +504,13 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     }
     baseInstruction.push('');
     baseInstruction.push('**Comment:**');
-    baseInstruction.push(metadata.firstComment?.body || metadata.body);
+    baseInstruction.push(sanitizeForPrompt(metadata.firstComment?.body || metadata.body));
     
     if (metadata.allComments && metadata.allComments.length > 1) {
       baseInstruction.push('');
       baseInstruction.push('**Thread Context (previous comments):**');
       metadata.allComments.slice(1).forEach((comment: any, i: number) => {
-        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${comment.body}`);
+        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${sanitizeForPrompt(comment.body)}`);
       });
     }
     
