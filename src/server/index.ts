@@ -213,6 +213,11 @@ import {
   updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
+import {
+  generateDailySummary,
+  readSummary,
+  summaryExists
+} from './dailySummary.js';
 // Notion sync removed - now using CLI-based providers
 // See documentation/providers.md for the new architecture
 import {
@@ -3378,6 +3383,40 @@ app.delete('/api/standup/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/standup/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete standup' });
+  }
+});
+
+// POST /api/daily-summary/generate - Generate daily summary for a date (defaults to today)
+app.post('/api/daily-summary/generate', async (req, res) => {
+  try {
+    const { date } = req.body as { date?: string };
+    const summary = await generateDailySummary(date);
+    res.json({ summary, date: date || new Date().toISOString().split('T')[0] });
+  } catch (error) {
+    console.error('POST /api/daily-summary/generate error:', error);
+    res.status(500).json({ error: 'Failed to generate daily summary' });
+  }
+});
+
+// GET /api/daily-summary/:date - Get daily summary for a specific date
+app.get('/api/daily-summary/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+    
+    const summary = await readSummary(date);
+    if (!summary) {
+      return res.status(404).json({ error: `No summary found for ${date}` });
+    }
+    
+    res.json({ summary, date });
+  } catch (error) {
+    console.error(`GET /api/daily-summary/${req.params.date} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch daily summary' });
   }
 });
 

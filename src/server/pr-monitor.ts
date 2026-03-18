@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 import { parsePRLinks } from './pr-utils.js';
 import { updateTask, getTask, getAllTasks } from './storage.js';
+import { trackPRMerged } from './activityTracker.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -502,6 +503,14 @@ async function handlePRStateChanges(
           },
         ],
       });
+
+      // Track PR merged activity
+      if (task.persona) {
+        const [repo] = prRef.split('#');
+        const prNumber = parseInt(prRef.split('#')[1] || '0', 10);
+        const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
+        await trackPRMerged(task.persona, task.persona, task.id, current.repo, current.number, prUrl);
+      }
     } else {
       console.log(`ℹ️ PR merged for task ${task.id}: ${prRef}, but task is in "${task.status}" status - skipping auto-move to done`);
     }

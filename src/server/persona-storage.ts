@@ -7,6 +7,7 @@ import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
 import { getOrCreateSession, buildConversationHistory, countTokens } from '../services/sessionService.js';
+import { getRecentSummaries } from './dailySummary.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -768,11 +769,15 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
 
+    // Get recent daily summaries for continuity
+    const recentSummaries = await getRecentSummaries();
+    const summariesSection = recentSummaries ? `\n\n## Recent Activity Summaries\n\n${recentSummaries}` : '';
+
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}${summariesSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
