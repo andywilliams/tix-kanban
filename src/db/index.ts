@@ -14,6 +14,7 @@ if (!existsSync(dbDir)) {
 }
 
 const sqlite = new Database(DB_PATH);
+sqlite.exec('PRAGMA foreign_keys = ON');
 export const db = drizzle(sqlite, { schema });
 
 export { schema };
