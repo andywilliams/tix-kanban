@@ -576,3 +576,93 @@ export async function batchGetPRStatuses(repo: string, prNumbers: number[]): Pro
   
   return results;
 }
+
+/**
+ * Review thread interfaces
+ */
+export interface ReviewComment {
+  id: string;
+  databaseId?: number;
+  author: string;
+  body: string;
+  path: string | null;
+  line: number | null;
+  createdAt: string;
+}
+
+export interface ReviewThread {
+  id: string;
+  isResolved: boolean;
+  isOutdated: boolean;
+  comments: ReviewComment[];
+}
+
+/**
+ * Fetch unresolved review threads for a PR using GraphQL
+ */
+export async function getPRReviewThreads(repo: string, prNumber: number): Promise<ReviewThread[]> {
+  try {
+    const [owner, name] = repo.split('/');
+    if (!owner || !name) {
+      throw new Error(`Invalid repo format: ${repo}`);
+    }
+
+    const query = `
+      query($owner: String!, $name: String!, $prNumber: Int!) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $prNumber) {
+            reviewThreads(first: 30) {
+              nodes {
+                id
+                isResolved
+                isOutdated
+                comments(first: 10) {
+                  nodes {
+                    id
+                    databaseId
+                    author { login }
+                    body
+                    path
+                    line
+                    createdAt
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const { stdout } = await exec(
+      `gh api graphql -F owner="${owner}" -F name="${name}" -F prNumber=${prNumber} -f query='${query.replace(/'/g, "'\\''")}'`,
+      { timeout: 15000, maxBuffer: 5 * 1024 * 1024 }
+    );
+
+    const response = JSON.parse(stdout);
+    
+    if (!response?.data?.repository?.pullRequest?.reviewThreads?.nodes) {
+      return [];
+    }
+
+    const threads: ReviewThread[] = response.data.repository.pullRequest.reviewThreads.nodes.map((node: any) => ({
+      id: node.id,
+      isResolved: node.isResolved,
+      isOutdated: node.isOutdated,
+      comments: (node.comments?.nodes || []).map((comment: any) => ({
+        id: comment.id,
+        databaseId: comment.databaseId,
+        author: comment.author?.login || 'unknown',
+        body: comment.body || '',
+        path: comment.path || null,
+        line: comment.line || null,
+        createdAt: comment.createdAt,
+      })),
+    }));
+
+    return threads;
+  } catch (error) {
+    console.warn(`Failed to fetch review threads for ${repo}#${prNumber}:`, error);
+    return [];
+  }
+}
