@@ -521,11 +521,11 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    // If firstCommentId is undefined (e.g., plain comment而非review comment)，use fallback gh pr review command
+    // If firstCommentId is undefined (e.g., plain comment, not review comment), use fallback gh pr review command
     if (metadata.firstCommentId) {
       baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
     } else {
-      baseInstruction.push(`Reply to the PR using: \`gh pr review ${metadata.prNumber} -f body="your reply" --repo ${metadata.repo}\``);
+      baseInstruction.push(`Reply to the PR using: \`gh pr review ${metadata.prNumber} --comment -b "your reply" --repo ${metadata.repo}\``);
     }
   }
 
