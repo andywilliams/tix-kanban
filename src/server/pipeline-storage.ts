@@ -214,6 +214,48 @@ export async function removePipeline(pipelineId: string): Promise<boolean> {
   return success;
 }
 
+// Get all pipeline states
+export async function getAllTaskPipelineStates(): Promise<TaskPipelineState[]> {
+  try {
+    await ensurePipelineDirectories();
+    const files = await fs.readdir(PIPELINE_STATES_DIR);
+    const states: TaskPipelineState[] = [];
+    
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const content = await fs.readFile(path.join(PIPELINE_STATES_DIR, file), 'utf8');
+        const state = JSON.parse(content);
+        
+        // Convert date strings back to Date objects
+        state.createdAt = new Date(state.createdAt);
+        state.updatedAt = new Date(state.updatedAt);
+        if (isNaN(state.createdAt.getTime()) || isNaN(state.updatedAt.getTime())) {
+          console.warn(`Pipeline state ${file} has corrupted dates, skipping`);
+          continue;
+        }
+        state.stageHistory = state.stageHistory.map((history: any) => ({
+          ...history,
+          startedAt: new Date(history.startedAt),
+          completedAt: history.completedAt ? new Date(history.completedAt) : undefined
+        }));
+        
+        states.push(state);
+      } catch (err) {
+        console.warn(`Failed to read pipeline state file ${file}:`, err);
+      }
+    }
+    
+    return states;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []; // Directory doesn't exist
+    }
+    console.error('Failed to get all pipeline states:', error);
+    throw error;
+  }
+}
+
 // Pipeline state management (separate files for task-specific pipeline progress)
 export async function getTaskPipelineState(taskId: string): Promise<TaskPipelineState | null> {
   try {

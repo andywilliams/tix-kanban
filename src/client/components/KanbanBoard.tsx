@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -9,6 +9,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { Task, Persona, Filter } from '../types';
+import { Pipeline, TaskPipelineState } from '../types/pipeline';
 import KanbanColumn from './KanbanColumn';
 import TaskCard from './TaskCard';
 import TaskModal from './TaskModal';
@@ -41,6 +42,39 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [filter, setFilter] = useState<Filter>({});
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [pipelineStates, setPipelineStates] = useState<Record<string, TaskPipelineState>>({});
+
+  // Fetch all pipelines and their states once on mount
+  useEffect(() => {
+    const fetchPipelineData = async () => {
+      try {
+        const [pipelinesRes, statesRes] = await Promise.all([
+          fetch('/api/pipelines'),
+          fetch('/api/pipeline-states'),
+        ]);
+        
+        if (pipelinesRes.ok) {
+          const data = await pipelinesRes.json();
+          setPipelines(data.pipelines || []);
+        }
+        
+        if (statesRes.ok) {
+          const data = await statesRes.json();
+          // Convert array to record for O(1) lookup
+          const statesRecord: Record<string, TaskPipelineState> = {};
+          (data.states || []).forEach((state: TaskPipelineState) => {
+            statesRecord[state.taskId] = state;
+          });
+          setPipelineStates(statesRecord);
+        }
+      } catch (error) {
+        console.error('Failed to fetch pipeline data:', error);
+      }
+    };
+    
+    fetchPipelineData();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -104,6 +138,8 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               tasks={filteredTasks.filter(task => task.status === column.id)}
               personas={personas}
               onTaskClick={setSelectedTask}
+              pipelines={pipelines}
+              pipelineStates={pipelineStates}
             />
           ))}
         </div>
@@ -115,6 +151,8 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               personas={personas}
               onClick={() => {}}
               isDragging
+              pipeline={activeTask.pipelineId ? pipelines.find(p => p.id === activeTask.pipelineId) : undefined}
+              pipelineState={activeTask.pipelineId ? pipelineStates[activeTask.id] : undefined}
             />
           ) : null}
         </DragOverlay>

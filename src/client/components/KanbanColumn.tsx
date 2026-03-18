@@ -1,6 +1,7 @@
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { Task, Persona } from '../types';
+import { Pipeline, TaskPipelineState } from '../types/pipeline';
 import TaskCard from './TaskCard';
 
 interface Column {
@@ -13,6 +14,8 @@ interface KanbanColumnProps {
   tasks: Task[];
   personas: Persona[];
   onTaskClick: (task: Task) => void;
+  pipelines?: Pipeline[];
+  pipelineStates?: Record<string, TaskPipelineState>;
 }
 
 const KanbanColumn: React.FC<KanbanColumnProps> = ({
@@ -20,6 +23,8 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   tasks,
   personas,
   onTaskClick,
+  pipelines = [],
+  pipelineStates = {},
 }) => {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -38,14 +43,20 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
       <div className="column-content">
         {tasks
           .sort((a, b) => b.priority - a.priority)
-          .map(task => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              personas={personas}
-              onClick={() => onTaskClick(task)}
-            />
-          ))}
+          .map(task => {
+            const pipeline = task.pipelineId ? pipelines.find(p => p.id === task.pipelineId) : undefined;
+            const pipelineState = task.pipelineId ? pipelineStates[task.id] : undefined;
+            return (
+              <TaskCard
+                key={task.id}
+                task={task}
+                personas={personas}
+                onClick={() => onTaskClick(task)}
+                pipeline={pipeline}
+                pipelineState={pipelineState}
+              />
+            );
+          })}
       </div>
     </div>
   );

@@ -168,6 +168,7 @@ import {
   removePipeline,
   initializePipelines,
   getTaskPipelineState,
+  getAllTaskPipelineStates,
   updateTaskPipelineState
 } from './pipeline-storage.js';
 import {
@@ -2501,6 +2502,17 @@ app.delete('/api/pipelines/:id', async (req, res) => {
   }
 });
 
+// GET /api/pipeline-states - Get all pipeline states
+app.get('/api/pipeline-states', async (_req, res) => {
+  try {
+    const states = await getAllTaskPipelineStates();
+    res.json({ states });
+  } catch (error) {
+    console.error('GET /api/pipeline-states error:', error);
+    res.status(500).json({ error: 'Failed to fetch pipeline states' });
+  }
+});
+
 // GET /api/tasks/:taskId/pipeline-state - Get pipeline state for a task
 app.get('/api/tasks/:taskId/pipeline-state', async (req, res) => {
   try {
@@ -2585,7 +2597,13 @@ app.post('/api/tasks/:id/assign-pipeline', async (req, res) => {
       return res.status(400).json({ error: 'Pipeline has no stages' });
     }
     
-    // Initialize pipeline state at the first stage
+    // First check if task exists
+    const updatedTask = await updateTask(taskId, { pipelineId }, 'system');
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Then create the pipeline state
     const firstStage = pipeline.stages[0];
     const pipelineState = {
       taskId,
@@ -2599,12 +2617,6 @@ app.post('/api/tasks/:id/assign-pipeline', async (req, res) => {
     };
     
     await updateTaskPipelineState(pipelineState);
-    
-    // Update task with pipelineId
-    const updatedTask = await updateTask(taskId, { pipelineId }, 'system');
-    if (!updatedTask) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
     
     res.json({ task: updatedTask, pipelineState });
   } catch (error) {

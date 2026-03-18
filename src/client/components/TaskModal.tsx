@@ -264,7 +264,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
           const data = await response.json();
           onUpdate(data.task);
           setPipelineState(null);
-          setEditedTask({ ...editedTask, pipelineId: undefined });
+          setEditedTask(prev => ({ ...prev, pipelineId: undefined }));
         } else {
           const error = await response.json();
           alert(`Failed to clear pipeline: ${error.error}`);
@@ -288,7 +288,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
         const data = await response.json();
         onUpdate(data.task);
         setPipelineState(data.pipelineState);
-        setEditedTask({ ...editedTask, pipelineId });
+        setEditedTask(prev => ({ ...prev, pipelineId }));
       } else {
         const error = await response.json();
         alert(`Failed to assign pipeline: ${error.error}`);

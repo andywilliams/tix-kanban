@@ -8,9 +8,11 @@ interface TaskCardProps {
   personas: Persona[];
   onClick: () => void;
   isDragging?: boolean;
+  pipeline?: Pipeline | null;
+  pipelineState?: TaskPipelineState | null;
 }
 
-const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging }) => {
+const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging, pipeline: propPipeline, pipelineState: propPipelineState }) => {
   const {
     attributes,
     listeners,
@@ -21,14 +23,25 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
     id: task.id,
   });
 
-  const [pipeline, setPipeline] = useState<Pipeline | null>(null);
-  const [pipelineState, setPipelineState] = useState<TaskPipelineState | null>(null);
+  // Use passed props if available, otherwise use local state
+  const [localPipeline, setLocalPipeline] = useState<Pipeline | null>(null);
+  const [localPipelineState, setLocalPipelineState] = useState<TaskPipelineState | null>(null);
+
+  // Use prop if provided, otherwise use local state
+  const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
+  const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
 
   useEffect(() => {
     if (task.pipelineId) {
-      loadPipelineInfo();
+      // Only fetch if no prop pipeline was provided
+      if (propPipeline === undefined) {
+        loadPipelineInfo();
+      }
+    } else {
+      setLocalPipeline(null);
+      setLocalPipelineState(null);
     }
-  }, [task.pipelineId]);
+  }, [task.pipelineId, propPipeline]);
 
   const loadPipelineInfo = async () => {
     if (!task.pipelineId) return;
@@ -41,12 +54,12 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
       
       if (pipelineRes.ok) {
         const data = await pipelineRes.json();
-        setPipeline(data.pipeline);
+        setLocalPipeline(data.pipeline);
       }
       
       if (stateRes.ok) {
         const data = await stateRes.json();
-        setPipelineState(data.state);
+        setLocalPipelineState(data.state);
       }
     } catch (error) {
       console.error('Failed to load pipeline info:', error);
@@ -60,8 +73,8 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   } : undefined;
 
   const priorityColor = getPriorityColor(task.priority);
-  const currentStage = pipeline && pipelineState 
-    ? pipeline.stages.find(s => s.id === pipelineState.currentStageId)
+  const currentStage = pipeline && pipelineStateVal 
+    ? pipeline.stages.find(s => s.id === pipelineStateVal.currentStageId)
     : null;
 
   return (
