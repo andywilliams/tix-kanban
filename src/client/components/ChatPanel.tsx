@@ -508,7 +508,7 @@ export default function ChatPanel({
         )}
         
         {/* Typing indicator (thinking state) */}
-        {(isThinking || currentChannel?.speakingPersona) && !streamingText && streamingChannelId === currentChannel?.id && (() => {
+        {((isThinking && streamingChannelId === currentChannel?.id) || (currentChannel?.speakingPersona && streamingChannelId === null)) && !streamingText && (() => {
           const persona = personas.find(p => p.id === currentChannel?.speakingPersona);
           return persona ? <TypingIndicator persona={persona} /> : (
             <TypingIndicator persona={{ 

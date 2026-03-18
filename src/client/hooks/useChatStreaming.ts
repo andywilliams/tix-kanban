@@ -54,16 +54,20 @@ export function useChatStreaming() {
         setStreamingText(prev => prev + data.text);
       });
 
-      eventSource.addEventListener('done', (event) => {
+      eventSource.addEventListener('done', async (event) => {
         const data = JSON.parse(event.data);
         console.log('✅ SSE: Response complete');
-        setIsThinking(false);
-        setStreamingMessageId(null);
-        setStreamingText('');
-        setStreamingChannelId(null);
-        eventSource.close();
-        eventSourceRef.current = null;
-        onComplete(data.messageId, data.fullText);
+        // Call onComplete first and await it to avoid flash while waiting for refresh
+        try {
+          await onComplete(data.messageId, data.fullText);
+        } finally {
+          setIsThinking(false);
+          setStreamingMessageId(null);
+          setStreamingText('');
+          setStreamingChannelId(null);
+          eventSource.close();
+          eventSourceRef.current = null;
+        }
       });
 
       eventSource.onerror = (err) => {
