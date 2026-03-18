@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { ChatChannel, ChatMessage, Persona, Task } from '../types';
 import TypingIndicator from './chat/TypingIndicator';
 import ToolResultRenderer from './chat/ToolResultRenderer';
@@ -56,6 +56,7 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
   const isAtBottomRef = useRef<boolean>(true);
+  const prevChannelIdRef = useRef<string | null>(null);
 
   // Inject typing animation keyframes into DOM once on mount
   useEffect(() => {
@@ -73,6 +74,22 @@ export default function ChatPanel({
     setNewMessagesIndicator(false);
     isAtBottomRef.current = true;
     prevMessagesLengthRef.current = 0;
+  }, [currentChannel?.id]);
+
+  // Instant scroll on initial load and channel switch (before paint, no flash)
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    const isChannelSwitch = prevChannelIdRef.current !== null && prevChannelIdRef.current !== currentChannel?.id;
+    const isInitialLoad = prevChannelIdRef.current === null;
+    
+    if (isInitialLoad || isChannelSwitch) {
+      // Instant scroll - runs synchronously before browser paints
+      container.scrollTop = container.scrollHeight;
+    }
+    
+    prevChannelIdRef.current = currentChannel?.id || null;
   }, [currentChannel?.id]);
 
   // Detect scroll position and track if user has scrolled up
