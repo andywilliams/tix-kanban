@@ -1267,6 +1267,126 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
   }
 }
 
+// Run lgtm automated review and parse JSON output
+async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output: string; shouldAdvance: boolean }> {
+  try {
+    // Extract PR information from task links
+    const prLinks = parsePRLinks(task.links);
+    if (prLinks.length === 0) {
+      return {
+        success: false,
+        output: '⚠️ **lgtm Review: ERROR**\n\nNo linked PR found. Please link a PR to this task before running lgtm review.',
+        shouldAdvance: false
+      };
+    }
+
+    // Use the first PR link
+    const pr = prLinks[0];
+    
+    // Determine workspace directory
+    let cwd: string | undefined;
+    try {
+      const settings = await getUserSettings();
+      if (task.repo) {
+        if (settings.repoPaths?.[task.repo]) {
+          cwd = settings.repoPaths[task.repo];
+        } else if (settings.workspaceDir) {
+          const repoName = task.repo.split('/').pop();
+          if (repoName) {
+            cwd = path.join(settings.workspaceDir, repoName);
+          }
+        }
+      } else if (settings.workspaceDir) {
+        // Fallback: try to infer repo from PR link
+        const repoName = pr.repo.split('/').pop();
+        if (repoName) {
+          cwd = path.join(settings.workspaceDir, repoName);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load workspace directory setting:', error);
+    }
+
+    if (!cwd) {
+      return {
+        success: false,
+        output: '⚠️ **lgtm Review: ERROR**\n\nCould not determine repository workspace directory. Please configure workspaceDir in settings.',
+        shouldAdvance: false
+      };
+    }
+
+    console.log(`🔍 Running lgtm auto review for ${pr.repo}#${pr.number} in ${cwd}`);
+
+    // Get lgtm binary path from environment or use default
+    const lgtmBinary = process.env.LGTM_BINARY_PATH || 'lgtm';
+
+    // Run lgtm with --auto --batch flags
+    const lgtmCommand = `${lgtmBinary} review ${pr.number} --auto --batch --full-context --usage-context --repo ${pr.repo}`;
+    const { stdout, stderr } = await execFile(
+      lgtmBinary,
+      ['review', String(pr.number), '--auto', '--batch', '--full-context', '--usage-context', '--repo', pr.repo],
+      { cwd, timeout: 300000, maxBuffer: 10 * 1024 * 1024 } // 5 min timeout, 10MB buffer
+    );
+
+    // Parse JSON output
+    let lgtmResult: any;
+    try {
+      lgtmResult = JSON.parse(stdout);
+    } catch (parseError) {
+      return {
+        success: false,
+        output: `⚠️ **lgtm Review: ERROR**\n\nFailed to parse lgtm output as JSON:\n\`\`\`\n${stdout.substring(0, 500)}\n\`\`\`\n\nStderr:\n\`\`\`\n${stderr}\n\`\`\``,
+        shouldAdvance: false
+      };
+    }
+
+    // Check result and format output
+    const commentsPosted = lgtmResult.commentsPosted || 0;
+    const duplicatesSkipped = lgtmResult.duplicatesSkipped || 0;
+    const comments = lgtmResult.comments || [];
+
+    if (commentsPosted === 0 && lgtmResult.success) {
+      // No issues - ADVANCE
+      return {
+        success: true,
+        output: `✅ **lgtm Review: PASSED**\n\nNo issues found. PR is ready for the next stage.${duplicatesSkipped > 0 ? `\n\n(${duplicatesSkipped} duplicate comments skipped)` : ''}`,
+        shouldAdvance: true
+      };
+    } else if (commentsPosted > 0) {
+      // Issues found - BOUNCE
+      let issuesList = '';
+      for (const comment of comments) {
+        issuesList += `\n- **${comment.path}:${comment.line}** ${comment.severity ? `(${comment.severity})` : ''}\n  ${comment.body}\n`;
+      }
+
+      return {
+        success: true,
+        output: `⚠️ **lgtm Review: ISSUES FOUND**\n\nFound ${commentsPosted} issue(s) that need attention:${issuesList}\n\n${duplicatesSkipped > 0 ? `(${duplicatesSkipped} duplicate comments skipped)\n\n` : ''}Please address these issues and push an update.`,
+        shouldAdvance: false
+      };
+    } else {
+      // lgtm reported failure
+      return {
+        success: false,
+        output: `⚠️ **lgtm Review: ERROR**\n\nlgtm review failed:\n\`\`\`\n${lgtmResult.error || 'Unknown error'}\n\`\`\`\n\nThis task needs manual review.`,
+        shouldAdvance: false
+      };
+    }
+  } catch (error) {
+    console.error('lgtm auto review failed:', error);
+    return {
+      success: false,
+      output: `⚠️ **lgtm Review: ERROR**\n\nFailed to run lgtm: ${error instanceof Error ? error.message : String(error)}`,
+      shouldAdvance: false
+    };
+  }
+}
+
+// Check if this is an lgtm-reviewer persona task
+function isLgtmReviewerTask(persona?: Persona): boolean {
+  return persona?.id === 'lgtm-reviewer' || persona?.name?.toLowerCase().includes('lgtm');
+}
+
 // Process a single task
 async function processTask(task: Task): Promise<void> {
   try {
@@ -1322,12 +1442,20 @@ async function processTask(task: Task): Promise<void> {
     // Notify via chat that work is starting
     await postTaskUpdate(fullTask, persona, `Starting work on this task. I'll update you when I'm done.`);
 
-    // Check if this is a research task and handle differently
+    // Check task type and handle accordingly
     let output: string;
     let success: boolean;
     let reportId: string | undefined;
+    let shouldAdvance: boolean = true; // For lgtm-reviewer: controls pipeline advancement
     
-    if (isResearchTask(fullTask, persona)) {
+    if (isLgtmReviewerTask(persona)) {
+      // Handle as lgtm automated review
+      const lgtmResult = await runLgtmAutoReview(fullTask);
+      success = lgtmResult.success;
+      output = lgtmResult.output;
+      shouldAdvance = lgtmResult.shouldAdvance;
+      console.log(`🔍 lgtm review result: success=${success}, shouldAdvance=${shouldAdvance}`);
+    } else if (isResearchTask(fullTask, persona)) {
       // Handle as research task - generate report
       const researchResult = await processResearchTask(fullTask, persona);
       success = researchResult.success;
@@ -1401,8 +1529,12 @@ async function processTask(task: Task): Promise<void> {
         // Check if task is part of a pipeline
         const pipelineState = await getTaskPipelineState(fullTask.id);
         if (pipelineState && fullTask.pipelineId) {
-          await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output);
-          await postTaskUpdate(fullTask, persona, `Work complete. Advancing to the next pipeline stage.`);
+          await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output, shouldAdvance);
+          if (shouldAdvance) {
+            await postTaskUpdate(fullTask, persona, `Work complete. Advancing to the next pipeline stage.`);
+          } else {
+            await postTaskUpdate(fullTask, persona, `Issues found. Bouncing back to the previous stage for fixes.`);
+          }
         } else {
           // No pipeline - try auto-review first, then fall back to manual review
           const reviewState = await initiateAutoReview(fullTask, persona.id);
@@ -1459,7 +1591,8 @@ async function advanceTaskInPipeline(
   task: Task, 
   pipelineState: TaskPipelineState, 
   updatedComments: Comment[], 
-  output: string
+  output: string,
+  shouldAdvance: boolean = true // For lgtm-reviewer: false means bounce back
 ): Promise<void> {
   try {
     const pipeline = await getPipeline(pipelineState.pipelineId);
@@ -1500,7 +1633,47 @@ async function advanceTaskInPipeline(
       [currentStage.id]: (pipelineState.stageAttempts[currentStage.id] || 0) + 1
     };
 
-    // Check if there's a next stage
+    // Check if we should bounce back (lgtm-reviewer found issues)
+    if (!shouldAdvance) {
+      // Find the previous stage (typically the developer stage)
+      const previousStageIndex = currentStageIndex - 1;
+      if (previousStageIndex >= 0) {
+        const previousStage = pipeline.stages[previousStageIndex];
+        
+        console.log(`🔄 Pipeline: ${task.title} bouncing back to ${previousStage.name} (${previousStage.persona})`);
+        
+        // Update pipeline state to go back to previous stage
+        const bouncedPipelineState: TaskPipelineState = {
+          ...pipelineState,
+          currentStageId: previousStage.id,
+          stageAttempts: updatedAttempts,
+          stageHistory: updatedHistory,
+          updatedAt: new Date()
+        };
+        
+        await updateTaskPipelineState(bouncedPipelineState);
+        
+        // Move task back to backlog for the previous stage persona
+        await updateTask(task.id, {
+          status: 'backlog',
+          persona: previousStage.persona,
+          assignee: previousStage.persona,
+          comments: updatedComments
+        });
+        
+        return;
+      } else {
+        // No previous stage - just move to backlog with current persona
+        console.log(`🔄 Pipeline: ${task.title} has no previous stage, moving to backlog`);
+        await updateTask(task.id, {
+          status: 'backlog',
+          comments: updatedComments
+        });
+        return;
+      }
+    }
+
+    // Normal advancement: check if there's a next stage
     const nextStageIndex = currentStageIndex + 1;
     if (nextStageIndex < pipeline.stages.length) {
       // Move to next stage

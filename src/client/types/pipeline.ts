@@ -63,6 +63,49 @@ export interface TaskStageOutput {
 // Built-in pipeline templates
 export const PIPELINE_TEMPLATES: Omit<Pipeline, 'id' | 'createdAt' | 'updatedAt'>[] = [
   {
+    name: "Developer Pipeline",
+    description: "Developer → lgtm Code Review → QA Testing",
+    isActive: true,
+    stages: [
+      {
+        id: "dev",
+        name: "Development",
+        persona: "developer",
+        autoAdvance: true,
+        maxRetryAttempts: 3,
+        action: {
+          type: "work",
+          description: "Implement the feature or fix, create PR",
+          outputRequirements: ["PR", "tests"]
+        }
+      },
+      {
+        id: "lgtm",
+        name: "lgtm Code Review",
+        persona: "lgtm-reviewer",
+        autoAdvance: true, // Auto-advance if clean, bounce if issues
+        maxRetryAttempts: 3,
+        action: {
+          type: "review",
+          description: "Automated code review using lgtm tool",
+          outputRequirements: ["review_approval"]
+        }
+      },
+      {
+        id: "qa",
+        name: "QA Testing",
+        persona: "qa-engineer",
+        autoAdvance: false, // Manual approval from QA
+        maxRetryAttempts: 2,
+        action: {
+          type: "test",
+          description: "Test the implementation for functionality and regressions",
+          outputRequirements: ["test_confirmation"]
+        }
+      }
+    ]
+  },
+  {
     name: "Standard Development",
     description: "Developer → QA Engineer → Security Reviewer → Human Review",
     isActive: true,
