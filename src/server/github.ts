@@ -597,6 +597,45 @@ export interface ReviewThread {
 }
 
 /**
+ * Fetch plain PR comments (issue comments, not review threads)
+ */
+export async function getPRComments(repo: string, prNumber: number): Promise<Array<{
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}>> {
+  try {
+    const { stdout } = await exec(
+      `gh api repos/${repo}/issues/${prNumber}/comments --jq '.[] | {id: .id | tostring, author: .user.login, body: .body, createdAt: .created_at, url: .html_url}'`,
+      { timeout: 15000, maxBuffer: 2 * 1024 * 1024 }
+    );
+
+    if (!stdout.trim()) {
+      return [];
+    }
+
+    const comments = stdout
+      .trim()
+      .split('\n')
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    return comments;
+  } catch (error) {
+    console.warn(`Failed to fetch PR comments for ${repo}#${prNumber}:`, error);
+    return [];
+  }
+}
+
+/**
  * Fetch unresolved review threads for a PR using GraphQL
  */
 export async function getPRReviewThreads(repo: string, prNumber: number): Promise<ReviewThread[]> {
