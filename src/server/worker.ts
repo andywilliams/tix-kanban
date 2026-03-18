@@ -521,7 +521,12 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
+    // If firstCommentId is undefined (e.g., plain comment而非review comment)，use fallback gh pr review command
+    if (metadata.firstCommentId) {
+      baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
+    } else {
+      baseInstruction.push(`Reply to the PR using: \`gh pr review ${metadata.prNumber} -f body="your reply" --repo ${metadata.repo}\``);
+    }
   }
 
   baseInstruction.push('');
@@ -642,7 +647,10 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       
       // seenThreadIds is initialized from previous state; on first observation it's empty
       // Thread check only runs on subsequent observations (inside else block below)
-      let seenThreadIds = previous?.seenThreadIds || [];
+      // Migration case: if previous exists but seenThreadIds is undefined (pre-existing snapshot),
+      // treat as migration - fetch threads and populate seenThreadIds without firing events
+      const isMigration = previous && previous.seenThreadIds === undefined;
+      let seenThreadIds = isMigration ? [] : (previous?.seenThreadIds || []);
       
       const current: PRSnapshot = { 
         state, 
@@ -652,8 +660,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       };
       newSnapshots[pr.key] = current;
 
-      if (!previous) {
-        // First observation: only fire onPROpened (PR was just linked to this task)
+      if (!previous || isMigration) {
+        // First observation OR migration: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
         // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
         if (state === 'open') {
@@ -662,8 +670,11 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           seenThreadIds = unresolvedThreads.map(t => t.id);
           current.seenThreadIds = seenThreadIds;
           
-          for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
-            enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+          // Only fire onPROpened for genuinely new observations, not migrations
+          if (!isMigration) {
+            for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
+              enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
+            }
           }
         }
       } else {
@@ -928,19 +939,28 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
     return true;
   }
 
-  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation', 'knowledge', 'article', 'documentation', 'document', 'architecture'];
+  // Keywords that should only match against title (too common in regular dev tasks)
+  const titleOnlyKeywords = ['document', 'documentation', 'architecture', 'analysis', 'report'];
+  // Keywords that are explicit research indicators (can check description too)
+  const explicitResearchKeywords = ['research', 'investigate', 'explore', 'rfc', 'adr', 'study', 'investigation', 'knowledge', 'article'];
+  
   const titleLower = task.title.toLowerCase();
   const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
 
   // Check if task is explicitly tagged as research
-  if (tags.some(tag => researchKeywords.includes(tag.toLowerCase()))) {
+  const allKeywords = [...titleOnlyKeywords, ...explicitResearchKeywords];
+  if (tags.some(tag => allKeywords.includes(tag.toLowerCase()))) {
     return true;
   }
 
-  // Check if title or description contains research keywords
-  return researchKeywords.some(keyword =>
-    titleLower.includes(keyword) || descriptionLower.includes(keyword)
+  // Check title for all keywords (both broad and explicit)
+  const titleMatch = allKeywords.some(keyword => titleLower.includes(keyword));
+  if (titleMatch) return true;
+
+  // Check description only for explicit research indicators
+  return explicitResearchKeywords.some(keyword =>
+    descriptionLower.includes(keyword)
   );
 }
 
