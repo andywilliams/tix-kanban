@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Persona, GitHubConfig, RepoConfig } from '../types';
+import { Pipeline, TaskPipelineState } from '../types/pipeline';
 import { GitHubStatus } from './GitHubStatus';
 import TaskRating from './TaskRating';
 
@@ -52,9 +53,16 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
   
   // Rating state
   const [submittingRating, setSubmittingRating] = useState(false);
+  
+  // Pipeline state
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [pipelineState, setPipelineState] = useState<TaskPipelineState | null>(null);
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
 
   useEffect(() => {
     loadGitHubConfig();
+    loadPipelines();
+    loadPipelineState();
   }, []);
 
   const loadGitHubConfig = async () => {
@@ -69,6 +77,35 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
       }
     } catch (error) {
       console.error('Failed to load GitHub config:', error);
+    }
+  };
+
+  const loadPipelines = async () => {
+    setLoadingPipelines(true);
+    try {
+      const response = await fetch('/api/pipelines');
+      if (response.ok) {
+        const data = await response.json();
+        setPipelines(data.pipelines || []);
+      }
+    } catch (error) {
+      console.error('Failed to load pipelines:', error);
+    } finally {
+      setLoadingPipelines(false);
+    }
+  };
+
+  const loadPipelineState = async () => {
+    if (!task.pipelineId) return;
+    
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/pipeline-state`);
+      if (response.ok) {
+        const data = await response.json();
+        setPipelineState(data.state);
+      }
+    } catch (error) {
+      console.error('Failed to load pipeline state:', error);
     }
   };
 
@@ -210,6 +247,55 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
       alert('Failed to submit rating. Check console for details.');
     } finally {
       setSubmittingRating(false);
+    }
+  };
+
+  const assignPipeline = async (pipelineId: string) => {
+    if (!pipelineId) {
+      // Clear pipeline assignment
+      try {
+        const response = await fetch(`/api/tasks/${task.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pipelineId: null }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          onUpdate(data.task);
+          setPipelineState(null);
+          setEditedTask({ ...editedTask, pipelineId: undefined });
+        } else {
+          const error = await response.json();
+          alert(`Failed to clear pipeline: ${error.error}`);
+        }
+      } catch (error) {
+        console.error('Failed to clear pipeline:', error);
+        alert('Failed to clear pipeline. Check console for details.');
+      }
+      return;
+    }
+
+    // Assign pipeline and initialize state
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pipelineId }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        onUpdate(data.task);
+        setPipelineState(data.pipelineState);
+        setEditedTask({ ...editedTask, pipelineId });
+      } else {
+        const error = await response.json();
+        alert(`Failed to assign pipeline: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to assign pipeline:', error);
+      alert('Failed to assign pipeline. Check console for details.');
     }
   };
 
@@ -374,6 +460,27 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                   })}
                 </select>
               </div>
+
+              <div className="form-group">
+                <label>Pipeline</label>
+                <select
+                  value={editedTask.pipelineId || ''}
+                  onChange={(e) => assignPipeline(e.target.value)}
+                  disabled={loadingPipelines}
+                >
+                  <option value="">No Pipeline</option>
+                  {pipelines.filter(p => p.isActive).map(pipeline => (
+                    <option key={pipeline.id} value={pipeline.id}>
+                      {pipeline.name}
+                    </option>
+                  ))}
+                </select>
+                {editedTask.pipelineId && pipelineState && (
+                  <small className="form-help">
+                    Current stage: {pipelines.find(p => p.id === editedTask.pipelineId)?.stages.find(s => s.id === pipelineState.currentStageId)?.name || 'Unknown'}
+                  </small>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -435,6 +542,20 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                   task.timeoutMs ? `⏱️ ${Math.round(task.timeoutMs / 60000)} min` :
                   '⏱️ Default (auto)'
                 }</p>
+                {task.pipelineId && (
+                  <p><strong>Pipeline:</strong> {
+                    (() => {
+                      const pipeline = pipelines.find(p => p.id === task.pipelineId);
+                      const stage = pipelineState && pipeline?.stages.find(s => s.id === pipelineState.currentStageId);
+                      return pipeline ? (
+                        <span>
+                          {pipeline.name}
+                          {stage && <span> › {stage.name}</span>}
+                        </span>
+                      ) : 'Loading...';
+                    })()
+                  }</p>
+                )}
               </div>
 
               {/* Comments Section */}

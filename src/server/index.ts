@@ -2566,6 +2566,53 @@ app.post('/api/tasks/:taskId/pipeline/:pipelineId/start', async (req, res) => {
   }
 });
 
+// POST /api/tasks/:id/assign-pipeline - Assign a pipeline to a task and initialize state
+app.post('/api/tasks/:id/assign-pipeline', async (req, res) => {
+  try {
+    const { id: taskId } = req.params;
+    const { pipelineId } = req.body;
+    
+    if (!pipelineId) {
+      return res.status(400).json({ error: 'pipelineId is required' });
+    }
+    
+    const pipeline = await getPipeline(pipelineId);
+    if (!pipeline) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    
+    if (pipeline.stages.length === 0) {
+      return res.status(400).json({ error: 'Pipeline has no stages' });
+    }
+    
+    // Initialize pipeline state at the first stage
+    const firstStage = pipeline.stages[0];
+    const pipelineState = {
+      taskId,
+      pipelineId,
+      currentStageId: firstStage.id,
+      stageAttempts: { [firstStage.id]: 0 },
+      stageHistory: [],
+      isStuck: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await updateTaskPipelineState(pipelineState);
+    
+    // Update task with pipelineId
+    const updatedTask = await updateTask(taskId, { pipelineId }, 'system');
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json({ task: updatedTask, pipelineState });
+  } catch (error) {
+    console.error(`POST /api/tasks/${req.params.id}/assign-pipeline error:`, error);
+    res.status(500).json({ error: 'Failed to assign pipeline' });
+  }
+});
+
 // Auto-Review API endpoints
 
 // GET /api/auto-review/config - Get auto-review configuration

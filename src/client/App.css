@@ -377,6 +377,30 @@ body {
   font-size: 0.75rem;
 }
 
+.task-pipeline-info {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.pipeline-name {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pipeline-separator {
+  color: var(--text-muted);
+}
+
+.pipeline-stage {
+  color: var(--text-secondary);
+}
+
 .task-assignee {
   background: var(--accent);
   color: white;
@@ -559,6 +583,13 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}
+
+.form-help {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
 
 .form-row {

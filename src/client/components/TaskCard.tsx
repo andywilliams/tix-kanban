@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Task, Persona } from '../types';
+import { Pipeline, TaskPipelineState } from '../types/pipeline';
 
 interface TaskCardProps {
   task: Task;
@@ -20,6 +21,38 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
     id: task.id,
   });
 
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null);
+  const [pipelineState, setPipelineState] = useState<TaskPipelineState | null>(null);
+
+  useEffect(() => {
+    if (task.pipelineId) {
+      loadPipelineInfo();
+    }
+  }, [task.pipelineId]);
+
+  const loadPipelineInfo = async () => {
+    if (!task.pipelineId) return;
+    
+    try {
+      const [pipelineRes, stateRes] = await Promise.all([
+        fetch(`/api/pipelines/${task.pipelineId}`),
+        fetch(`/api/tasks/${task.id}/pipeline-state`)
+      ]);
+      
+      if (pipelineRes.ok) {
+        const data = await pipelineRes.json();
+        setPipeline(data.pipeline);
+      }
+      
+      if (stateRes.ok) {
+        const data = await stateRes.json();
+        setPipelineState(data.state);
+      }
+    } catch (error) {
+      console.error('Failed to load pipeline info:', error);
+    }
+  };
+
   const persona = personas.find(p => p.id === task.persona);
   const isAgentWorking = task.agentActivity?.status === 'working';
   const style = transform ? {
@@ -27,6 +60,9 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   } : undefined;
 
   const priorityColor = getPriorityColor(task.priority);
+  const currentStage = pipeline && pipelineState 
+    ? pipeline.stages.find(s => s.id === pipelineState.currentStageId)
+    : null;
 
   return (
     <div
@@ -69,12 +105,20 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
             <span className="task-tag-more">+{task.tags.length - 3}</span>
           )}
         </div>
-        {task.links && task.links.some(l => l.type === 'pr') && (
-          <div className="task-status">
+        <div className="task-status-icons">
+          {task.links && task.links.some(l => l.type === 'pr') && (
             <span className="github-status compact" title="Has linked PR">🔗</span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+      
+      {pipeline && currentStage && (
+        <div className="task-pipeline-info">
+          <span className="pipeline-name">{pipeline.name}</span>
+          <span className="pipeline-separator"> › </span>
+          <span className="pipeline-stage">{currentStage.name}</span>
+        </div>
+      )}
     </div>
   );
 };
