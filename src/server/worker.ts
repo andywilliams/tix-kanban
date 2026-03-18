@@ -1653,6 +1653,41 @@ async function advanceTaskInPipeline(
 
     // Check if we should bounce back (lgtm-reviewer found issues)
     if (!shouldAdvance) {
+      // Check maxRetryAttempts before bouncing
+      const currentAttempts = updatedAttempts[currentStage.id] || 0;
+      const maxAttempts = currentStage.maxRetryAttempts || 3;
+      
+      if (currentAttempts >= maxAttempts) {
+        // Max retry attempts reached - mark as stuck and don't bounce
+        console.warn(`⚠️  Task "${task.title}" stuck at ${currentStage.name} after ${currentAttempts} attempts (max: ${maxAttempts}). Not bouncing.`);
+        
+        const stuckPipelineState: TaskPipelineState = {
+          ...pipelineState,
+          currentStageId: currentStage.id,
+          isStuck: true,
+          stageAttempts: updatedAttempts,
+          stageHistory: updatedHistory,
+          updatedAt: new Date()
+        };
+        
+        await updateTaskPipelineState(stuckPipelineState);
+        
+        // Leave task in review state with warning comment
+        const stuckComment: Comment = {
+          id: Math.random().toString(36).substr(2, 9),
+          taskId: task.id,
+          body: `⚠️ **Pipeline Stuck**: Task reached max retry attempts (${maxAttempts}) at ${currentStage.name} stage. Manual intervention required.`,
+          author: 'System',
+          createdAt: new Date(),
+        };
+        await updateTask(task.id, {
+          status: 'review',
+          comments: [...updatedComments, stuckComment]
+        });
+        
+        return;
+      }
+      
       // Find the previous stage (typically the developer stage)
       const previousStageIndex = currentStageIndex - 1;
       if (previousStageIndex >= 0) {
@@ -1700,12 +1735,16 @@ async function advanceTaskInPipeline(
       console.log(`📋 Pipeline: ${task.title} → Stage ${nextStage.name} (${nextStage.persona})`);
       
       // Update pipeline state
+      // Preserve the attempt count for the stage we're leaving (in case of future bounce-back)
+      // Only initialize nextStage.id if it doesn't exist yet
       const updatedPipelineState: TaskPipelineState = {
         ...pipelineState,
         currentStageId: nextStage.id,
         stageAttempts: {
           ...updatedAttempts,
-          [nextStage.id]: 0 // Reset attempts for new stage
+          [nextStage.id]: updatedAttempts[nextStage.id] !== undefined 
+            ? updatedAttempts[nextStage.id] 
+            : 0 // Only initialize to 0 if never visited before
         },
         stageHistory: updatedHistory,
         updatedAt: new Date()
