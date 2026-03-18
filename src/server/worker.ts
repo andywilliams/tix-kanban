@@ -23,7 +23,6 @@ import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from '.
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
-import { processReviewTasksPRStatus } from './pr-monitor.js';
 import {
   generateStandupEntry,
   saveStandupEntry,
@@ -522,11 +521,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    if (metadata.firstCommentId) {
-      baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
-    } else {
-      baseInstruction.push(`Note: Could not determine comment ID for reply. Use \`gh pr review ${metadata.prNumber} --comment -b "your reply"\` as a fallback.`);
-    }
+    baseInstruction.push('Reply on the GitHub thread using: `gh pr comment ${metadata.prNumber} --repo ${metadata.repo} --body "your message"`');
   }
 
   baseInstruction.push('');
@@ -587,9 +582,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[]; metadata?: any }>();
 
   const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string, metadata?: any): void => {
-    // Include threadId in key for onCommentAdded to avoid overwriting multiple threads
-    const threadIdSuffix = eventType === 'onCommentAdded' && metadata?.threadId ? `|${metadata.threadId}` : '';
-    const key = `${task.id}|${persona.id}|${eventType}${threadIdSuffix}`;
+    const key = `${task.id}|${persona.id}|${eventType}`;
     const existing = pendingInvocations.get(key);
     if (existing) {
       existing.details.push(detail);
@@ -645,11 +638,44 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
       const effectiveCiState = ciState ?? previous?.ciState ?? null;
       
-      // seenThreadIds is initialized from previous state; on first observation it's empty
-      // Thread check only runs on subsequent observations (inside else block below)
-      // Handle migration: if previous exists but seenThreadIds is undefined, treat as first observation
-      const isMigration = previous && previous.seenThreadIds === undefined;
-      let seenThreadIds = (previous && !isMigration) ? [...previous.seenThreadIds] : [];
+      // Check for new review threads/comments (only on open PRs)
+      let seenThreadIds = previous?.seenThreadIds || [];
+      const lastThreadCheck = previous?.lastThreadCheck;
+      
+      if (state === 'open') {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        
+        for (const thread of unresolvedThreads) {
+          if (!seenThreadIds.includes(thread.id)) {
+            // New unresolved thread detected
+            const firstComment = thread.comments[0];
+            if (firstComment) {
+              const metadata = {
+                prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
+                prNumber: pr.number,
+                repo: pr.repo,
+                threadId: thread.id,
+                author: firstComment.author,
+                body: firstComment.body,
+                path: firstComment.path,
+                line: firstComment.line,
+                createdAt: firstComment.createdAt,
+                allComments: thread.comments.map(c => ({
+                  author: c.author,
+                  body: c.body,
+                  createdAt: c.createdAt,
+                })),
+              };
+              
+              for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
+                enqueueInvocation(fullTask, persona, 'onCommentAdded', `New review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
+              }
+            }
+            seenThreadIds.push(thread.id);
+          }
+        }
+      }
       
       const current: PRSnapshot = { 
         state, 
@@ -659,59 +685,16 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       };
       newSnapshots[pr.key] = current;
 
-      if (!previous || isMigration) {
+      if (!previous) {
         // First observation: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
-        // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
         if (state === 'open') {
-          const threads = await getPRReviewThreads(pr.repo, pr.number);
-          const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-          seenThreadIds = unresolvedThreads.map(t => t.id);
-          current.seenThreadIds = seenThreadIds;
-          
           for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
           }
         }
       } else {
-        // Subsequent observations: fire on state transitions and check for new threads
-        if (state === 'open') {
-          const threads = await getPRReviewThreads(pr.repo, pr.number);
-          const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-          
-          for (const thread of unresolvedThreads) {
-            if (!seenThreadIds.includes(thread.id)) {
-              // New unresolved thread detected
-              const firstComment = thread.comments[0];
-              if (firstComment) {
-                const metadata = {
-                  prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
-                  prNumber: pr.number,
-                  repo: pr.repo,
-                  threadId: thread.id,
-                  author: firstComment.author,
-                  body: firstComment.body,
-                  path: firstComment.path,
-                  line: firstComment.line,
-                  createdAt: firstComment.createdAt,
-                  firstCommentId: firstComment.databaseId,
-                  allComments: thread.comments.map(c => ({
-                    id: c.id,
-                    author: c.author,
-                    body: c.body,
-                    createdAt: c.createdAt,
-                  })),
-                };
-                
-                for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
-                  enqueueInvocation(fullTask, persona, 'onCommentAdded', `New review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
-                }
-              }
-              seenThreadIds.push(thread.id);
-            }
-          }
-        }
-
+        // Subsequent observations: fire on state transitions only
         if (state === 'open' && previous.state !== 'open') {
           for (const persona of getTriggeredPersonas(personas, 'onPROpened', fullTask)) {
             enqueueInvocation(fullTask, persona, 'onPROpened', `${pr.repo}#${pr.number} (${pr.url || 'no-url'})`);
@@ -935,25 +918,20 @@ function isResearchTask(task: Task, persona?: Persona): boolean {
     return true;
   }
 
-  // Only unambiguously research-oriented keywords — avoid common dev words like 'document', 'documentation', 'architecture'
-  const researchKeywords = ['research', 'study', 'investigation', 'knowledge', 'article'];
-  // These only count as research when they appear in the title (not scattered in descriptions)
-  const titleOnlyKeywords = ['analysis', 'report'];
+  const researchKeywords = ['research', 'analysis', 'report', 'study', 'investigation', 'knowledge', 'article', 'documentation', 'document', 'architecture'];
   const titleLower = task.title.toLowerCase();
+  const descriptionLower = task.description.toLowerCase();
   const tags = task.tags || [];
 
   // Check if task is explicitly tagged as research
-  if (tags.some(tag => [...researchKeywords, ...titleOnlyKeywords].includes(tag.toLowerCase()))) {
+  if (tags.some(tag => researchKeywords.includes(tag.toLowerCase()))) {
     return true;
   }
 
-  // Check title for all research keywords
-  if (researchKeywords.some(keyword => titleLower.includes(keyword))) {
-    return true;
-  }
-
-  // Title-only keywords (too common in descriptions to be reliable)
-  return titleOnlyKeywords.some(keyword => titleLower.includes(keyword));
+  // Check if title or description contains research keywords
+  return researchKeywords.some(keyword =>
+    titleLower.includes(keyword) || descriptionLower.includes(keyword)
+  );
 }
 
 // Check if task is a code review task that should use lgtm
@@ -1619,10 +1597,7 @@ async function runWorkerCycle(): Promise<void> {
     console.warn('Failed to clear expired cache:', error);
   }
 
-  // First, monitor PRs for review tasks (detect merged PRs, new comments, CI failures, conflicts)
-  await processReviewTasksPRStatus();
-
-  // Then, process any auto-review tasks
+  // First, process any auto-review tasks
   await processAutoReviewTasks();
 
   // Get all tasks
