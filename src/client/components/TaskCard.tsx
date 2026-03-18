@@ -38,7 +38,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
   const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
 
-  // Bug fix: Detect when pipelineId changes and refetch if needed
+  // Detect when pipelineId changes and refetch if needed
   useEffect(() => {
     const prevPipelineId = prevPipelineIdRef.current;
     if (task.pipelineId !== prevPipelineId) {
@@ -54,16 +54,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
         setLocalPipeline(null);
         setLocalPipelineState(null);
       }
-    }
-  }, [task.pipelineId, propPipeline, propPipelineState]);
-
-  // Also keep original effect for initial load
-  useEffect(() => {
-    if (task.pipelineId && propPipeline === undefined) {
-      loadPipelineInfo();
-    } else if (!task.pipelineId) {
-      setLocalPipeline(null);
-      setLocalPipelineState(null);
     }
   }, [task.pipelineId, propPipeline, propPipelineState]);
 

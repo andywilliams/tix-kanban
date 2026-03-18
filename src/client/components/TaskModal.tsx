@@ -250,56 +250,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
     }
   };
 
-  const assignPipeline = async (pipelineId: string) => {
-    if (!pipelineId) {
-      // Clear pipeline assignment
-      try {
-        const response = await fetch(`/api/tasks/${task.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pipelineId: null }),
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          onUpdate(data.task);
-          setPipelineState(null);
-          // Bug fix: Use null instead of undefined so JSON.stringify sends it
-          setEditedTask(prev => ({ ...prev, pipelineId: null }));
-        } else {
-          const error = await response.json();
-          alert(`Failed to clear pipeline: ${error.error}`);
-        }
-      } catch (error) {
-        console.error('Failed to clear pipeline:', error);
-        alert('Failed to clear pipeline. Check console for details.');
-      }
-      return;
-    }
-
-    // Assign pipeline and initialize state
-    try {
-      const response = await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipelineId }),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        onUpdate(data.task);
-        setPipelineState(data.pipelineState);
-        setEditedTask(prev => ({ ...prev, pipelineId }));
-      } else {
-        const error = await response.json();
-        alert(`Failed to assign pipeline: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Failed to assign pipeline:', error);
-      alert('Failed to assign pipeline. Check console for details.');
-    }
-  };
-
   // Handle pipeline assignment when saving (called from handleSave)
   const persistPipelineAssignment = async () => {
     const originalPipelineId = task.pipelineId;
