@@ -31,17 +31,31 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
   const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
 
+  // Track previous pipelineId to detect changes
+  const prevPipelineIdRef = React.useRef<string | null | undefined>(task.pipelineId);
+
+  // Use prop if provided, otherwise use local state
+  const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
+  const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
+
+  // Detect when pipelineId changes and refetch if needed
   useEffect(() => {
-    if (task.pipelineId) {
-      // Only fetch if no prop pipeline was provided
-      if (propPipeline === undefined) {
-        loadPipelineInfo();
+    const prevPipelineId = prevPipelineIdRef.current;
+    if (task.pipelineId !== prevPipelineId) {
+      prevPipelineIdRef.current = task.pipelineId;
+      
+      if (task.pipelineId) {
+        // Pipeline changed - fetch fresh data if no prop provided OR if propPipelineState is missing
+        if (propPipeline === undefined || propPipelineState === undefined) {
+          loadPipelineInfo();
+        }
+      } else {
+        // Pipeline was cleared
+        setLocalPipeline(null);
+        setLocalPipelineState(null);
       }
-    } else {
-      setLocalPipeline(null);
-      setLocalPipelineState(null);
     }
-  }, [task.pipelineId, propPipeline]);
+  }, [task.pipelineId, propPipeline, propPipelineState]);
 
   const loadPipelineInfo = async () => {
     if (!task.pipelineId) return;
