@@ -494,7 +494,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
 
   // Add special context for review comments
   if (eventType === 'onCommentAdded' && metadata) {
-    const commentId = metadata.firstComment?.id || '[comment_id]';
+    const commentId = metadata.firstComment?.databaseId || '[comment_id]';
     baseInstruction.push('');
     baseInstruction.push('## Review Comment Details');
     baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);

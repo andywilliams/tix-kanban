@@ -618,6 +618,7 @@ export async function getPRReviewThreads(repo: string, prNumber: number): Promis
                 comments(first: 10) {
                   nodes {
                     id
+                    databaseId
                     author { login }
                     body
                     path
@@ -649,6 +650,7 @@ export async function getPRReviewThreads(repo: string, prNumber: number): Promis
       isOutdated: node.isOutdated,
       comments: (node.comments?.nodes || []).map((comment: any) => ({
         id: comment.id,
+        databaseId: comment.databaseId,
         author: comment.author?.login || 'unknown',
         body: comment.body || '',
         path: comment.path || null,

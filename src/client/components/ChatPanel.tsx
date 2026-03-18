@@ -133,7 +133,7 @@ export default function ChatPanel({
     return () => {
       container.removeEventListener('scroll', handleScroll);
     };
-  }, [handleScroll, checkIsAtBottom]);
+  }, [handleScroll, checkIsAtBottom, isOpen]);
 
   // Slash command detection
   useEffect(() => {
