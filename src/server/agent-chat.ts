@@ -1647,11 +1647,70 @@ export async function generatePersonaResponseStreaming(
     // Import streaming function
     const { generateAIResponseStreaming } = await import('./streaming-chat.js');
 
+    // FIX: Wrap onToken to filter out action/memory blocks in real-time
+    // This prevents users from seeing raw tags like [CREATE_TICKET], [REMEMBER:...] during streaming
+    let inActionBlock = false;
+    let inMemoryBlock = false;
+    let actionBuffer = '';
+    let memoryBuffer = '';
+    
+    const filteredOnToken = (token: string) => {
+      let filtered = '';
+      let remaining = token;
+      
+      while (remaining.length > 0) {
+        // Check for action block markers
+        if (!inActionBlock && !inMemoryBlock) {
+          const actionStart = remaining.indexOf('```action');
+          const memoryStart = remaining.indexOf('```memory');
+          
+          if (actionStart === -1 && memoryStart === -1) {
+            // No block starts in this token, emit everything
+            filtered += remaining;
+            break;
+          } else if (actionStart !== -1 && (memoryStart === -1 || actionStart < memoryStart)) {
+            // Action block starts first
+            filtered += remaining.substring(0, actionStart);
+            inActionBlock = true;
+            remaining = remaining.substring(actionStart + 9); // Skip "```action"
+          } else {
+            // Memory block starts first
+            filtered += remaining.substring(0, memoryStart);
+            inMemoryBlock = true;
+            remaining = remaining.substring(memoryStart + 9); // Skip "```memory"
+          }
+        } else if (inActionBlock) {
+          const actionEnd = remaining.indexOf('```');
+          if (actionEnd !== -1) {
+            inActionBlock = false;
+            remaining = remaining.substring(actionEnd + 3); // Skip "```"
+          } else {
+            // Still inside action block, skip everything
+            break;
+          }
+        } else if (inMemoryBlock) {
+          const memoryEnd = remaining.indexOf('```');
+          if (memoryEnd !== -1) {
+            inMemoryBlock = false;
+            remaining = remaining.substring(memoryEnd + 3); // Skip "```"
+          } else {
+            // Still inside memory block, skip everything
+            break;
+          }
+        }
+      }
+      
+      // Only emit if there's filtered content
+      if (filtered.length > 0) {
+        onToken(filtered);
+      }
+    };
+
     // Generate response with streaming
     const fullResponse = await generateAIResponseStreaming(
       prompt,
       persona,
-      onToken,
+      filteredOnToken,
       90000
     );
 
@@ -1730,7 +1789,7 @@ export async function generatePersonaResponseStreaming(
     throw error;
   } finally {
     if (turnAcquired) {
-      await releaseSpeakingTurn(message.channelId);
+      await releaseSpeakingTurn(message.channelId, persona.id);
     }
   }
 }
