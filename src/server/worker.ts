@@ -521,7 +521,11 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
+    if (metadata.firstCommentId) {
+      baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
+    } else {
+      baseInstruction.push(`Note: Could not determine comment ID for reply. Use \`gh pr review ${metadata.prNumber} --comment -b "your reply"\` as a fallback.`);
+    }
   }
 
   baseInstruction.push('');
@@ -644,7 +648,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // Thread check only runs on subsequent observations (inside else block below)
       // Handle migration: if previous exists but seenThreadIds is undefined, treat as first observation
       const isMigration = previous && previous.seenThreadIds === undefined;
-      let seenThreadIds = (previous && !isMigration) ? previous.seenThreadIds : [];
+      let seenThreadIds = (previous && !isMigration) ? [...previous.seenThreadIds] : [];
       
       const current: PRSnapshot = { 
         state, 
