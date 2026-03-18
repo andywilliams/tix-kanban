@@ -9,11 +9,12 @@ import { parsePRLinks, getPRState } from './pr-utils.js';
 import { createOrGetChannel, addMessage } from './chat-storage.js';
 
 // Execute Claude CLI with prompt via stdin to avoid TOCTOU and shell injection
-function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000): Promise<{ stdout: string; stderr: string }> {
+function executeClaudeWithStdin(prompt: string, args: string[] = [], timeoutMs: number = 200000, cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const claudeArgs = ['-p', ...args];
     const child = spawn('claude', claudeArgs, {
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: cwd || process.cwd()
     });
     
     let stdout = '';
@@ -243,10 +244,20 @@ async function spawnReviewSession(
     // Create specialized review prompt
     const reviewPrompt = await createReviewContext(task, reviewer.id, reviewState);
     
+    // Build scoped allowed tools — restrict gh commands to specific PR numbers only
+    // to prevent injection via shell metacharacters after a numeric prefix
+    // Include --repo flag so gh commands resolve against the correct repo
+    // parsePRLinks already sanitizes and rejects repos with invalid chars — no need to re-sanitize
+    const linkedPRs = parsePRLinks(task.links);
+    const prToolPatterns = linkedPRs.flatMap(pr =>
+      [`Bash(gh pr diff ${pr.number} --repo ${pr.repo})`, `Bash(gh pr view ${pr.number} --repo ${pr.repo})`]
+    );
+    const allowedTools = ['Read', 'web_search', 'web_fetch', ...prToolPatterns].join(',');
+
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       reviewPrompt,
-      ['--allowedTools', 'Read,web_search,web_fetch'],
+      ['--allowedTools', allowedTools],
       200000 // 3.3 min timeout (process-level timeout)
     );
     
