@@ -494,16 +494,17 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
 
   // Add special context for review comments
   if (eventType === 'onCommentAdded' && metadata) {
+    const commentId = metadata.firstComment?.databaseId || '[comment_id]';
     baseInstruction.push('');
     baseInstruction.push('## Review Comment Details');
     baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
-    baseInstruction.push(`**Author:** ${metadata.author}`);
-    if (metadata.path) {
-      baseInstruction.push(`**File:** ${metadata.path}${metadata.line ? `:${metadata.line}` : ''}`);
+    baseInstruction.push(`**Author:** ${metadata.firstComment?.author || metadata.author}`);
+    if (metadata.firstComment?.path || metadata.path) {
+      baseInstruction.push(`**File:** ${metadata.firstComment?.path || metadata.path}${metadata.firstComment?.line || metadata.line ? `:${metadata.firstComment?.line || metadata.line}` : ''}`);
     }
     baseInstruction.push('');
     baseInstruction.push('**Comment:**');
-    baseInstruction.push(sanitizeForPrompt(metadata.body));
+    baseInstruction.push(sanitizeForPrompt(metadata.firstComment?.body || metadata.body));
     
     if (metadata.allComments && metadata.allComments.length > 1) {
       baseInstruction.push('');
@@ -521,12 +522,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
     baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
     baseInstruction.push('');
-    // If firstCommentId is undefined (e.g., plain comment, not review comment), use fallback gh pr review command
-    if (metadata.firstCommentId) {
-      baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${metadata.firstCommentId}/replies -f body="your reply"\``);
-    } else {
-      baseInstruction.push(`Reply to the PR using: \`gh pr review ${metadata.prNumber} --comment -b "your reply" --repo ${metadata.repo}\``);
-    }
+    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${commentId}/replies -f body="your reply"\``);
   }
 
   baseInstruction.push('');
@@ -647,10 +643,25 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       
       // seenThreadIds is initialized from previous state; on first observation it's empty
       // Thread check only runs on subsequent observations (inside else block below)
-      // Migration case: if previous exists but seenThreadIds is undefined (pre-existing snapshot),
-      // treat as migration - fetch threads and populate seenThreadIds without firing events
+      let seenThreadIds = previous?.seenThreadIds || [];
+      
+      // Migration case: previous exists but seenThreadIds field is missing (pre-change persisted state)
+      // Treat same as first observation - populate from existing threads without triggering
       const isMigration = previous && previous.seenThreadIds === undefined;
-      let seenThreadIds = isMigration ? [] : (previous?.seenThreadIds || []);
+      if (isMigration) {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        seenThreadIds = unresolvedThreads.map(t => t.id);
+      }
+      
+      // First observation: pre-populate seenThreadIds with existing threads so they 
+      // don't fire spuriously on next poll (avoids the bug where empty seenThreadIds 
+      // on first poll causes all existing threads to appear "new" on second poll)
+      if (!previous) {
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        seenThreadIds = unresolvedThreads.map(t => t.id);
+      }
       
       const current: PRSnapshot = { 
         state, 
@@ -663,7 +674,6 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous || isMigration) {
         // First observation OR migration: only fire onPROpened (PR was just linked to this task)
         // Don't fire onPRMerged/onCIPassed — those would be spurious for pre-existing state
-        // Also fetch existing threads and record their IDs so the next cycle has a proper baseline
         if (state === 'open') {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
@@ -693,12 +703,14 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
                   prNumber: pr.number,
                   repo: pr.repo,
                   threadId: thread.id,
-                  author: firstComment.author,
-                  body: firstComment.body,
-                  path: firstComment.path,
-                  line: firstComment.line,
-                  createdAt: firstComment.createdAt,
-                  firstCommentId: firstComment.databaseId,
+                  firstComment: {
+                    id: firstComment.id,
+                    author: firstComment.author,
+                    body: firstComment.body,
+                    path: firstComment.path,
+                    line: firstComment.line,
+                    createdAt: firstComment.createdAt,
+                  },
                   allComments: thread.comments.map(c => ({
                     id: c.id,
                     author: c.author,

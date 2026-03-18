@@ -582,7 +582,6 @@ export async function batchGetPRStatuses(repo: string, prNumbers: number[]): Pro
  */
 export interface ReviewComment {
   id: string;
-  databaseId?: number;
   author: string;
   body: string;
   path: string | null;
