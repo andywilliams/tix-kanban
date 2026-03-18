@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { ChatChannel, ChatMessage, Persona, AgentSoul } from '../types';
 
 interface TeamChatPanelProps {
@@ -55,8 +55,9 @@ export default function TeamChatPanel({
     }
   }, [personas]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
+  useLayoutEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
 
   // Mention autocomplete
