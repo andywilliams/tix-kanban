@@ -687,7 +687,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
                   path: firstComment.path,
                   line: firstComment.line,
                   createdAt: firstComment.createdAt,
-                  firstCommentId: firstComment.id,
+                  firstCommentId: firstComment.databaseId,
                   allComments: thread.comments.map(c => ({
                     id: c.id,
                     author: c.author,
