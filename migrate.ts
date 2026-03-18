@@ -1,8 +1,12 @@
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { homedir } from 'os';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const DB_PATH = process.env.FORGE_DB_PATH || join(homedir(), '.forge', 'forge.db');
 
@@ -12,76 +16,99 @@ if (!existsSync(dbDir)) {
   mkdirSync(dbDir, { recursive: true });
 }
 
-const db = new Database(DB_PATH);
+const sqlite = new Database(DB_PATH);
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS personas (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    model TEXT NOT NULL,
-    config_json TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
+// Run Drizzle migrations by reading and executing SQL files
+// This approach reads SQL files and splits by semicolon for multiple statements
+const migrationsFolder = join(__dirname, 'drizzle');
+const journalPath = join(migrationsFolder, 'meta', '_journal.json');
 
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    persona_id TEXT REFERENCES personas(id),
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    token_count INTEGER DEFAULT 0,
-    compaction_count INTEGER DEFAULT 0
-  );
+interface MigrationEntry {
+  idx: number;
+  version: string;
+  when: number;
+  tag: string;
+}
 
-  CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    session_id TEXT REFERENCES sessions(id),
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    token_count INTEGER,
-    created_at INTEGER NOT NULL,
-    metadata_json TEXT
-  );
+interface Journal {
+  version: string;
+  dialect: string;
+  entries: MigrationEntry[];
+}
 
-  CREATE TABLE IF NOT EXISTS compactions (
-    id TEXT PRIMARY KEY,
-    session_id TEXT REFERENCES sessions(id),
-    summary TEXT NOT NULL,
-    messages_compacted INTEGER NOT NULL,
-    tokens_freed INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
-  );
+// Get applied migrations from database
+function getAppliedMigrations(): string[] {
+  try {
+    const result = sqlite.prepare(`
+      SELECT name FROM sqlite_master 
+      WHERE type='table' AND name = '__drizzle_migrations'
+    `).get();
+    
+    if (!result) {
+      // Create migrations tracking table
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          hash TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+      `);
+      return [];
+    }
+    
+    const rows = sqlite.prepare('SELECT hash FROM __drizzle_migrations').all() as { hash: string }[];
+    return rows.map(r => r.hash);
+  } catch {
+    return [];
+  }
+}
 
-  CREATE TABLE IF NOT EXISTS worker_runs (
-    id TEXT PRIMARY KEY,
-    started_at INTEGER NOT NULL,
-    completed_at INTEGER,
-    tickets_processed INTEGER DEFAULT 0,
-    actions_json TEXT,
-    status TEXT NOT NULL DEFAULT 'running'
-  );
+// Apply a migration file
+function applyMigration(tag: string, sql: string): void {
+  // Split by semicolons and filter empty statements
+  const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+  
+  sqlite.exec('BEGIN TRANSACTION');
+  try {
+    for (const stmt of statements) {
+      if (stmt.trim()) {
+        sqlite.exec(stmt);
+      }
+    }
+    const insertStmt = sqlite.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)');
+insertStmt.run(tag, Date.now());
+    sqlite.exec('COMMIT');
+    console.log(`Applied migration: ${tag}`);
+  } catch (err) {
+    sqlite.exec('ROLLBACK');
+    throw err;
+  }
+}
 
-  CREATE TABLE IF NOT EXISTS budget_usage (
-    id TEXT PRIMARY KEY,
-    persona_id TEXT REFERENCES personas(id),
-    tokens_used INTEGER NOT NULL,
-    cost_usd REAL,
-    run_id TEXT,
-    recorded_at INTEGER NOT NULL
-  );
-`);
+// Read journal and apply pending migrations
+if (existsSync(migrationsFolder) && existsSync(journalPath)) {
+  const journal: Journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
+  const applied = getAppliedMigrations();
+  
+  for (const entry of journal.entries) {
+    const migrationFile = join(migrationsFolder, `${entry.tag}.sql`);
+    if (!applied.includes(entry.tag) && existsSync(migrationFile)) {
+      const sql = readFileSync(migrationFile, 'utf-8');
+      applyMigration(entry.tag, sql);
+    }
+  }
+}
 
 console.log('✅ Database migrated successfully!');
 console.log('Database path:', DB_PATH);
 
 // Verify tables
-const tables = db.prepare(`
+const tables = sqlite.prepare(`
   SELECT name FROM sqlite_master 
-  WHERE type='table' 
+  WHERE type='table' AND name NOT LIKE '__drizzle%'
   ORDER BY name
 `).all();
 
 console.log('Tables created:', tables.map(t => (t as any).name).join(', '));
 
-db.close();
+sqlite.close();
