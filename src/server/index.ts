@@ -113,7 +113,8 @@ import {
   getAllChannels,
   runArchiveMaintenance
 } from './chat-storage.js';
-import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import { processChatMention, startDirectConversation, getTeamOverview, generatePersonaResponseStreaming } from './agent-chat.js';
+import { initSSE, sendSSE } from './streaming-chat.js';
 import {
   loadProviderConfig,
   listProviders,
@@ -2359,6 +2360,106 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
   } catch (error) {
     console.error(`POST /api/chat/${req.params.channelId}/messages error:`, error);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// GET /api/chat/:channelId/stream - Stream persona response via SSE
+app.get('/api/chat/:channelId/stream', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const { messageId, personaId } = req.query;
+
+    if (!messageId || typeof messageId !== 'string') {
+      return res.status(400).json({ error: 'messageId query parameter is required' });
+    }
+
+    if (!personaId || typeof personaId !== 'string') {
+      return res.status(400).json({ error: 'personaId query parameter is required' });
+    }
+
+    // Initialize SSE connection
+    initSSE(res);
+
+    // Get the channel and recent messages
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      sendSSE(res, { event: 'error', data: { error: 'Channel not found' } });
+      res.end();
+      return;
+    }
+
+    const messages = await getMessages(channelId, 15);
+    const triggerMessage = messages.find(m => m.id === messageId);
+    
+    if (!triggerMessage) {
+      sendSSE(res, { event: 'error', data: { error: 'Message not found' } });
+      res.end();
+      return;
+    }
+
+    // Get the persona
+    const persona = await getPersona(personaId);
+    if (!persona) {
+      sendSSE(res, { event: 'error', data: { error: 'Persona not found' } });
+      res.end();
+      return;
+    }
+
+    // Send thinking event immediately
+    sendSSE(res, { event: 'thinking', data: {} });
+
+    // Handle client disconnect
+    let clientDisconnected = false;
+    req.on('close', () => {
+      clientDisconnected = true;
+      console.log(`SSE client disconnected from ${channelId}`);
+    });
+
+    // Generate streaming response
+    try {
+      const result = await generatePersonaResponseStreaming(
+        triggerMessage,
+        persona,
+        (token: string) => {
+          if (!clientDisconnected) {
+            sendSSE(res, { event: 'token', data: { text: token } });
+          }
+        }
+      );
+
+      if (result && !clientDisconnected) {
+        sendSSE(res, {
+          event: 'done',
+          data: {
+            messageId: result.messageId,
+            fullText: result.fullResponse
+          }
+        });
+      } else if (!result && !clientDisconnected) {
+        sendSSE(res, {
+          event: 'error',
+          data: { error: 'Persona could not respond (another persona may be speaking)' }
+        });
+      }
+    } catch (streamError) {
+      console.error('Streaming generation error:', streamError);
+      if (!clientDisconnected) {
+        sendSSE(res, {
+          event: 'error',
+          data: { error: 'Failed to generate response' }
+        });
+      }
+    }
+
+    res.end();
+  } catch (error) {
+    console.error(`GET /api/chat/${req.params.channelId}/stream error:`, error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream response' });
+    } else {
+      sendSSE(res, { event: 'error', data: { error: 'Internal server error' } });
+      res.end();
+    }
   }
 });
 

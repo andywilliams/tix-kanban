@@ -13,6 +13,10 @@ interface TeamChatPanelProps {
   onSwitchChannel: (channel: ChatChannel) => void;
   onCreateTaskChannel: (taskId: string, taskTitle: string) => void;
   onStartDirectChat: (personaId: string) => void;
+  // Streaming support
+  streamingMessageId?: string | null;
+  streamingText?: string;
+  isThinking?: boolean;
 }
 
 type ViewMode = 'channels' | 'team' | 'direct';
@@ -20,7 +24,8 @@ type ViewMode = 'channels' | 'team' | 'direct';
 export default function TeamChatPanel({
   isOpen, onClose, currentChannel, channels, personas, currentUser,
   unreadCounts = {},
-  onSendMessage, onSwitchChannel, onCreateTaskChannel, onStartDirectChat
+  onSendMessage, onSwitchChannel, onCreateTaskChannel, onStartDirectChat,
+  streamingMessageId, streamingText, isThinking
 }: TeamChatPanelProps) {
   const [messageInput, setMessageInput] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
@@ -323,6 +328,44 @@ export default function TeamChatPanel({
                 />
               ))
             )}
+            
+            {/* Streaming message (in-progress response) */}
+            {streamingMessageId && streamingText && (
+              <MessageBubble
+                message={{
+                  id: 'streaming',
+                  channelId: currentChannel?.id || '',
+                  author: 'AI',
+                  authorType: 'persona',
+                  content: streamingText + ' ▌',
+                  mentions: [],
+                  createdAt: new Date()
+                }}
+                personas={personas}
+                souls={personaSouls}
+                formatContent={formatMessageContent}
+                formatTime={() => 'streaming...'}
+                onReply={() => {}}
+                onPersonaClick={() => {}}
+                isStreaming={true}
+              />
+            )}
+            
+            {/* Typing indicator */}
+            {isThinking && !streamingText && (
+              <div style={{ 
+                padding: '1rem', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.5rem',
+                color: 'var(--text-muted)',
+                fontSize: '0.875rem'
+              }}>
+                <span>🤔</span>
+                <span>Thinking...</span>
+              </div>
+            )}
+            
             <div ref={messagesEndRef} />
           </div>
 
@@ -409,7 +452,7 @@ export default function TeamChatPanel({
 
 // Message bubble component
 function MessageBubble({
-  message, personas, souls, formatContent, formatTime, onReply, onPersonaClick
+  message, personas, souls, formatContent, formatTime, onReply, onPersonaClick, isStreaming = false
 }: {
   message: ChatMessage;
   personas: Persona[];
@@ -418,6 +461,7 @@ function MessageBubble({
   formatTime: (date: Date) => string;
   onReply: () => void;
   onPersonaClick: (persona: Persona) => void;
+  isStreaming?: boolean;
 }) {
   const persona = message.authorType === 'persona' 
     ? personas.find(p => p.name === message.author)

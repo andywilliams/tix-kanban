@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatChannel, ChatMessage } from '../types';
+import { useChatStreaming } from './useChatStreaming';
 
 export interface ChatNotification {
   id: string;
@@ -25,6 +26,10 @@ interface UseChatReturn {
   createPersonaChannel: (personaId: string, personaName: string, personaEmoji: string) => Promise<ChatChannel>;
   refreshChannels: () => Promise<void>;
   refreshMessages: (channelId: string) => Promise<void>;
+  // Streaming state
+  streamingMessageId: string | null;
+  streamingText: string;
+  isThinking: boolean;
 }
 
 export function useChat(currentUser: string = 'User'): UseChatReturn {
@@ -34,6 +39,9 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [messagePolling, setMessagePolling] = useState<NodeJS.Timeout | null>(null);
   const mentionPollingRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // SSE streaming support
+  const { streamingMessageId, streamingText, isThinking, startStream, cancelStream } = useChatStreaming();
 
   // Notification tracking
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -229,41 +237,91 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
         throw new Error('Failed to send message');
       }
 
+      const data = await response.json();
+      const sentMessage = data.message;
+
       // Refresh messages for this channel immediately
       await refreshMessages(channelId);
       
-      // Poll more frequently after sending to catch persona responses
-      // Triggers for @mentions OR direct persona channels (no @ needed)
-      const isDirectChannel = channelId.startsWith('direct-');
-      if (content.includes('@') || isDirectChannel) {
-        // Clear any existing mention polling
-        if (mentionPollingRef.current) {
-          clearInterval(mentionPollingRef.current);
-          mentionPollingRef.current = null;
+      // Check if this triggers a persona response (has @mentions OR is direct persona channel)
+      const isDirectChannel = channelId.startsWith('direct-') || channelId.startsWith('persona-');
+      const hasMentions = content.includes('@');
+      
+      if (hasMentions || isDirectChannel) {
+        // Extract persona ID for streaming
+        let personaId: string | null = null;
+        
+        // For direct/persona channels, extract from channel ID
+        if (isDirectChannel) {
+          const match = channelId.match(/^(?:direct|persona)-([^-]+)/);
+          if (match) {
+            personaId = match[1];
+          }
         }
         
-        // Poll every 1s for 30 seconds to catch AI responses (Claude Code can take 10-20s)
-        let pollCount = 0;
-        const maxPolls = 30;
-        
-        mentionPollingRef.current = setInterval(async () => {
-          pollCount++;
-          await refreshMessages(channelId);
-          
-          if (pollCount >= maxPolls) {
-            const interval = mentionPollingRef.current;
-            if (interval) {
-              clearInterval(interval);
-            }
-            mentionPollingRef.current = null;
+        // For @mentions, extract first mentioned persona
+        if (hasMentions && !personaId) {
+          const mentionMatch = content.match(/@(\w+)/);
+          if (mentionMatch && sentMessage.mentions && sentMessage.mentions.length > 0) {
+            personaId = sentMessage.mentions[0]; // Use first mention
           }
-        }, 1000);
+        }
+        
+        // Try SSE streaming first
+        if (personaId) {
+          console.log(`🚀 Attempting SSE stream for persona ${personaId}`);
+          
+          startStream(
+            channelId,
+            sentMessage.id,
+            personaId,
+            // On completion
+            async (messageId: string, fullText: string) => {
+              console.log('✅ SSE stream completed, refreshing messages');
+              await refreshMessages(channelId);
+            },
+            // On error - fall back to polling
+            () => {
+              console.warn('⚠️ SSE failed, falling back to polling');
+              fallbackToPolling(channelId);
+            }
+          );
+        } else {
+          // No persona ID found, use polling fallback
+          fallbackToPolling(channelId);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       throw err;
     }
-  }, [refreshMessages, currentUser]);
+    
+    // Fallback polling function (used when SSE fails or is not applicable)
+    function fallbackToPolling(channelId: string) {
+      // Clear any existing mention polling
+      if (mentionPollingRef.current) {
+        clearInterval(mentionPollingRef.current);
+        mentionPollingRef.current = null;
+      }
+      
+      // Poll every 1s for 30 seconds to catch AI responses
+      let pollCount = 0;
+      const maxPolls = 30;
+      
+      mentionPollingRef.current = setInterval(async () => {
+        pollCount++;
+        await refreshMessages(channelId);
+        
+        if (pollCount >= maxPolls) {
+          const interval = mentionPollingRef.current;
+          if (interval) {
+            clearInterval(interval);
+          }
+          mentionPollingRef.current = null;
+        }
+      }, 1000);
+    }
+  }, [refreshMessages, currentUser, startStream]);
 
   // Switch to a different channel
   const switchChannel = useCallback(async (channel: ChatChannel) => {
@@ -445,6 +503,10 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
     createTaskChannel,
     createPersonaChannel,
     refreshChannels,
-    refreshMessages
+    refreshMessages,
+    // Streaming state
+    streamingMessageId,
+    streamingText,
+    isThinking
   };
 }
