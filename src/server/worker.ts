@@ -11,6 +11,7 @@ import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { getOrCreateSession, addMessage, buildConversationHistory } from '../services/sessionService.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 import { 
   getPipeline, 
@@ -1035,6 +1036,16 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
     
+    // Get or create session for this persona
+    const sessionId = await getOrCreateSession(persona.id);
+    
+    // Add task context to session as a user message
+    const taskContextMessage = `## Task: ${task.title}\n\n${task.description}\n\nTags: ${task.tags.join(', ')}\n\n${additionalContext}`;
+    await addMessage(sessionId, 'user', taskContextMessage, {
+      taskId: task.id,
+      taskTitle: task.title,
+    });
+    
     // Determine working directory for Claude CLI
     let cwd: string | undefined;
     try {
@@ -1081,6 +1092,12 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     
     const output = stdout.trim();
     const success = !stderr && output.length > 0;
+    
+    // Add AI output to session as an assistant message
+    await addMessage(sessionId, 'assistant', output, {
+      taskId: task.id,
+      success,
+    });
     
     return { output, success };
   } catch (error) {

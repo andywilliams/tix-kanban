@@ -6,6 +6,7 @@ import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from '.
 import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
+import { getOrCreateSession, buildConversationHistory, countTokens } from '../services/sessionService.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -745,11 +746,29 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
 
+    // Get session conversation history
+    const sessionId = await getOrCreateSession(personaId);
+    const conversationHistory = await buildConversationHistory(sessionId);
+    
+    // Build conversation history context (recent messages only, to avoid token bloat)
+    let conversationSection = '';
+    if (conversationHistory.length > 0) {
+      // Take up to last 10 exchanges for context continuity
+      const recentHistory = conversationHistory.slice(-10);
+      const historyText = recentHistory
+        .map(msg => `[${msg.role}]: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`)
+        .join('\n\n');
+      const historyTokens = countTokens(historyText);
+      
+      conversationSection = `\n\n## Recent Conversation History (${recentHistory.length} messages, ~${historyTokens} tokens)\n${historyText}`;
+      console.log(`📝 Including ${recentHistory.length} recent messages in context (~${historyTokens} tokens)`);
+    }
+
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
