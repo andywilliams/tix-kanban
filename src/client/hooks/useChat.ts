@@ -349,7 +349,7 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
 
     // Initial refresh
     await refreshMessages(channel.id);
-  }, [refreshMessages, messagePolling]);
+  }, [refreshMessages, messagePolling, streamingChannelId]);
 
   // Create a task-specific channel
   const createTaskChannel = useCallback(async (taskId: string, taskTitle: string): Promise<ChatChannel> => {

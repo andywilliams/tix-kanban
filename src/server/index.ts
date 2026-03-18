@@ -118,7 +118,7 @@ import {
   getAllChannels,
   runArchiveMaintenance
 } from './chat-storage.js';
-import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import { processChatMention, startDirectConversation, getTeamOverview, generatePersonaResponseStreaming } from './agent-chat.js';
 import { initSSE, sendSSE } from './streaming-chat.js';
 import {
   loadProviderConfig,

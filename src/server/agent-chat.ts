@@ -1572,3 +1572,165 @@ export async function getRelationshipContext(personaId: string): Promise<string>
 
   return `## Team Relationships\n${relationships}`;
 }
+
+/**
+ * Generate streaming persona response
+ * Callback receives tokens as they arrive from the LLM
+ */
+export async function generatePersonaResponseStreaming(
+  message: ChatMessage,
+  persona: Persona,
+  onToken: (token: string) => void
+): Promise<{ fullResponse: string; messageId: string } | null> {
+  let turnAcquired = false;
+  try {
+    console.log(`🤖 [STREAMING] Generating response for persona: ${persona.name}`);
+    
+    // Try to acquire speaking turn
+    const acquired = await acquireSpeakingTurn(message.channelId, persona.id);
+    if (!acquired) {
+      console.log(`🚫 ${persona.name} cannot respond - another persona is speaking`);
+      return null;
+    }
+    turnAcquired = true;
+
+    const userId = message.author;
+    const tracker = new TokenTracker();
+    const budget = getDefaultBudget();
+
+    // Record the interaction
+    await recordInteraction(persona.id, userId);
+
+    // Get or initialize soul
+    let soul = await getAgentSoul(persona.id);
+    if (!soul) {
+      soul = await initializeSoulForPersona(persona.id);
+    }
+
+    // Get recent chat history
+    const channelType = getChannelType(message.channelId);
+    const fetchLimit = (channelType === 'general' || channelType === 'task') ? 30 : 15;
+    let recentMessages: ChatMessage[] = [];
+    try {
+      recentMessages = await getMessages(message.channelId, fetchLimit);
+    } catch (error) {
+      console.warn(`Failed to fetch chat history: ${error}`);
+    }
+
+    // Build minimal context for streaming (to minimize latency)
+    const chatHistory = buildSelectiveChatHistory(
+      recentMessages, persona, message, channelType
+    );
+
+    // Build prompt with minimal context (streaming should be fast)
+    const prompt = buildChatPrompt({
+      soul,
+      persona,
+      originalMessage: message,
+      chatHistory,
+      conversationBackground: '',
+      memoryContext: '',
+      relevantMemories: [],
+      teamContext: '',
+      taskContext: '',
+      boardContext: '',
+      prContext: '',
+      knowledgeContext: '',
+      slackContext: '',
+      workspaceContext: '',
+      tracker,
+      budget
+    });
+
+    console.log(`📊 [STREAMING] ${persona.name} prompt: ${tracker.getSummary()}`);
+
+    // Import streaming function
+    const { generateAIResponseStreaming } = await import('./streaming-chat.js');
+
+    // Generate response with streaming
+    const fullResponse = await generateAIResponseStreaming(
+      prompt,
+      persona,
+      onToken,
+      90000
+    );
+
+    if (fullResponse && fullResponse.length > 0) {
+      // Parse response actions
+      const { cleanResponse, actions, memories } = parseResponseActions(fullResponse);
+
+      // Post the conversational part of the response
+      const savedMessage = await addMessage(
+        message.channelId,
+        persona.name,
+        'persona',
+        cleanResponse,
+        message.id
+      );
+
+      // Store memories and execute actions (same as non-streaming version)
+      if (memories.length > 0) {
+        console.log(`💾 ${persona.name} extracted ${memories.length} memories from conversation`);
+        for (const mem of memories) {
+          const categoryMap: Record<string, string> = {
+            relationship: 'relationships',
+            relationships: 'relationships',
+            preference: 'preferences',
+            preferences: 'preferences',
+            instruction: 'instructions',
+            instructions: 'instructions',
+            context: 'context',
+            learning: 'learning',
+            reflection: 'reflection',
+          };
+          const category = categoryMap[mem.category] || 'context';
+          try {
+            await addMemoryEntry(persona.id, userId, {
+              category: category as any,
+              content: mem.content,
+              keywords: mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 10),
+              source: 'inferred',
+              importance: Math.min(10, Math.max(1, mem.importance)),
+            });
+          } catch (memErr) {
+            console.error('Failed to store extracted memory:', memErr);
+          }
+        }
+      }
+
+      // Execute actions
+      for (const action of actions) {
+        try {
+          const result = await executeAction(action, persona, message.channelId);
+          if (result) {
+            await addMessage(
+              message.channelId,
+              persona.name,
+              'persona',
+              result
+            );
+          }
+        } catch (actionErr) {
+          console.error(`Action failed:`, actionErr);
+        }
+      }
+
+      console.log(`✅ [STREAMING] ${persona.name} responded in channel ${message.channelId}`);
+      
+      return {
+        fullResponse: cleanResponse,
+        messageId: savedMessage.id
+      };
+    } else {
+      console.log(`⚠️ [STREAMING] ${persona.name} generated empty response`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ [STREAMING] Failed to generate persona response for ${persona.name}:`, error);
+    throw error;
+  } finally {
+    if (turnAcquired) {
+      await releaseSpeakingTurn(message.channelId);
+    }
+  }
+}
