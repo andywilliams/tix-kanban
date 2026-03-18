@@ -64,6 +64,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [concurrencyConfig, setConcurrencyConfig] = useState<ConcurrencyConfig>({ maxConcurrentPersonas: 1, allowDuplicatePersonas: false });
   const [concurrencySaving, setConcurrencySaving] = useState(false);
   const [concurrencySaved, setConcurrencySaved] = useState(false);
+  const [concurrencyError, setConcurrencyError] = useState<string | null>(null);
 
   // Provider state
   const [providerConfig, setProviderConfig] = useState<{ ticketProvider: string; messageProvider: string }>({ ticketProvider: 'tix', messageProvider: 'slx' });
@@ -281,6 +282,11 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const saveConcurrencyConfig = async () => {
     setConcurrencySaving(true);
     setConcurrencySaved(false);
+    setConcurrencyError(null);
+    
+    // Store original values for potential rollback
+    const originalConfig = { ...concurrencyConfig };
+    
     try {
       const maxRes = await fetch('/api/worker/max-concurrent-personas', {
         method: 'PUT',
@@ -300,6 +306,20 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       setTimeout(() => setConcurrencySaved(false), 2000);
     } catch (error) {
       console.error('Failed to save concurrency config:', error);
+      setConcurrencyError(error instanceof Error ? error.message : 'Failed to save concurrency settings');
+      
+      // Attempt rollback of first setting if second failed
+      if (originalConfig.maxConcurrentPersonas !== concurrencyConfig.maxConcurrentPersonas) {
+        try {
+          await fetch('/api/worker/max-concurrent-personas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max: originalConfig.maxConcurrentPersonas }),
+          });
+        } catch (rollbackError) {
+          console.error('Failed to rollback concurrency config:', rollbackError);
+        }
+      }
     } finally {
       setConcurrencySaving(false);
     }
@@ -1012,6 +1032,11 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               {concurrencySaving ? 'Saving...' : concurrencySaved ? 'Saved!' : 'Save Concurrency Settings'}
             </button>
           </div>
+          {concurrencyError && (
+            <div style={{ color: '#ef4444', marginTop: '8px', fontSize: '0.9rem' }}>
+              {concurrencyError}
+            </div>
+          )}
         </div>
       </div>
 

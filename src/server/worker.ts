@@ -249,6 +249,18 @@ let standupCronJob: cron.ScheduledTask | null = null;
 let slxSyncCronJob: cron.ScheduledTask | null = null;
 let reminderCheckCronJob: cron.ScheduledTask | null = null;
 
+// Write queue/mutex to serialize state persistence and prevent race conditions
+let writeQueue: Promise<void> = Promise.resolve();
+
+// Add a state save to the write queue (serializes all writes)
+function enqueueStateSave(): Promise<void> {
+  const currentQueue = writeQueue;
+  writeQueue = (async () => {
+    await currentQueue;
+  })();
+  return writeQueue;
+}
+
 // Ensure worker directories exist
 async function ensureWorkerDirectories(): Promise<void> {
   try {
@@ -277,8 +289,11 @@ async function loadWorkerState(): Promise<void> {
   }
 }
 
-// Save worker state to file
+// Save worker state to file (serialized via write queue to prevent race conditions)
 async function saveWorkerState(): Promise<void> {
+  // Wait for any pending writes to complete first
+  await enqueueStateSave();
+  
   try {
     await ensureWorkerDirectories();
     const content = JSON.stringify(workerState, null, 2);
@@ -1530,6 +1545,7 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
         });
         // Clean up any phantom active session
         removeActiveSession(task.id);
+        await saveWorkerState();
         console.log(`📥 Recovered stale task (no persona) → backlog: ${task.title}`);
         continue;
       }
@@ -1560,6 +1576,7 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           await executeReviewCycle(task.id);
           // Clean up any phantom active session
           removeActiveSession(task.id);
+          await saveWorkerState();
           console.log(`🔍 Recovered stale task → auto-review: ${task.title}`);
         } else {
           await updateTask(task.id, {
@@ -1569,6 +1586,7 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           });
           // Clean up any phantom active session
           removeActiveSession(task.id);
+          await saveWorkerState();
           console.log(`✅ Recovered stale task → review: ${task.title}`);
         }
       } else {
@@ -1579,6 +1597,7 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
         });
         // Clean up any phantom active session
         removeActiveSession(task.id);
+        await saveWorkerState();
         console.log(`📥 Recovered stale task → backlog: ${task.title}`);
       }
     } catch (error) {
@@ -1590,6 +1609,7 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
       });
       // Clean up any phantom active session
       removeActiveSession(task.id);
+      await saveWorkerState();
     }
   }
 }
