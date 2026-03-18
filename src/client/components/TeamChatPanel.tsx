@@ -17,6 +17,7 @@ interface TeamChatPanelProps {
   streamingMessageId?: string | null;
   streamingText?: string;
   isThinking?: boolean;
+  streamingChannelId?: string | null;
 }
 
 type ViewMode = 'channels' | 'team' | 'direct';
@@ -25,7 +26,7 @@ export default function TeamChatPanel({
   isOpen, onClose, currentChannel, channels, personas, currentUser,
   unreadCounts = {},
   onSendMessage, onSwitchChannel, onCreateTaskChannel, onStartDirectChat,
-  streamingMessageId, streamingText, isThinking
+  streamingMessageId, streamingText, isThinking, streamingChannelId
 }: TeamChatPanelProps) {
   const [messageInput, setMessageInput] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
@@ -330,7 +331,7 @@ export default function TeamChatPanel({
             )}
             
             {/* Streaming message (in-progress response) */}
-            {streamingMessageId && streamingText && (
+            {streamingMessageId && streamingText && streamingChannelId === currentChannel?.id && (
               <MessageBubble
                 message={{
                   id: 'streaming',
@@ -352,7 +353,7 @@ export default function TeamChatPanel({
             )}
             
             {/* Typing indicator */}
-            {isThinking && !streamingText && (
+            {isThinking && !streamingText && streamingChannelId === currentChannel?.id && (
               <div style={{ 
                 padding: '1rem', 
                 display: 'flex', 

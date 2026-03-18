@@ -8,6 +8,7 @@ export function useChatStreaming() {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<string>('');
   const [isThinking, setIsThinking] = useState(false);
+  const [streamingChannelId, setStreamingChannelId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const cancelStream = useCallback(() => {
@@ -18,6 +19,7 @@ export function useChatStreaming() {
     setStreamingMessageId(null);
     setStreamingText('');
     setIsThinking(false);
+    setStreamingChannelId(null);
   }, []);
 
   const startStream = useCallback((
@@ -29,6 +31,9 @@ export function useChatStreaming() {
   ) => {
     // Cancel any existing stream
     cancelStream();
+    
+    // Set the channel ID for this stream
+    setStreamingChannelId(channelId);
 
     // Build SSE URL
     const url = `/api/chat/${channelId}/stream?messageId=${encodeURIComponent(messageId)}&personaId=${encodeURIComponent(personaId)}`;
@@ -55,30 +60,10 @@ export function useChatStreaming() {
         setIsThinking(false);
         setStreamingMessageId(null);
         setStreamingText('');
+        setStreamingChannelId(null);
         eventSource.close();
         eventSourceRef.current = null;
         onComplete(data.messageId, data.fullText);
-      });
-
-      eventSource.addEventListener('error', (event: any) => {
-        let errorMessage = 'Stream error';
-        try {
-          const data = JSON.parse(event.data);
-          errorMessage = data.error || errorMessage;
-        } catch {
-          // Error parsing error event
-        }
-        
-        console.error('❌ SSE: Error -', errorMessage);
-        setIsThinking(false);
-        setStreamingMessageId(null);
-        setStreamingText('');
-        eventSource.close();
-        eventSourceRef.current = null;
-        
-        if (onError) {
-          onError(errorMessage);
-        }
       });
 
       eventSource.onerror = (err) => {
@@ -86,6 +71,7 @@ export function useChatStreaming() {
         setIsThinking(false);
         setStreamingMessageId(null);
         setStreamingText('');
+        setStreamingChannelId(null);
         eventSource.close();
         eventSourceRef.current = null;
         
@@ -99,6 +85,7 @@ export function useChatStreaming() {
       setIsThinking(false);
       setStreamingMessageId(null);
       setStreamingText('');
+      setStreamingChannelId(null);
       
       if (onError) {
         onError('Failed to initialize stream');
@@ -110,6 +97,7 @@ export function useChatStreaming() {
     streamingMessageId,
     streamingText,
     isThinking,
+    streamingChannelId,
     startStream,
     cancelStream
   };

@@ -34,6 +34,7 @@ interface ChatPanelProps {
   streamingMessageId?: string | null;
   streamingText?: string;
   isThinking?: boolean;
+  streamingChannelId?: string | null;
 }
 
 interface PendingTicket {
@@ -47,7 +48,7 @@ interface PendingTicket {
 export default function ChatPanel({ 
   isOpen, onClose, currentChannel, channels, personas, currentUser, tasks = [],
   onSendMessage, onSwitchChannel, onCreateTaskChannel, onCreatePersonaChannel,
-  streamingMessageId, streamingText, isThinking
+  streamingMessageId, streamingText, isThinking, streamingChannelId
 }: ChatPanelProps) {
   const [showPersonaList, setShowPersonaList] = useState(false);
   const [messageInput, setMessageInput] = useState('');
@@ -468,7 +469,7 @@ export default function ChatPanel({
         })}
         
         {/* Streaming message (in-progress response) */}
-        {streamingMessageId && streamingText && (
+        {streamingMessageId && streamingText && streamingChannelId === currentChannel?.id && (
           <div className="chat-message-group streaming-message">
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
               <div style={{
@@ -507,7 +508,7 @@ export default function ChatPanel({
         )}
         
         {/* Typing indicator (thinking state) */}
-        {(isThinking || currentChannel?.speakingPersona) && !streamingText && (() => {
+        {(isThinking || currentChannel?.speakingPersona) && !streamingText && streamingChannelId === currentChannel?.id && (() => {
           const persona = personas.find(p => p.id === currentChannel?.speakingPersona);
           return persona ? <TypingIndicator persona={persona} /> : (
             <TypingIndicator persona={{ 

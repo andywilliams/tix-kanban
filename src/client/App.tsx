@@ -94,7 +94,8 @@ function AppContent() {
     createPersonaChannel,
     streamingMessageId,
     streamingText,
-    isThinking
+    isThinking,
+    streamingChannelId
   } = useChat(userName);
   const location = useLocation();
 
@@ -382,6 +383,7 @@ function AppContent() {
         streamingMessageId={streamingMessageId}
         streamingText={streamingText}
         isThinking={isThinking}
+        streamingChannelId={streamingChannelId}
         onStartDirectChat={async (personaId: string) => {
           // Start a direct chat with a persona
           try {
