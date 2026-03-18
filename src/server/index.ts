@@ -113,7 +113,7 @@ import {
   getAllChannels,
   runArchiveMaintenance
 } from './chat-storage.js';
-import { processChatMention, startDirectConversation, getTeamOverview, generatePersonaResponseStreaming } from './agent-chat.js';
+import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
 import { initSSE, sendSSE } from './streaming-chat.js';
 import {
   loadProviderConfig,
@@ -2415,38 +2415,72 @@ app.get('/api/chat/:channelId/stream', async (req, res) => {
       console.log(`SSE client disconnected from ${channelId}`);
     });
 
-    // Generate streaming response
+    // FIX: Instead of regenerating, wait for the response from processChatMention
+    // which should already be running (or will be triggered by the message)
     try {
-      const result = await generatePersonaResponseStreaming(
-        triggerMessage,
-        persona,
-        (token: string) => {
-          if (!clientDisconnected) {
-            sendSSE(res, { event: 'token', data: { text: token } });
-          }
-        }
+      // First, check if a response already exists (processChatMention may have already completed)
+      let responseMessages = messages.filter(
+        m => m.replyTo === messageId && m.authorType === 'persona'
       );
 
-      if (result && !clientDisconnected) {
-        sendSSE(res, {
-          event: 'done',
-          data: {
-            messageId: result.messageId,
-            fullText: result.fullResponse
-          }
-        });
-      } else if (!result && !clientDisconnected) {
+      // Poll for response if not found (wait for processChatMention to complete)
+      const maxWaitMs = 60000; // 60 second max wait
+      const pollIntervalMs = 500;
+      let waitedMs = 0;
+
+      while (responseMessages.length === 0 && waitedMs < maxWaitMs && !clientDisconnected) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        waitedMs += pollIntervalMs;
+        
+        // Re-fetch messages to check for new response
+        const updatedMessages = await getMessages(channelId, 15);
+        responseMessages = updatedMessages.filter(
+          m => m.replyTo === messageId && m.authorType === 'persona'
+        );
+      }
+
+      if (clientDisconnected) {
+        res.end();
+        return;
+      }
+
+      if (responseMessages.length > 0) {
+        // Found existing response - stream it
+        const responseMessage = responseMessages[0];
+        
+        // Stream the content in chunks
+        const content = responseMessage.content;
+        const chunkSize = 20;
+        for (let i = 0; i < content.length && !clientDisconnected; i += chunkSize) {
+          const chunk = content.substring(i, Math.min(i + chunkSize, content.length));
+          sendSSE(res, { event: 'token', data: { text: chunk } });
+          // Small delay to simulate streaming feel
+          await new Promise(resolve => setTimeout(resolve, 30));
+        }
+
+        if (!clientDisconnected) {
+          sendSSE(res, {
+            event: 'done',
+            data: {
+              messageId: responseMessage.id,
+              fullText: content
+            }
+          });
+        }
+      } else {
+        // No response found after polling - this shouldn't happen if processChatMention is working
+        console.warn(`No persona response found for message ${messageId} after ${waitedMs}ms`);
         sendSSE(res, {
           event: 'error',
-          data: { error: 'Persona could not respond (another persona may be speaking)' }
+          data: { error: 'Persona response not found (may have failed to generate)' }
         });
       }
     } catch (streamError) {
-      console.error('Streaming generation error:', streamError);
+      console.error('Streaming error:', streamError);
       if (!clientDisconnected) {
         sendSSE(res, {
           event: 'error',
-          data: { error: 'Failed to generate response' }
+          data: { error: 'Failed to stream response' }
         });
       }
     }
