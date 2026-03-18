@@ -27,6 +27,10 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const [localPipeline, setLocalPipeline] = useState<Pipeline | null>(null);
   const [localPipelineState, setLocalPipelineState] = useState<TaskPipelineState | null>(null);
 
+  // Use prop if provided, otherwise use local state
+  const pipeline = propPipeline !== undefined ? propPipeline : localPipeline;
+  const pipelineStateVal = propPipelineState !== undefined ? propPipelineState : localPipelineState;
+
   // Track previous pipelineId to detect changes
   const prevPipelineIdRef = React.useRef<string | null | undefined>(task.pipelineId);
 
@@ -95,6 +99,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
   const priorityColor = getPriorityColor(task.priority);
   const currentStage = pipeline && pipelineStateVal 
     ? pipeline.stages.find(s => s.id === pipelineStateVal.currentStageId)
+    : null;
 
   return (
     <div
