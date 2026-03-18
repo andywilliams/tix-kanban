@@ -684,18 +684,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // still reflects the valid new PR state (e.g. open→merged) without losing CI history.
       const effectiveCiState = ciState ?? previous?.ciState ?? null;
       
-      // seenThreadIds is initialized from previous state; on first observation it's empty
-      // Thread check only runs on subsequent observations (inside else block below)
-      let seenThreadIds = previous?.seenThreadIds || [];
-      
       // Migration case: previous exists but seenThreadIds field is missing (pre-change persisted state)
       // Treat same as first observation - populate from existing threads without triggering
       const isMigration = previous && previous.seenThreadIds === undefined;
-      if (isMigration) {
-        const threads = await getPRReviewThreads(pr.repo, pr.number);
-        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-        seenThreadIds = unresolvedThreads.map(t => t.id);
-      }
       
       // Migration case for seenCommentIds: previous exists but seenCommentIds field is missing
       const isCommentMigration = previous && previous.seenCommentIds === undefined;
@@ -703,8 +694,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // First observation: pre-populate seenThreadIds with existing threads so they 
       // don't fire spuriously on next poll (avoids the bug where empty seenThreadIds 
       // on first poll causes all existing threads to appear "new" on second poll)
+      let seenThreadIds: string[] = [];
       let seenCommentIds: string[] = [];
-      if (!previous || isCommentMigration) {
+      if (!previous || isMigration || isCommentMigration) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
         const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
         seenThreadIds = unresolvedThreads.map(t => t.id);
@@ -713,6 +705,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         const plainComments = await getPRComments(pr.repo, pr.number);
         seenCommentIds = plainComments.map(c => c.id);
       } else {
+        seenThreadIds = previous.seenThreadIds || [];
         seenCommentIds = previous.seenCommentIds || [];
       }
       
@@ -783,7 +776,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           }
 
           // Also check for plain PR comments (not review threads)
-          seenCommentIds = previous?.seenCommentIds || [];
+          // During migration, use current.seenCommentIds (pre-populated) not previous (which is undefined)
+          seenCommentIds = isCommentMigration ? current.seenCommentIds : (previous?.seenCommentIds || []);
           const plainComments = await getPRComments(pr.repo, pr.number);
           
           // Filter bot authors
@@ -881,32 +875,61 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
     const lastSeenId = taskState.lastSeenTaskCommentId;
     
-    // Sort comments by creation time to get the latest
-    const sortedComments = [...task.comments].sort((a, b) => 
+    // Filter bot comments
+    const BOT_AUTHORS = ['jenna@dwlf.co.uk', 'System', 'Worker (system)'];
+    const humanComments = task.comments.filter(c => !BOT_AUTHORS.some(bot => c.author.includes(bot)));
+    
+    if (humanComments.length === 0) continue;
+    
+    // Sort comments by creation time (oldest first)
+    const sortedComments = [...humanComments].sort((a, b) => 
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     
-    const latestComment = sortedComments[sortedComments.length - 1];
+    // First observation guard: if lastSeenId is undefined, pre-populate with latest comment
+    // without firing notification (avoids spurious onCommentAdded for old comments)
+    if (lastSeenId === undefined) {
+      const latestComment = sortedComments[sortedComments.length - 1];
+      taskState.lastSeenTaskCommentId = latestComment.id;
+      triggerState.tasks[task.id] = taskState;
+      continue;
+    }
     
-    // Filter bot comments
-    const BOT_AUTHORS = ['jenna@dwlf.co.uk', 'System', 'Worker (system)'];
-    const isHumanComment = !BOT_AUTHORS.some(bot => latestComment.author.includes(bot));
+    // Check all human comments for unseen ones (not just the latest)
+    for (const comment of sortedComments) {
+      if (comment.id === lastSeenId) {
+        // We've reached the last seen comment - all subsequent ones are new
+        break;
+      }
+      if (!sortedComments.some(c => c.id === lastSeenId)) {
+        // lastSeenId not found in current comments (was deleted) - treat all as new
+        break;
+      }
+    }
     
-    // If we have a new comment from a human
-    if (isHumanComment && latestComment.id !== lastSeenId) {
+    // Actually find and process all comments after the last seen one
+    let lastProcessedCommentId = lastSeenId;
+    for (const comment of sortedComments) {
+      if (comment.id === lastSeenId) break;
+      
       const metadata = {
         taskId: task.id,
-        commentId: latestComment.id,
-        author: latestComment.author,
-        body: latestComment.body,
-        createdAt: latestComment.createdAt,
+        commentId: comment.id,
+        author: comment.author,
+        body: comment.body,
+        createdAt: comment.createdAt,
       };
       
       for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', task)) {
-        enqueueInvocation(task, persona, 'onCommentAdded', `New task comment by ${latestComment.author}: ${latestComment.body.substring(0, 100)}...`, metadata);
+        enqueueInvocation(task, persona, 'onCommentAdded', `New task comment by ${comment.author}: ${comment.body.substring(0, 100)}...`, metadata);
       }
       
-      taskState.lastSeenTaskCommentId = latestComment.id;
+      lastProcessedCommentId = comment.id;
+    }
+    
+    // Update the last seen ID to the latest processed comment
+    if (lastProcessedCommentId !== lastSeenId) {
+      taskState.lastSeenTaskCommentId = lastProcessedCommentId;
     }
     
     triggerState.tasks[task.id] = taskState;
