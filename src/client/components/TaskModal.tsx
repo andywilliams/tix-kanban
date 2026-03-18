@@ -300,7 +300,58 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
     }
   };
 
-  const handleSave = () => {
+  // Handle pipeline assignment when saving (called from handleSave)
+  const persistPipelineAssignment = async () => {
+    const originalPipelineId = task.pipelineId;
+    const newPipelineId = editedTask.pipelineId;
+
+    // If pipeline changed
+    if (newPipelineId !== originalPipelineId) {
+      if (!newPipelineId) {
+        // Clearing pipeline - need to also delete the state file
+        try {
+          await fetch(`/api/tasks/${task.id}/pipeline-state`, { method: 'DELETE' });
+        } catch (error) {
+          console.error('Failed to delete pipeline state:', error);
+        }
+      } else if (!originalPipelineId) {
+        // Assigning new pipeline
+        try {
+          const response = await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pipelineId: newPipelineId }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setPipelineState(data.pipelineState);
+          }
+        } catch (error) {
+          console.error('Failed to assign pipeline:', error);
+        }
+      } else {
+        // Switching pipelines - delete old state, create new
+        try {
+          await fetch(`/api/tasks/${task.id}/pipeline-state`, { method: 'DELETE' });
+          const response = await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pipelineId: newPipelineId }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setPipelineState(data.pipelineState);
+          }
+        } catch (error) {
+          console.error('Failed to switch pipeline:', error);
+        }
+      }
+    }
+  };
+
+  const handleSave = async () => {
+    // Persist pipeline assignment before saving other changes
+    await persistPipelineAssignment();
     onUpdate(editedTask);
     setEditing(false);
   };
@@ -466,7 +517,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                 <label>Pipeline</label>
                 <select
                   value={editedTask.pipelineId || ''}
-                  onChange={(e) => assignPipeline(e.target.value)}
+                  onChange={(e) => setEditedTask({ ...editedTask, pipelineId: e.target.value || undefined })}
                   disabled={loadingPipelines}
                 >
                   <option value="">No Pipeline</option>

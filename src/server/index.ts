@@ -2548,6 +2548,17 @@ app.put('/api/tasks/:taskId/pipeline-state', async (req, res) => {
   }
 });
 
+// DELETE /api/tasks/:taskId/pipeline-state - Delete pipeline state for a task
+app.delete('/api/tasks/:taskId/pipeline-state', async (req, res) => {
+  try {
+    await deleteTaskPipelineState(req.params.taskId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`DELETE /api/tasks/${req.params.taskId}/pipeline-state error:`, error);
+    res.status(500).json({ error: 'Failed to delete pipeline state' });
+  }
+});
+
 // POST /api/tasks/:taskId/pipeline/:pipelineId/start - Start a task in a pipeline
 app.post('/api/tasks/:taskId/pipeline/:pipelineId/start', async (req, res) => {
   try {

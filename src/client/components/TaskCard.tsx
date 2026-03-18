@@ -45,8 +45,8 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
       prevPipelineIdRef.current = task.pipelineId;
       
       if (task.pipelineId) {
-        // Pipeline changed - fetch fresh data if no prop provided
-        if (propPipeline === undefined) {
+        // Pipeline changed - fetch fresh data if no prop provided OR if propPipelineState is missing
+        if (propPipeline === undefined || propPipelineState === undefined) {
           loadPipelineInfo();
         }
       } else {
@@ -55,7 +55,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
         setLocalPipelineState(null);
       }
     }
-  }, [task.pipelineId, propPipeline]);
+  }, [task.pipelineId, propPipeline, propPipelineState]);
 
   // Also keep original effect for initial load
   useEffect(() => {
@@ -65,7 +65,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
       setLocalPipeline(null);
       setLocalPipelineState(null);
     }
-  }, []);
+  }, [task.pipelineId, propPipeline, propPipelineState]);
 
   const loadPipelineInfo = async () => {
     if (!task.pipelineId) return;
