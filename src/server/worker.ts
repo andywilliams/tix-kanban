@@ -533,7 +533,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
       baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
       baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
       baseInstruction.push('');
-      baseInstruction.push(`Reply using: \`gh api repos/${metadata.repo}/issues/comments/${metadata.commentId}/replies -f body="your reply"\``);
+      baseInstruction.push(`Reply using: \`gh api repos/${metadata.repo}/issues/${metadata.prNumber}/comments -f body="your reply"\``);
     } else {
       // Review thread comment (original implementation)
       const commentId = metadata.firstComment?.databaseId || metadata.commentId || '[comment_id]';
@@ -625,9 +625,10 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
   const pendingInvocations = new Map<string, { task: Task; persona: Persona; eventType: TriggerEventType; details: string[]; metadata?: any }>();
 
   const enqueueInvocation = (task: Task, persona: Persona, eventType: TriggerEventType, detail: string, metadata?: any): void => {
-    // Include threadId in key for onCommentAdded to avoid overwriting multiple threads
+    // Include threadId or commentId in key for onCommentAdded to avoid overwriting multiple threads/comments
     const threadIdSuffix = eventType === 'onCommentAdded' && metadata?.threadId ? `|${metadata.threadId}` : '';
-    const key = `${task.id}|${persona.id}|${eventType}${threadIdSuffix}`;
+    const commentIdSuffix = eventType === 'onCommentAdded' && metadata?.commentId && !metadata.threadId ? `|${metadata.commentId}` : '';
+    const key = `${task.id}|${persona.id}|${eventType}${threadIdSuffix}${commentIdSuffix}`;
     const existing = pendingInvocations.get(key);
     if (existing) {
       existing.details.push(detail);
@@ -696,11 +697,14 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         seenThreadIds = unresolvedThreads.map(t => t.id);
       }
       
+      // Migration case for seenCommentIds: previous exists but seenCommentIds field is missing
+      const isCommentMigration = previous && previous.seenCommentIds === undefined;
+      
       // First observation: pre-populate seenThreadIds with existing threads so they 
       // don't fire spuriously on next poll (avoids the bug where empty seenThreadIds 
       // on first poll causes all existing threads to appear "new" on second poll)
       let seenCommentIds: string[] = [];
-      if (!previous) {
+      if (!previous || isCommentMigration) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
         const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
         seenThreadIds = unresolvedThreads.map(t => t.id);
@@ -779,7 +783,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           }
 
           // Also check for plain PR comments (not review threads)
-          let seenCommentIds = previous?.seenCommentIds || [];
+          seenCommentIds = previous?.seenCommentIds || [];
           const plainComments = await getPRComments(pr.repo, pr.number);
           
           // Filter bot authors
@@ -870,20 +874,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     }
   }
 
-  if (pendingInvocations.size > 0) {
-    console.log(`🔔 Processing ${pendingInvocations.size} persona trigger invocation(s)...`);
-  }
-  for (const invocation of pendingInvocations.values()) {
-    await invokeTriggerPersona(
-      invocation.task,
-      invocation.persona,
-      invocation.eventType,
-      invocation.details.join('; '),
-      invocation.metadata
-    );
-  }
-
-  // Check for new kanban task comments
+  // Check for new kanban task comments (MUST be before invocation processing)
   for (const task of tasks) {
     if (!task.comments || task.comments.length === 0) continue;
     
@@ -919,6 +910,19 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     }
     
     triggerState.tasks[task.id] = taskState;
+  }
+
+  if (pendingInvocations.size > 0) {
+    console.log(`🔔 Processing ${pendingInvocations.size} persona trigger invocation(s)...`);
+  }
+  for (const invocation of pendingInvocations.values()) {
+    await invokeTriggerPersona(
+      invocation.task,
+      invocation.persona,
+      invocation.eventType,
+      invocation.details.join('; '),
+      invocation.metadata
+    );
   }
 
   const existingTaskIds = new Set(tasks.map((task) => task.id));
