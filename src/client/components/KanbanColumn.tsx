@@ -34,6 +34,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
     <div
       ref={setNodeRef}
       className={`kanban-column ${isOver ? 'drag-over' : ''}`}
+      data-column-id={column.id}
     >
       <div className="column-header">
         <h3>{column.title}</h3>

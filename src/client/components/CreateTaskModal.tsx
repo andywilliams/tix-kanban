@@ -93,6 +93,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
                   <option value="backlog">Backlog</option>
                   <option value="in-progress">In Progress</option>
                   <option value="review">Review</option>
+                  <option value="verified">Verified</option>
                   <option value="done">Done</option>
                 </select>
               </div>

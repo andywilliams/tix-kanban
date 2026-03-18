@@ -269,9 +269,9 @@ export async function processReviewTasksPRStatus(): Promise<void> {
     const state = await loadPRMonitorState();
     const tasks = await getAllTasks();
 
-    // Get only tasks in review status that have PR links
+    // Get only tasks in review or verified status that have PR links
     const reviewTasks = tasks.filter(
-      t => t.status === 'review' && (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
+      t => (t.status === 'review' || t.status === 'verified') && (t.links || []).some(l => l.type === 'pr' || l.url?.includes('/pull/'))
     );
 
     if (reviewTasks.length === 0) {
@@ -374,7 +374,7 @@ async function handlePRStateChanges(
     console.log(`📝 First observation for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}, hasThreads=${current.hasUnresolvedThreads}`);
 
     // 1. PR already merged → move to done
-    if (current.state === 'merged' && task.status === 'review') {
+    if (current.state === 'merged' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`✅ PR already merged for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         status: 'done',
@@ -393,9 +393,10 @@ async function handlePRStateChanges(
     }
 
     // 2. CI already failing → notify
-    if (current.ciState === 'FAILURE' && task.status === 'review') {
+    if (current.ciState === 'FAILURE' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`❌ CI already failed for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
@@ -411,9 +412,10 @@ async function handlePRStateChanges(
     }
 
     // 3. Already has merge conflicts → notify
-    if (current.mergeable === 'CONFLICTING' && task.status === 'review') {
+    if (current.mergeable === 'CONFLICTING' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`⚠️ Merge conflicts already detected for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
@@ -430,9 +432,10 @@ async function handlePRStateChanges(
     }
 
     // 4. Already has review threads → notify
-    if (current.hasUnresolvedThreads && unresolvedCount > 0 && task.status === 'review') {
+    if (current.hasUnresolvedThreads && unresolvedCount > 0 && (task.status === 'review' || task.status === 'verified')) {
       console.log(`💬 Review threads already present for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
       await updateTask(task.id, {
+        ...(task.status === 'verified' ? { status: 'review' } : {}),
         comments: [
           ...(task.comments || []),
           {
@@ -454,10 +457,11 @@ async function handlePRStateChanges(
       current.ciState === 'SUCCESS' &&
       !current.hasUnresolvedThreads &&
       current.mergeable === 'MERGEABLE' &&
-      task.status === 'review'
+      (task.status === 'review' || task.status === 'verified')
     ) {
       console.log(`✅ PR is clean and ready for task ${task.id} (first observation): ${prRef}`);
       await updateTask(task.id, {
+        status: 'verified',
         comments: [
           ...(task.comments || []),
           {
@@ -483,7 +487,7 @@ async function handlePRStateChanges(
   if (current.state === 'merged' && previous.state !== 'merged') {
     // Only move to done if task is in review status
     // Tasks in auto-review or in-progress should be handled by their respective systems
-    if (task.status === 'review') {
+    if (task.status === 'review' || task.status === 'verified') {
       console.log(`✅ PR merged for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         status: 'done',
@@ -505,10 +509,11 @@ async function handlePRStateChanges(
   }
 
   // 2. New unresolved review threads → spawn developer to address
-  if (hasNewThreads && task.status === 'review') {
+  if (hasNewThreads && (task.status === 'review' || task.status === 'verified')) {
     console.log(`💬 New review comments for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
     // TODO: Integrate with persona system to spawn developer
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
@@ -525,9 +530,10 @@ async function handlePRStateChanges(
   }
 
   // 3. CI failure → notify and keep in review
-  if (task.status === 'review' && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
+  if ((task.status === 'review' || task.status === 'verified') && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
     console.log(`❌ CI failed for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
@@ -543,9 +549,10 @@ async function handlePRStateChanges(
   }
 
   // 4. Merge conflicts → spawn developer to rebase
-  if (task.status === 'review' && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
+  if ((task.status === 'review' || task.status === 'verified') && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
     console.log(`⚠️ Merge conflicts detected for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
@@ -578,8 +585,8 @@ async function handlePRStateChanges(
     if (!wasClean) {
       console.log(`✅ PR is clean and ready for task ${task.id}: ${prRef}`);
       // Keep in review but add a comment indicating it's ready to merge
-      // TODO: Once 'verified' status is merged, change to: status: 'verified'
       await updateTask(task.id, {
+        status: 'verified',
         comments: [
           ...(task.comments || []),
           {

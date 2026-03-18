@@ -254,8 +254,23 @@ body {
 }
 
 .kanban-column.drag-over {
-  border-color: var(--accent);
-  background: var(--bg-tertiary);
+  border-color: var(--accent) !important;
+  background: var(--bg-tertiary) !important;
+}
+
+/* Verified column - green styling for clean/ready status */
+.kanban-column[data-column-id="verified"] {
+  border-color: #10b981;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.1) 0%, var(--bg-secondary) 100%);
+}
+
+.kanban-column[data-column-id="verified"] .column-header {
+  color: #10b981;
+}
+
+.kanban-column[data-column-id="verified"] .task-count {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
 }
 
 .column-header {

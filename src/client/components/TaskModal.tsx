@@ -366,6 +366,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                     <option value="backlog">Backlog</option>
                     <option value="in-progress">In Progress</option>
                     <option value="review">Review</option>
+                    <option value="verified">Verified</option>
                     <option value="done">Done</option>
                   </select>
                 </div>
