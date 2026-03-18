@@ -76,13 +76,15 @@
           "name": "token_count",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": 0
         },
         "compaction_count": {
           "name": "compaction_count",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": 0
         }
       },
       "indexes": {},
@@ -232,7 +234,8 @@
           "name": "tickets_processed",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": 0
         },
         "actions_json": {
           "name": "actions_json",
