@@ -6,7 +6,7 @@ import os from 'os';
 import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 import { parsePRLinks, getPRState } from './pr-utils.js';
-import { getPRReviewThreads, ReviewThread } from './github.js';
+import { getPRReviewThreads, getPRComments, ReviewThread } from './github.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
@@ -192,11 +192,14 @@ interface PRSnapshot {
   ciState: 'SUCCESS' | 'FAILURE' | null;
   seenThreadIds?: string[]; // Track which review threads we've seen
   lastThreadCheck?: string; // ISO timestamp of last thread check
+  seenCommentIds?: string[]; // Track which plain PR comments we've seen
+  lastCommentCheck?: string; // ISO timestamp of last plain comment check
 }
 
 interface WorkerTriggerTaskState {
   prs: Record<string, PRSnapshot>;
   lastStatus?: Task['status'];
+  lastSeenTaskCommentId?: string; // Track last seen kanban task comment
 }
 
 interface WorkerTriggerState {
@@ -481,7 +484,7 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     onCIPassed: 'CI checks just passed for a linked pull request on this task.',
     onTestFailure: 'CI checks failed for a linked pull request on this task.',
     onTaskStarted: 'This task just moved from backlog to in-progress.',
-    onCommentAdded: 'A new review comment was added to a linked pull request.',
+    onCommentAdded: 'A new comment was added (PR review thread, plain PR comment, or task comment).',
   };
 
   const baseInstruction = [
@@ -492,37 +495,76 @@ function buildTriggerInstruction(task: Task, eventType: TriggerEventType, detail
     ...(details ? [`Details: ${details}`] : []),
   ];
 
-  // Add special context for review comments
+  // Add special context for comments (PR review threads, plain PR comments, or kanban task comments)
   if (eventType === 'onCommentAdded' && metadata) {
-    const commentId = metadata.firstComment?.databaseId || '[comment_id]';
     baseInstruction.push('');
-    baseInstruction.push('## Review Comment Details');
-    baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
-    baseInstruction.push(`**Author:** ${metadata.firstComment?.author || metadata.author}`);
-    if (metadata.firstComment?.path || metadata.path) {
-      baseInstruction.push(`**File:** ${metadata.firstComment?.path || metadata.path}${metadata.firstComment?.line || metadata.line ? `:${metadata.firstComment?.line || metadata.line}` : ''}`);
-    }
-    baseInstruction.push('');
-    baseInstruction.push('**Comment:**');
-    baseInstruction.push(sanitizeForPrompt(metadata.firstComment?.body || metadata.body));
     
-    if (metadata.allComments && metadata.allComments.length > 1) {
+    if (metadata.taskId && !metadata.prNumber) {
+      // Kanban task comment
+      baseInstruction.push('## Kanban Task Comment');
+      baseInstruction.push(`**Author:** ${metadata.author}`);
+      baseInstruction.push(`**Created:** ${metadata.createdAt}`);
       baseInstruction.push('');
-      baseInstruction.push('**Thread Context (previous comments):**');
-      metadata.allComments.slice(1).forEach((comment: any, i: number) => {
-        baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${sanitizeForPrompt(comment.body)}`);
-      });
+      baseInstruction.push('**Comment:**');
+      baseInstruction.push(sanitizeForPrompt(metadata.body));
+      baseInstruction.push('');
+      baseInstruction.push('## Action Guidance');
+      baseInstruction.push('DECIDE on the right action:');
+      baseInstruction.push('1. **Reply** - Answer questions or acknowledge feedback');
+      baseInstruction.push('2. **Fix** - If the comment points out an issue that needs addressing');
+      baseInstruction.push('3. **Clarify** - Ask for more details if unclear');
+      baseInstruction.push('4. **No action** - If the comment is just informational');
+      baseInstruction.push('');
+      baseInstruction.push('Add your response as a task comment via the tix-kanban API.');
+    } else if (metadata.commentId && !metadata.threadId) {
+      // Plain PR comment (not a review thread)
+      baseInstruction.push('## PR Comment (Plain)');
+      baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
+      baseInstruction.push(`**Author:** ${metadata.author}`);
+      baseInstruction.push(`**Comment URL:** ${metadata.commentUrl}`);
+      baseInstruction.push('');
+      baseInstruction.push('**Comment:**');
+      baseInstruction.push(sanitizeForPrompt(metadata.body));
+      baseInstruction.push('');
+      baseInstruction.push('## Action Guidance');
+      baseInstruction.push('DECIDE on the right action:');
+      baseInstruction.push('1. **Reply only** - If the comment is informational or you can answer without code changes');
+      baseInstruction.push('2. **Acknowledge + fix** - If the issue is valid and should be fixed in this PR');
+      baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
+      baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
+      baseInstruction.push('');
+      baseInstruction.push(`Reply using: \`gh api repos/${metadata.repo}/issues/comments/${metadata.commentId}/replies -f body="your reply"\``);
+    } else {
+      // Review thread comment (original implementation)
+      const commentId = metadata.firstComment?.databaseId || metadata.commentId || '[comment_id]';
+      baseInstruction.push('## Review Thread Comment');
+      baseInstruction.push(`**PR:** ${metadata.repo}#${metadata.prNumber} (${metadata.prUrl})`);
+      baseInstruction.push(`**Author:** ${metadata.firstComment?.author || metadata.author}`);
+      if (metadata.firstComment?.path || metadata.path) {
+        baseInstruction.push(`**File:** ${metadata.firstComment?.path || metadata.path}${metadata.firstComment?.line || metadata.line ? `:${metadata.firstComment?.line || metadata.line}` : ''}`);
+      }
+      baseInstruction.push('');
+      baseInstruction.push('**Comment:**');
+      baseInstruction.push(sanitizeForPrompt(metadata.firstComment?.body || metadata.body));
+      
+      if (metadata.allComments && metadata.allComments.length > 1) {
+        baseInstruction.push('');
+        baseInstruction.push('**Thread Context (previous comments):**');
+        metadata.allComments.slice(1).forEach((comment: any, i: number) => {
+          baseInstruction.push(`${i + 2}. ${comment.author} (${comment.createdAt}): ${sanitizeForPrompt(comment.body)}`);
+        });
+      }
+      
+      baseInstruction.push('');
+      baseInstruction.push('## Action Guidance');
+      baseInstruction.push('DECIDE on the right action:');
+      baseInstruction.push('1. **Reply only** - If the comment is informational or you can answer without code changes');
+      baseInstruction.push('2. **Acknowledge + fix** - If the issue is valid and should be fixed in this PR');
+      baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
+      baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
+      baseInstruction.push('');
+      baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${commentId}/replies -f body="your reply"\``);
     }
-    
-    baseInstruction.push('');
-    baseInstruction.push('## Action Guidance');
-    baseInstruction.push('DECIDE on the right action:');
-    baseInstruction.push('1. **Reply only** - If the comment is informational or you can answer without code changes');
-    baseInstruction.push('2. **Acknowledge + fix** - If the issue is valid and should be fixed in this PR');
-    baseInstruction.push('3. **Ask for clarification** - If the comment is unclear or you need more context');
-    baseInstruction.push('4. **Defer to follow-up ticket** - If the suggestion is valid but out of scope for this PR');
-    baseInstruction.push('');
-    baseInstruction.push(`Reply on the GitHub review thread using: \`gh api repos/${metadata.repo}/pulls/comments/${commentId}/replies -f body="your reply"\``);
   }
 
   baseInstruction.push('');
@@ -657,10 +699,17 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // First observation: pre-populate seenThreadIds with existing threads so they 
       // don't fire spuriously on next poll (avoids the bug where empty seenThreadIds 
       // on first poll causes all existing threads to appear "new" on second poll)
+      let seenCommentIds: string[] = [];
       if (!previous) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
         const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
         seenThreadIds = unresolvedThreads.map(t => t.id);
+        
+        // Also pre-populate plain comments
+        const plainComments = await getPRComments(pr.repo, pr.number);
+        seenCommentIds = plainComments.map(c => c.id);
+      } else {
+        seenCommentIds = previous.seenCommentIds || [];
       }
       
       const current: PRSnapshot = { 
@@ -668,6 +717,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         ciState: effectiveCiState,
         seenThreadIds,
         lastThreadCheck: new Date().toISOString(),
+        seenCommentIds,
+        lastCommentCheck: new Date().toISOString(),
       };
       newSnapshots[pr.key] = current;
 
@@ -726,6 +777,37 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
               seenThreadIds.push(thread.id);
             }
           }
+
+          // Also check for plain PR comments (not review threads)
+          let seenCommentIds = previous?.seenCommentIds || [];
+          const plainComments = await getPRComments(pr.repo, pr.number);
+          
+          // Filter bot authors
+          const BOT_AUTHORS = ['github-actions[bot]', 'cursor', 'jenna@dwlf.co.uk'];
+          const humanComments = plainComments.filter(c => !BOT_AUTHORS.includes(c.author));
+          
+          for (const comment of humanComments) {
+            if (!seenCommentIds.includes(comment.id)) {
+              // New plain comment detected
+              const metadata = {
+                prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
+                prNumber: pr.number,
+                repo: pr.repo,
+                commentId: comment.id,
+                author: comment.author,
+                body: comment.body,
+                createdAt: comment.createdAt,
+                commentUrl: comment.url,
+              };
+              
+              for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
+                enqueueInvocation(fullTask, persona, 'onCommentAdded', `New PR comment on ${pr.repo}#${pr.number} by ${comment.author}: ${comment.body.substring(0, 100)}...`, metadata);
+              }
+              seenCommentIds.push(comment.id);
+            }
+          }
+          current.seenCommentIds = seenCommentIds;
+          current.lastCommentCheck = new Date().toISOString();
         }
 
         if (state === 'open' && previous.state !== 'open') {
@@ -799,6 +881,44 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       invocation.details.join('; '),
       invocation.metadata
     );
+  }
+
+  // Check for new kanban task comments
+  for (const task of tasks) {
+    if (!task.comments || task.comments.length === 0) continue;
+    
+    const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
+    const lastSeenId = taskState.lastSeenTaskCommentId;
+    
+    // Sort comments by creation time to get the latest
+    const sortedComments = [...task.comments].sort((a, b) => 
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    
+    const latestComment = sortedComments[sortedComments.length - 1];
+    
+    // Filter bot comments
+    const BOT_AUTHORS = ['jenna@dwlf.co.uk', 'System', 'Worker (system)'];
+    const isHumanComment = !BOT_AUTHORS.some(bot => latestComment.author.includes(bot));
+    
+    // If we have a new comment from a human
+    if (isHumanComment && latestComment.id !== lastSeenId) {
+      const metadata = {
+        taskId: task.id,
+        commentId: latestComment.id,
+        author: latestComment.author,
+        body: latestComment.body,
+        createdAt: latestComment.createdAt,
+      };
+      
+      for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', task)) {
+        enqueueInvocation(task, persona, 'onCommentAdded', `New task comment by ${latestComment.author}: ${latestComment.body.substring(0, 100)}...`, metadata);
+      }
+      
+      taskState.lastSeenTaskCommentId = latestComment.id;
+    }
+    
+    triggerState.tasks[task.id] = taskState;
   }
 
   const existingTaskIds = new Set(tasks.map((task) => task.id));
