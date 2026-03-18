@@ -374,7 +374,7 @@ async function handlePRStateChanges(
     console.log(`📝 First observation for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}, hasThreads=${current.hasUnresolvedThreads}`);
 
     // 1. PR already merged → move to done
-    if (current.state === 'merged' && task.status === 'review') {
+    if (current.state === 'merged' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`✅ PR already merged for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         status: 'done',
@@ -393,7 +393,7 @@ async function handlePRStateChanges(
     }
 
     // 2. CI already failing → notify
-    if (current.ciState === 'FAILURE' && task.status === 'review') {
+    if (current.ciState === 'FAILURE' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`❌ CI already failed for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         comments: [
@@ -411,7 +411,7 @@ async function handlePRStateChanges(
     }
 
     // 3. Already has merge conflicts → notify
-    if (current.mergeable === 'CONFLICTING' && task.status === 'review') {
+    if (current.mergeable === 'CONFLICTING' && (task.status === 'review' || task.status === 'verified')) {
       console.log(`⚠️ Merge conflicts already detected for task ${task.id}: ${prRef}`);
       await updateTask(task.id, {
         comments: [
@@ -430,7 +430,7 @@ async function handlePRStateChanges(
     }
 
     // 4. Already has review threads → notify
-    if (current.hasUnresolvedThreads && unresolvedCount > 0 && task.status === 'review') {
+    if (current.hasUnresolvedThreads && unresolvedCount > 0 && (task.status === 'review' || task.status === 'verified')) {
       console.log(`💬 Review threads already present for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
       await updateTask(task.id, {
         comments: [
@@ -510,6 +510,7 @@ async function handlePRStateChanges(
     console.log(`💬 New review comments for task ${task.id}: ${prRef} (${unresolvedCount} unresolved)`);
     // TODO: Integrate with persona system to spawn developer
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
@@ -529,6 +530,7 @@ async function handlePRStateChanges(
   if ((task.status === 'review' || task.status === 'verified') && current.ciState === 'FAILURE' && previous.ciState !== 'FAILURE') {
     console.log(`❌ CI failed for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
@@ -547,6 +549,7 @@ async function handlePRStateChanges(
   if ((task.status === 'review' || task.status === 'verified') && current.mergeable === 'CONFLICTING' && previous.mergeable !== 'CONFLICTING') {
     console.log(`⚠️ Merge conflicts detected for task ${task.id}: ${prRef}`);
     await updateTask(task.id, {
+      ...(task.status === 'verified' ? { status: 'review' } : {}),
       comments: [
         ...(task.comments || []),
         {
