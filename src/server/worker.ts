@@ -1555,6 +1555,31 @@ async function processTask(task: Task): Promise<void> {
             await postTaskUpdate(fullTask, persona, `Issues found. Bouncing back to the previous stage for fixes.`);
           }
         } else {
+          // No pipeline - check if lgtm-reviewer found issues (shouldAdvance: false)
+          if (!shouldAdvance) {
+            // lgtm found issues but no pipeline exists to handle the bounce-back
+            // Log warning and bounce back to backlog with comment
+            console.warn(`⚠️  Task "${fullTask.title}" has lgtm review feedback (shouldAdvance: false) but no pipeline. Bouncing to backlog.`);
+            
+            const lgtmComment: Comment = {
+              id: Math.random().toString(36).substr(2, 9),
+              taskId: fullTask.id,
+              body: `🔄 **Returned for fixes**: lgtm review found issues that need addressing. No pipeline configured - returned to backlog.`,
+              author: 'System',
+              createdAt: new Date(),
+            };
+            
+            await updateTask(fullTask.id, {
+              status: 'backlog',
+              comments: [...updatedComments, lgtmComment],
+              agentActivity: clearedActivity,
+            });
+
+            await postTaskUpdate(fullTask, persona, `lgtm review found some issues. Since there's no pipeline configured, I've moved this back to the backlog for you to address.`);
+            
+            return;
+          }
+          
           // No pipeline - try auto-review first, then fall back to manual review
           const reviewState = await initiateAutoReview(fullTask, persona.id);
           if (reviewState) {
@@ -1658,7 +1683,7 @@ async function advanceTaskInPipeline(
       const currentAttempts = updatedAttempts[currentStage.id] || 0;
       const maxAttempts = currentStage.maxRetryAttempts || 3;
       
-      if (currentAttempts >= maxAttempts) {
+      if (currentAttempts > maxAttempts) {
         // Max retry attempts reached - mark as stuck and don't bounce
         console.warn(`⚠️  Task "${task.title}" stuck at ${currentStage.name} after ${currentAttempts} attempts (max: ${maxAttempts}). Not bouncing.`);
         
