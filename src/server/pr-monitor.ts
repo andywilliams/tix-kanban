@@ -522,8 +522,15 @@ async function handlePRStateChanges(
       // Check if task is held for manual merge
       const isHeldForMerge = task.holdForMerge === true;
       
-      // Build the comment - note if it's held
-      const holdNote = isHeldForMerge ? '\n\n> ⚠️ **Note**: This task is held for manual merge. The worker will not auto-merge but will keep monitoring the PR.' : '';
+      // Build the comment - different message based on hold status
+      let commentBody: string;
+      if (isHeldForMerge) {
+        // Task is held - don't say "ready for merge", indicate it's waiting for manual merge
+        commentBody = `✅ **PR is clean**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified but **held for manual merge**. It will not auto-merge.`;
+      } else {
+        commentBody = `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`;
+      }
+      
       const statusUpdate = { status: 'verified' as const };
       
       await updateTask(task.id, {
@@ -533,7 +540,7 @@ async function handlePRStateChanges(
           {
             id: Math.random().toString(36).substr(2, 9),
             taskId: task.id,
-            body: `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.${holdNote}`,
+            body: commentBody,
             author: 'PR Monitor (system)',
             createdAt: new Date(),
           },
@@ -673,8 +680,15 @@ async function handlePRStateChanges(
       // Check if task is held for manual merge
       const isHeldForMerge = task.holdForMerge === true;
       
-      // Build the comment - note if it's held
-      const holdNote = isHeldForMerge ? '\n\n> ⚠️ **Note**: This task is held for manual merge. The worker will not auto-merge but will keep monitoring the PR.' : '';
+      // Build the comment - different message based on hold status
+      let commentBody: string;
+      if (isHeldForMerge) {
+        // Task is held - don't say "ready for merge", indicate it's waiting for manual merge
+        commentBody = `✅ **PR is clean**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified but **held for manual merge**. It will not auto-merge.`;
+      } else {
+        commentBody = `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`;
+      }
+      
       const statusUpdate = { status: 'verified' as const };
       
       // Keep in review but add a comment indicating it's ready to merge
@@ -685,7 +699,7 @@ async function handlePRStateChanges(
           {
             id: Math.random().toString(36).substr(2, 9),
             taskId: task.id,
-            body: `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.${holdNote}`,
+            body: commentBody,
             author: 'PR Monitor (system)',
             createdAt: new Date(),
           },
