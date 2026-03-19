@@ -86,10 +86,12 @@ export function useChatStreaming() {
       });
 
       eventSource.onerror = (err) => {
-        // Ignore connection-close errors that fire after a successful 'done' event.
-        // EventSource fires onerror when the server closes the connection, even on success.
+        // EventSource fires onerror when the server closes the connection after 'done'.
+        // Close and bail out without resetting state or invoking onError in that case.
         if (streamCompletedRef.current) {
           console.log('📡 SSE: Connection closed after successful completion (onerror suppressed)');
+          eventSource.close();
+          eventSourceRef.current = null;
           return;
         }
 
