@@ -64,6 +64,13 @@ export async function executeDirectly(
     // Build the task prompt for the sub-agent
     const taskPrompt = buildSubAgentPrompt(extractedTask, persona);
     
+    // Post "working" status before spawning (sub-agent can take a while)
+    await postExecutionStatus(channelId, persona.name, {
+      sessionId: 'pending',
+      status: 'working',
+      message: `⚙️ Working on it...`
+    });
+
     // Spawn the sub-agent
     const result = await spawnSubAgent(taskPrompt, selectedModel);
     
