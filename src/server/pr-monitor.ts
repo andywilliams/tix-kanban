@@ -12,6 +12,9 @@ const execFile = promisify(execFileCallback);
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PR_MONITOR_STATE_FILE = path.join(STORAGE_DIR, 'pr-monitor-state.json');
 
+// Concurrency guard — prevents duplicate runs from worker cycle + manual trigger
+let prMonitorRunning = false;
+
 export interface PRReviewThread {
   id: string;
   createdAt: string;
@@ -273,7 +276,13 @@ function hasNewUnresolvedThreads(
 /**
  * Process all review tasks to monitor their PRs
  */
-export async function processReviewTasksPRStatus(): Promise<PRMonitorStats> {
+export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { skipped?: boolean }> {
+  if (prMonitorRunning) {
+    console.log('⏭️  PR monitor already running, skipping concurrent invocation');
+    return { tasksChecked: 0, actionsTaken: 0, lastRunAt: null, skipped: true };
+  }
+
+  prMonitorRunning = true;
   let tasksChecked = 0;
   let actionsTaken = 0;
 
@@ -397,6 +406,8 @@ export async function processReviewTasksPRStatus(): Promise<PRMonitorStats> {
   } catch (error) {
     console.error('❌ PR monitoring failed:', error);
     return { lastRunAt: new Date().toISOString(), tasksChecked, actionsTaken };
+  } finally {
+    prMonitorRunning = false;
   }
 }
 
