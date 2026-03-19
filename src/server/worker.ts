@@ -11,7 +11,7 @@ import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
-import { getOrCreateSession, addMessage } from '../services/sessionService.js';
+import { getOrCreateSession, addMessage as addSessionMessage } from '../services/sessionService.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 import { 
   getPipeline, 
@@ -1040,7 +1040,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     // Wrap in try-catch to allow task execution even if logging fails
     const taskContextMessage = `## Task: ${task.title}\n\n${task.description}\n\nTags: ${task.tags.join(', ')}\n\n${additionalContext}`;
     try {
-      await addMessage(sessionId, 'user', taskContextMessage, {
+      await addSessionMessage(sessionId, 'user', taskContextMessage, {
         taskId: task.id,
         taskTitle: task.title,
       });
@@ -1099,7 +1099,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     // Add AI output to session as an assistant message
     // Wrap in try-catch to preserve successful output even if compaction fails
     try {
-      await addMessage(sessionId, 'assistant', output, {
+      await addSessionMessage(sessionId, 'assistant', output, {
         taskId: task.id,
         success,
       });
@@ -1275,11 +1275,11 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     // Log research task to persona session
     try {
       const researchTaskMessage = `## Research Task: ${task.title}\n\n${task.description}\n\nTags: ${[...(task.tags || []), 'research'].join(', ')}\n\n${additionalContext}`;
-      await addMessage(sessionId, 'user', researchTaskMessage, {
+      await addSessionMessage(sessionId, 'user', researchTaskMessage, {
         taskId: task.id,
         taskTitle: task.title,
       });
-      await addMessage(sessionId, 'assistant', reportContent, {
+      await addSessionMessage(sessionId, 'assistant', reportContent, {
         taskId: task.id,
         taskTitle: task.title,
         type: 'research-report',
