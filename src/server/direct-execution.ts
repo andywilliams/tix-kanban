@@ -38,7 +38,7 @@ export async function executeDirectly(
   persona: Persona,
   channelId: string,
   intent: IntentResult,
-  model: 'M2.5' | 'sonnet' = 'M2.5'
+  model?: 'M2.5' | 'sonnet'
 ): Promise<ExecutionResult> {
   const { extractedTask } = intent;
   

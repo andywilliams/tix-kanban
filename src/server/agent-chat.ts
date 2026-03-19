@@ -46,7 +46,7 @@ import {
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
 import { renderWorkspaceContext, getCachedWorkspaceContext } from './workspace-context.js';
-import { detectIntent, buildClarificationPrompt } from './intent-detection.js';
+import { detectIntent, buildClarificationPrompt, IntentResult } from './intent-detection.js';
 import { executeDirectly, createRetrospectiveTicket } from './direct-execution.js';
 
 
@@ -101,18 +101,31 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   
   if (lastPersonaMsg && /^(yes|yes,? create (the )?ticket)$/i.test(message.content.trim())) {
     // User confirmed - create retrospective ticket
+    // Use the persona from the lastPersonaMsg (the one who offered to create a ticket)
+    const personaName = lastPersonaMsg.author;
     const channelMessages = await getMessages(message.channelId, 20);
-    const relevantMessages = channelMessages.slice(-10);
+    
+    // Extract task info from the most recent human message that requested action
+    // Look for the last message from a human that triggered the execution
+    const humanMessages = channelMessages.filter(m => m.authorType === 'human');
+    const lastHumanMsg = humanMessages[humanMessages.length - 1];
+    
+    // Build task object with extracted info
+    const extractedTask: IntentResult['extractedTask'] = {
+      title: lastHumanMsg?.content?.substring(0, 50) || 'Retrospective task',
+      description: lastHumanMsg?.content || 'Completed via direct execution',
+      tags: ['retrospective', 'direct-execution']
+    };
     
     try {
       await createRetrospectiveTicket(
         message.channelId,
-        persona.name,
-        relevantMessages.map(m => `${m.author}: ${m.content}`).join('\n')
+        personaName,
+        extractedTask
       );
       await addMessage(
         message.channelId,
-        persona.name,
+        personaName,
         'persona',
         '✅ Done! Created a retrospective ticket for this work.'
       );
@@ -121,7 +134,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       console.error('Failed to create retrospective ticket:', err);
       await addMessage(
         message.channelId,
-        persona.name,
+        personaName,
         'persona',
         'Sorry, I failed to create the ticket. You can manually create one on the board.'
       );
@@ -162,8 +175,8 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
         const result = await executeDirectly(
           persona,
           message.channelId,
-          intent,
-          'M2.5' // Default to M2.5, will auto-select Sonnet for complex tasks
+          intent
+          // No model passed - will auto-select based on task complexity
         );
         
         // If execution succeeded, no need for normal chat response

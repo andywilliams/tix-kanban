@@ -36,13 +36,35 @@ export function usePersonaChat(currentUser: string) {
   const personaChannelIds = useRef<Record<string, string>>({});
 
   // Helper to map channel message format to PersonaChatMessage
-  const mapChannelMessage = (m: any, currentUser: string): PersonaChatMessage => ({
-    id: m.id,
-    role: m.authorType === 'persona' ? 'assistant' : 'user',
-    content: m.content,
-    createdAt: m.createdAt,
-    author: m.authorType === 'human' ? currentUser : undefined,
-  });
+  const mapChannelMessage = (m: any, currentUser: string): PersonaChatMessage => {
+    // Parse execution status from message content (set by direct-execution.ts)
+    let executionStatus: PersonaChatMessage['executionStatus'];
+    let prUrl: string | undefined;
+    
+    const content = m.content || '';
+    if (content.includes('🚀 Spawning')) {
+      executionStatus = 'spawned';
+    } else if (content.includes('⚙️ Working')) {
+      executionStatus = 'working';
+    } else if (content.includes('✅ Done!')) {
+      executionStatus = 'done';
+      // Extract PR URL if present
+      const prMatch = content.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
+      if (prMatch) prUrl = prMatch[0];
+    } else if (content.includes('❌') && (content.includes('failed') || content.includes('error'))) {
+      executionStatus = 'error';
+    }
+    
+    return {
+      id: m.id,
+      role: m.authorType === 'persona' ? 'assistant' : 'user',
+      content,
+      createdAt: m.createdAt,
+      author: m.authorType === 'human' ? currentUser : undefined,
+      executionStatus,
+      prUrl,
+    };
+  };
 
   // Helper to map session message format to PersonaChatMessage
   const mapSessionMessage = (m: any, currentUser: string): PersonaChatMessage => ({
