@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
 import { sessions, messages, compactions, personas } from '../db/schema.js';
-import { eq, desc, asc } from 'drizzle-orm';
+import { eq, desc, asc, sql } from 'drizzle-orm';
 import { encoding_for_model, Tiktoken } from 'tiktoken';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -39,12 +39,7 @@ export function countTokens(text: string): number {
  * Get or create a session for a persona
  */
 export async function getOrCreateSession(personaId: string): Promise<string> {
-  // Check if persona exists
-  const persona = await db.select().from(personas).where(eq(personas.id, personaId)).limit(1);
-  if (persona.length === 0) {
-    throw new Error(`Persona ${personaId} not found`);
-  }
-
+  // Note: Persona validation is handled elsewhere (file-system based)
   // Check if session exists
   const existingSessions = await db
     .select()
@@ -183,14 +178,19 @@ export async function compactSession(sessionId: string): Promise<void> {
     // Calculate tokens freed
     const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount;
 
-    // Create summary message
+    // Create summary message - set createdAt just before the oldest kept message
+    // to ensure it sorts correctly (before recent messages in asc order)
     const summaryMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
+    const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1);
+    
     await db.insert(messages).values({
       id: summaryMessageId,
       sessionId,
       role: 'system',
       content: `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`,
       tokenCount: summaryTokenCount,
+      createdAt: summaryCreatedAt,
       metadataJson: JSON.stringify({ 
         compacted: true,
         originalMessageCount: messagesToSummarize.length,
@@ -274,14 +274,15 @@ export async function getSessionStats(sessionId: string): Promise<{
     throw new Error(`Session ${sessionId} not found`);
   }
 
-  const messageCount = await db
-    .select()
+  // Use COUNT query instead of fetching all rows
+  const [{ count: messageCount }] = await db
+    .select({ count: sql<number>`count(*)` })
     .from(messages)
     .where(eq(messages.sessionId, sessionId));
 
   return {
     tokenCount: session[0].tokenCount || 0,
-    messageCount: messageCount.length,
+    messageCount: messageCount || 0,
     compactionCount: session[0].compactionCount || 0,
     createdAt: session[0].createdAt,
     updatedAt: session[0].updatedAt,

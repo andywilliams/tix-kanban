@@ -738,13 +738,9 @@ Before you finish working on this task, you MUST output a structured summary wit
 
 This summary will be reviewed by QA. Be specific and complete.` : '';
 
-    // Calculate token budget for memory (account for soul prompt)
+    // Calculate token budget for memory (account for soul prompt and conversation history)
     const maxTokens = 50000;
     const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
-    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
-
-    const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
-    const memoryTruncated = memory.includes('(memory truncated)');
 
     // Get session conversation history
     const sessionId = await getOrCreateSession(personaId);
@@ -752,17 +748,24 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     
     // Build conversation history context (recent messages only, to avoid token bloat)
     let conversationSection = '';
+    let historyTokens = 0;
     if (conversationHistory.length > 0) {
       // Take up to last 10 exchanges for context continuity
       const recentHistory = conversationHistory.slice(-10);
       const historyText = recentHistory
         .map(msg => `[${msg.role}]: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`)
         .join('\n\n');
-      const historyTokens = countTokens(historyText);
+      historyTokens = countTokens(historyText);
       
       conversationSection = `\n\n## Recent Conversation History (${recentHistory.length} messages, ~${historyTokens} tokens)\n${historyText}`;
       console.log(`📝 Including ${recentHistory.length} recent messages in context (~${historyTokens} tokens)`);
     }
+
+    // Deduct conversation history tokens from memory budget
+    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000 - historyTokens);
+
+    const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
+    const memoryTruncated = memory.includes('(memory truncated)');
 
     // Build final prompt — soul comes after base prompt, before memory and task
     const soulSection = `\n\n${soulPrompt}`;
