@@ -972,8 +972,14 @@ app.get('/api/worker/status', async (_req, res) => {
 app.post('/api/worker/trigger', async (_req, res) => {
   try {
     console.log('🔄 Manual worker cycle triggered via API');
-    await runWorker();
+    const result = await runWorker();
     const fullStatus = await getFullWorkerStatus();
+    if (result.skipped) {
+      return res.status(409).json({ message: 'Worker already running, cycle skipped', ...fullStatus });
+    }
+    if (result.error) {
+      return res.status(500).json({ message: 'Worker cycle completed with error', error: result.error, ...fullStatus });
+    }
     res.json({ message: 'Worker cycle triggered', ...fullStatus });
   } catch (error) {
     console.error('POST /api/worker/trigger error:', error);

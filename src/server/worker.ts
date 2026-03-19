@@ -2393,10 +2393,10 @@ async function runWorkerCycle(): Promise<void> {
   console.log(`✅ Worker cycle completed. Processed ${tasksToProcess.length} task(s).`);
 }
 
-export async function runWorker(): Promise<void> {
+export async function runWorker(): Promise<{ skipped: boolean; error?: string }> {
   if (workerState.isRunning) {
     console.log('⏭️  Worker already running, skipping this cycle');
-    return;
+    return { skipped: true };
   }
 
   try {
@@ -2404,8 +2404,10 @@ export async function runWorker(): Promise<void> {
     workerState.lastRun = new Date().toISOString();
     await saveWorkerState();
     await runWorkerCycle();
+    return { skipped: false };
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
+    return { skipped: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     workerState.isRunning = false;
     await saveWorkerState();
