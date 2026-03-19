@@ -29,6 +29,7 @@ export function usePersonaChat(currentUser: string) {
   const lastMessageCountRef = useRef<number>(0);
   const reloadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRequestIdRef = useRef<number>(0);
+  const selectedPersonaIdRef = useRef<string | null>(null);
   // Store the direct channel id per persona so reads and writes use the same store (Issue #1)
   const personaChannelIds = useRef<Record<string, string>>({});
 
@@ -154,6 +155,10 @@ export function usePersonaChat(currentUser: string) {
   const startPolling = useCallback((personaId: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
+      // Guard: check if persona has changed since callback started
+      if (selectedPersonaIdRef.current !== personaId) {
+        return;
+      }
       try {
         const channelId = personaChannelIds.current[personaId];
         let msgs: PersonaChatMessage[] = [];
@@ -206,6 +211,7 @@ export function usePersonaChat(currentUser: string) {
     // Increment request ID to guard against stale responses from rapid selections
     const requestId = ++latestRequestIdRef.current;
     setSelectedPersonaId(personaId);
+    selectedPersonaIdRef.current = personaId;
     setMessages([]);
     await loadMessages(personaId, false, requestId);
     // Check if this request is still the latest one before starting polling
