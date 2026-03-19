@@ -2422,10 +2422,23 @@ app.get('/api/chat/:channelId/stream', async (req, res) => {
     // FIX: Instead of regenerating, wait for the response from processChatMention
     // which should already be running (or will be triggered by the message)
     try {
+      // Helper: find the persona's response to our trigger message.
+      // Primary: match by replyTo (set when persona replies to a specific message).
+      // Fallback: most recent persona message from this persona created after the trigger,
+      //           in case processChatMention didn't set replyTo.
+      const triggerTime = triggerMessage.createdAt ? new Date(triggerMessage.createdAt).getTime() : Date.now();
+      const findResponse = (msgs: typeof messages) => {
+        const byReplyTo = msgs.filter(m => m.replyTo === messageId && m.authorType === 'persona');
+        if (byReplyTo.length > 0) return byReplyTo;
+        return msgs.filter(
+          m => m.authorType === 'persona' &&
+               m.author === persona.name &&
+               new Date(m.createdAt).getTime() > triggerTime
+        );
+      };
+
       // First, check if a response already exists (processChatMention may have already completed)
-      let responseMessages = messages.filter(
-        m => m.replyTo === messageId && m.authorType === 'persona'
-      );
+      let responseMessages = findResponse(messages);
 
       // Poll for response if not found (wait for processChatMention to complete)
       const maxWaitMs = 60000; // 60 second max wait
@@ -2438,9 +2451,7 @@ app.get('/api/chat/:channelId/stream', async (req, res) => {
         
         // Re-fetch messages to check for new response
         const updatedMessages = await getMessages(channelId, 15);
-        responseMessages = updatedMessages.filter(
-          m => m.replyTo === messageId && m.authorType === 'persona'
-        );
+        responseMessages = findResponse(updatedMessages);
       }
 
       if (clientDisconnected) {
