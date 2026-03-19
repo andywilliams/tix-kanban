@@ -119,11 +119,14 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
     .select()
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
-    .orderBy(asc(messages.createdAt));
+    .orderBy(desc(messages.createdAt));
 
   const allMessages = limit ? await query.limit(limit) : await query;
 
-  return allMessages.map(msg => ({
+  // Reverse to get chronological order (oldest first) for display
+  const chronologicallyOrdered = [...allMessages].reverse();
+
+  return chronologicallyOrdered.map(msg => ({
     id: msg.id,
     role: msg.role,
     content: msg.content,

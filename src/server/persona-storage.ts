@@ -740,7 +740,7 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
 
     // Calculate token budget for memory (account for soul prompt and conversation history)
     const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
+    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
 
     // Get session conversation history
     const sessionId = await getOrCreateSession(personaId);

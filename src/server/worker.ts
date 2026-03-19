@@ -1094,10 +1094,16 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const success = !stderr && output.length > 0;
     
     // Add AI output to session as an assistant message
-    await addMessage(sessionId, 'assistant', output, {
-      taskId: task.id,
-      success,
-    });
+    // Wrap in try-catch to preserve successful output even if compaction fails
+    try {
+      await addMessage(sessionId, 'assistant', output, {
+        taskId: task.id,
+        success,
+      });
+    } catch (compactionError) {
+      console.error(`Failed to add message (compaction error) for task ${task.id}:`, compactionError);
+      // Preserve the successful output - compaction can be retried later
+    }
     
     return { output, success };
   } catch (error) {
