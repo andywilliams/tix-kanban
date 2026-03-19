@@ -58,8 +58,8 @@ export async function executeDirectly(
       message: `🚀 Spawning sub-agent to handle: "${extractedTask.title || extractedTask.description.substring(0, 50)}..."`
     });
 
-    // Determine complexity and choose model
-    const selectedModel = determineModel(extractedTask.description);
+    // Determine complexity and choose model - use caller-supplied model if provided, otherwise determine
+    const selectedModel = model || determineModel(extractedTask.description);
     
     // Build the task prompt for the sub-agent
     const taskPrompt = buildSubAgentPrompt(extractedTask, persona);

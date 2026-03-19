@@ -53,7 +53,10 @@ export function detectIntent(
   message: string,
   recentContext?: string[]
 ): IntentResult {
-  const trimmed = message.trim();
+  // Strip @mentions from the message before pattern matching
+  // e.g. "@Developer fix the login bug" -> "fix the login bug"
+  const cleanedMessage = message.replace(/^@\w+\s+/i, '').trim();
+  const trimmed = cleanedMessage;
   
   // Check for vague patterns first
   if (VAGUE_PATTERNS.some(p => p.test(trimmed))) {
@@ -64,16 +67,8 @@ export function detectIntent(
     };
   }
 
-  // Check for discussion patterns
-  if (DISCUSSION_PATTERNS.some(p => p.test(trimmed))) {
-    return {
-      intent: 'discussion',
-      confidence: 0.85,
-      reasoning: 'Question or request for explanation'
-    };
-  }
-
-  // Check for action patterns
+  // Check for action patterns BEFORE discussion patterns
+  // (to avoid "could you fix X" being treated as discussion)
   if (ACTION_PATTERNS.some(p => p.test(trimmed))) {
     // Extract potential task details
     const extractedTask = extractTaskDetails(trimmed, recentContext);
@@ -83,6 +78,15 @@ export function detectIntent(
       confidence: 0.9,
       reasoning: 'Clear action request detected',
       extractedTask
+    };
+  }
+
+  // Check for discussion patterns
+  if (DISCUSSION_PATTERNS.some(p => p.test(trimmed))) {
+    return {
+      intent: 'discussion',
+      confidence: 0.85,
+      reasoning: 'Question or request for explanation'
     };
   }
 

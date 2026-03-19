@@ -93,6 +93,42 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   // Check for "remember" command
   const rememberCmd = parseRememberCommand(message.content);
 
+  // Handle "yes, create ticket" response to a ticket offer
+  const recentMessages = await getMessages(message.channelId, 5);
+  const lastPersonaMsg = recentMessages
+    .reverse()
+    .find(m => m.authorType === 'persona' && m.content?.includes('create a ticket'));
+  
+  if (lastPersonaMsg && /^(yes|yes,? create (the )?ticket)$/i.test(message.content.trim())) {
+    // User confirmed - create retrospective ticket
+    const channelMessages = await getMessages(message.channelId, 20);
+    const relevantMessages = channelMessages.slice(-10);
+    
+    try {
+      await createRetrospectiveTicket(
+        message.channelId,
+        persona.name,
+        relevantMessages.map(m => `${m.author}: ${m.content}`).join('\n')
+      );
+      await addMessage(
+        message.channelId,
+        persona.name,
+        'persona',
+        '✅ Done! Created a retrospective ticket for this work.'
+      );
+      return;
+    } catch (err) {
+      console.error('Failed to create retrospective ticket:', err);
+      await addMessage(
+        message.channelId,
+        persona.name,
+        'persona',
+        'Sorry, I failed to create the ticket. You can manually create one on the board.'
+      );
+      return;
+    }
+  }
+
   // Detect intent (action vs discussion)
   // Get recent messages for context
   let recentContext: string[] = [];
