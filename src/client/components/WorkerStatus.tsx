@@ -38,7 +38,7 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
       }
       
       const data = await response.json();
-      setStatus(data.status);
+      setStatus(data.worker ?? data.status ?? data);
     } catch (error) {
       console.error('Failed to fetch worker status:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
@@ -67,7 +67,7 @@ export function WorkerStatus({ className }: WorkerStatusProps) {
       }
       
       const data = await response.json();
-      setStatus(data.status);
+      setStatus(data.worker ?? data.status ?? data);
     } catch (error) {
       console.error('Failed to toggle worker:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
