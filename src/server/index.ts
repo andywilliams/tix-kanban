@@ -2178,6 +2178,21 @@ app.get('/api/personas/:id/session/messages', async (req, res) => {
   }
 });
 
+// Budget status API route
+app.get('/api/personas/:id/budget-status', async (req, res) => {
+  try {
+    const { getPersonaBudgetStatus } = await import('./collaboration-budget.js');
+    const status = await getPersonaBudgetStatus(req.params.id);
+    if (!status) {
+      return res.json({ tokensUsed: 0, tokenLimit: 0, percentage: 0, paused: false, month: '' });
+    }
+    res.json(status);
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/budget-status error:`, error);
+    res.status(500).json({ error: 'Failed to get budget status' });
+  }
+});
+
 // Direct chat API routes
 
 // POST /api/personas/:id/chat/start - Start a direct conversation
