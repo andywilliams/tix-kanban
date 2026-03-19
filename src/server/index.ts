@@ -2524,6 +2524,7 @@ app.get('/api/chat/:channelId/stream', async (req, res) => {
         const triggerTime = new Date(triggerMessage.createdAt).getTime();
         responseMessages = messages.filter(
           m => m.authorType === 'persona' && 
+               m.author === persona.name &&
                new Date(m.createdAt).getTime() > triggerTime
         );
         // Sort by createdAt to get the earliest response after the trigger

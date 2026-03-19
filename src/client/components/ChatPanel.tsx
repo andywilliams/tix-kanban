@@ -145,6 +145,14 @@ export default function ChatPanel({
       }
     }
     
+    // Also scroll during SSE streaming when text is being received
+    if (streamingText && streamingText.length > 0) {
+      const wasAtBottom = isAtBottomRef.current;
+      if (wasAtBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+    
     prevMessagesLengthRef.current = currentLength;
   }, [currentChannel?.messages, streamingText]);
 
