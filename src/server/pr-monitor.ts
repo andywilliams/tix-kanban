@@ -524,7 +524,7 @@ async function handlePRStateChanges(
       
       // Build the comment - note if it's held
       const holdNote = isHeldForMerge ? '\n\n> ⚠️ **Note**: This task is held for manual merge. The worker will not auto-merge but will keep monitoring the PR.' : '';
-      const statusUpdate = isHeldForMerge ? {} : { status: 'verified' as const };
+      const statusUpdate = { status: 'verified' as const };
       
       await updateTask(task.id, {
         ...statusUpdate,
@@ -675,7 +675,7 @@ async function handlePRStateChanges(
       
       // Build the comment - note if it's held
       const holdNote = isHeldForMerge ? '\n\n> ⚠️ **Note**: This task is held for manual merge. The worker will not auto-merge but will keep monitoring the PR.' : '';
-      const statusUpdate = isHeldForMerge ? {} : { status: 'verified' as const };
+      const statusUpdate = { status: 'verified' as const };
       
       // Keep in review but add a comment indicating it's ready to merge
       await updateTask(task.id, {
