@@ -995,6 +995,9 @@ app.post('/api/worker/pr-monitor/trigger', async (_req, res) => {
     if (stats.skipped) {
       return res.status(409).json({ message: 'PR monitor already running, skipped', stats });
     }
+    if (stats.error) {
+      return res.status(500).json({ message: 'PR monitor completed with error', error: stats.error, stats });
+    }
     res.json({ message: 'PR monitor triggered', stats });
   } catch (error) {
     console.error('POST /api/worker/pr-monitor/trigger error:', error);

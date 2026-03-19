@@ -276,7 +276,7 @@ function hasNewUnresolvedThreads(
 /**
  * Process all review tasks to monitor their PRs
  */
-export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { skipped?: boolean }> {
+export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { skipped?: boolean; error?: string }> {
   if (prMonitorRunning) {
     console.log('⏭️  PR monitor already running, skipping concurrent invocation');
     return { tasksChecked: 0, actionsTaken: 0, lastRunAt: null, skipped: true };
@@ -405,7 +405,7 @@ export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { s
     return state.stats;
   } catch (error) {
     console.error('❌ PR monitoring failed:', error);
-    return { lastRunAt: new Date().toISOString(), tasksChecked, actionsTaken };
+    return { lastRunAt: new Date().toISOString(), tasksChecked, actionsTaken, error: error instanceof Error ? error.message : String(error) };
   } finally {
     prMonitorRunning = false;
   }
