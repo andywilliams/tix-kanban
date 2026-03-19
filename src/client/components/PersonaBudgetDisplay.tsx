@@ -117,7 +117,7 @@ export function PersonaBudgetDisplay({ personaId }: PersonaBudgetDisplayProps) {
           color: barColor,
           fontWeight: 500,
         }}>
-          This persona is paused due to budget exceeded. Resets on {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.
+          This persona is paused due to budget exceeded. Resets on {new Date(budgetStatus.month + '-01').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.
         </div>
       )}
     </div>

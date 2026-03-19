@@ -274,6 +274,10 @@ export async function recordTokenUsage(
         personaBudget.paused = true;
         console.warn(`⚠️ ${personaId} has exceeded its monthly token budget (${personaBudget.tokensUsed.toLocaleString()} / ${personaBudget.tokenLimit.toLocaleString()} tokens)`);
       }
+    } else if (personaBudget.paused && personaBudget.tokenLimit > 0 && personaBudget.tokensUsed < personaBudget.tokenLimit) {
+      // Resume persona if usage is now below the budget limit (e.g., admin increased limit)
+      personaBudget.paused = false;
+      console.log(`✅ ${personaId} has been resumed - usage (${personaBudget.tokensUsed.toLocaleString()}) is below updated limit (${personaBudget.tokenLimit.toLocaleString()})`);
     }
     
     await saveMonthlyBudget(budget);
