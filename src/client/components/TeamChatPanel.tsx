@@ -61,10 +61,16 @@ export default function TeamChatPanel({
     }
   }, [personas]);
 
+<<<<<<< HEAD
   // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
   useLayoutEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
+=======
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [currentChannel?.messages, streamingText]);
+>>>>>>> 21a19e9a (fix: auto-scroll on streaming tokens; use isStreaming prop; remove unused import)
 
   // Mention autocomplete
   useEffect(() => {
@@ -486,7 +492,8 @@ function MessageBubble({
             width: '2rem', height: '2rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem',
             flexShrink: 0, color: 'var(--text-primary)',
-            cursor: persona ? 'pointer' : 'default'
+            cursor: persona ? 'pointer' : 'default',
+            ...(isStreaming ? { boxShadow: '0 0 0 2px var(--accent)', animation: 'pulse 1.5s infinite' } : {})
           }}
           onClick={() => persona && onPersonaClick(persona)}
         >
