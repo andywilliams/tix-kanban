@@ -129,6 +129,9 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, personas, onClick, isDragging
           )}
         </div>
         <div className="task-status-icons">
+          {task.holdForMerge && (
+            <span className="hold-merge-indicator" title="Held for manual merge">🔒</span>
+          )}
           {task.links && task.links.some(l => l.type === 'pr') && (
             <span className="github-status compact" title="Has linked PR">🔗</span>
           )}
