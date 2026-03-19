@@ -1702,6 +1702,9 @@ async function processTask(task: Task): Promise<void> {
             });
 
             await postTaskUpdate(fullTask, persona, `Work complete! I've moved this to review — ready for your eyes.`);
+
+            // Track activity: dev task completed (moved to review)
+            await trackTaskCompleted(persona.id, persona.name, fullTask);
           }
         }
       }

@@ -739,9 +739,14 @@ Before you finish working on this task, you MUST output a structured summary wit
 
 This summary will be reviewed by QA. Be specific and complete.` : '';
 
-    // Get recent daily summaries for continuity
-    const recentSummaries = await getRecentSummaries();
-    const summariesSection = recentSummaries ? `\n\n## Recent Activity Summaries\n\n${recentSummaries}` : '';
+    // Get recent daily summaries for continuity (non-critical — don't let errors block task execution)
+    let summariesSection = '';
+    try {
+      const recentSummaries = await getRecentSummaries();
+      summariesSection = recentSummaries ? `\n\n## Recent Activity Summaries\n\n${recentSummaries}` : '';
+    } catch (summaryError) {
+      console.warn('Failed to load recent summaries (non-fatal):', summaryError);
+    }
 
     // Calculate token budget for memory (account for soul prompt, conversation history, and summaries)
     const maxTokens = 50000;

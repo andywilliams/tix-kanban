@@ -72,10 +72,10 @@ async function readDailyActivity(date?: string): Promise<DailyActivity> {
 
 // Write daily activity (atomic - write to temp file then rename)
 async function writeDailyActivity(activity: DailyActivity): Promise<void> {
+  const tempPath = `${getActivityPath(activity.date)}.tmp.${Date.now()}`;
   try {
     await ensureActivityDirectory();
     const activityPath = getActivityPath(activity.date);
-    const tempPath = `${activityPath}.tmp.${Date.now()}`;
     const content = JSON.stringify(activity, null, 2);
     
     // Write to temp file first (atomic write pattern)
@@ -86,7 +86,6 @@ async function writeDailyActivity(activity: DailyActivity): Promise<void> {
   } catch (error) {
     // Clean up temp file if it exists
     try {
-      const tempPath = `${getActivityPath(activity.date)}.tmp.${Date.now()}`;
       await fs.unlink(tempPath);
     } catch {}
     console.error('Failed to write daily activity:', error);

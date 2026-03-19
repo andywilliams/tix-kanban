@@ -216,7 +216,6 @@ import {
 import {
   generateDailySummary,
   readSummary,
-  summaryExists
 } from './dailySummary.js';
 // Notion sync removed - now using CLI-based providers
 // See documentation/providers.md for the new architecture
