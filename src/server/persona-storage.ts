@@ -761,8 +761,9 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
       console.log(`📝 Including ${recentHistory.length} recent messages in context (~${historyTokens} tokens)`);
     }
 
-    // Deduct conversation history tokens from memory budget
-    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000 - historyTokens);
+    // Deduct conversation history tokens from memory budget (guard against negative)
+    const rawBudget = maxTokens - baseTokens - 1000 - historyTokens;
+    const memoryTokenBudget = Math.max(0, Math.min(8000, rawBudget));
 
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
@@ -775,7 +776,7 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
 
     return {
       prompt: fullPrompt,
-      tokenCount: estimateTokenCount(fullPrompt),
+      tokenCount: countTokens(fullPrompt),
       memoryTruncated
     };
   } catch (error) {
