@@ -31,6 +31,24 @@ export function usePersonaChat(currentUser: string) {
   // Store the direct channel id per persona so reads and writes use the same store (Issue #1)
   const personaChannelIds = useRef<Record<string, string>>({});
 
+  // Helper to map channel message format to PersonaChatMessage
+  const mapChannelMessage = (m: any, currentUser: string): PersonaChatMessage => ({
+    id: m.id,
+    role: m.authorType === 'persona' ? 'assistant' : 'user',
+    content: m.content,
+    createdAt: m.createdAt,
+    author: m.authorType === 'human' ? currentUser : undefined,
+  });
+
+  // Helper to map session message format to PersonaChatMessage
+  const mapSessionMessage = (m: any, currentUser: string): PersonaChatMessage => ({
+    id: m.id,
+    role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+    content: m.content,
+    createdAt: m.createdAt,
+    author: m.role === 'user' ? currentUser : undefined,
+  });
+
   // Load all personas
   const loadPersonas = useCallback(async () => {
     setError(null); // Clear any previous errors (Issue #3)
@@ -93,9 +111,11 @@ export function usePersonaChat(currentUser: string) {
 
   // Load messages for selected persona
   // Issue #1: read from the direct channel if we have one, otherwise fall back to session
-  const loadMessages = useCallback(async (personaId: string) => {
-    setError(null); // Clear any previous errors (Issue #3)
-    setLoadingMessages(true);
+  const loadMessages = useCallback(async (personaId: string, silentRefresh = false) => {
+    if (!silentRefresh) {
+      setError(null); // Clear any previous errors (Issue #3)
+      setLoadingMessages(true);
+    }
     try {
       const channelId = personaChannelIds.current[personaId];
       let msgs: PersonaChatMessage[] = [];
@@ -105,25 +125,13 @@ export function usePersonaChat(currentUser: string) {
         const res = await fetch(`/api/chat/${channelId}/messages`);
         if (!res.ok) throw new Error('Failed to load messages');
         const data = await res.json();
-        msgs = (data.messages || []).map((m: any) => ({
-          id: m.id,
-          role: m.authorType === 'persona' ? 'assistant' : 'user',
-          content: m.content,
-          createdAt: m.createdAt,
-          author: m.authorType === 'human' ? currentUser : undefined,
-        }));
+        msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
       } else {
         // Fall back to session endpoint before a channel has been established
         const res = await fetch(`/api/personas/${personaId}/session/messages`);
         if (!res.ok) throw new Error('Failed to load messages');
         const data = await res.json();
-        msgs = (data.messages || []).map((m: any) => ({
-          id: m.id,
-          role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
-          content: m.content,
-          createdAt: m.createdAt,
-          author: m.role === 'user' ? currentUser : undefined,
-        }));
+        msgs = (data.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
       }
 
       setMessages(msgs);
@@ -131,7 +139,9 @@ export function usePersonaChat(currentUser: string) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load messages');
     } finally {
-      setLoadingMessages(false);
+      if (!silentRefresh) {
+        setLoadingMessages(false);
+      }
     }
   }, [currentUser]);
 
@@ -147,24 +157,12 @@ export function usePersonaChat(currentUser: string) {
           const res = await fetch(`/api/chat/${channelId}/messages`);
           if (!res.ok) return;
           const data = await res.json();
-          msgs = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.authorType === 'persona' ? 'assistant' : 'user',
-            content: m.content,
-            createdAt: m.createdAt,
-            author: m.authorType === 'human' ? currentUser : undefined,
-          }));
+          msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
         } else {
           const res = await fetch(`/api/personas/${personaId}/session/messages`);
           if (!res.ok) return;
           const data = await res.json();
-          msgs = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
-            content: m.content,
-            createdAt: m.createdAt,
-            author: m.role === 'user' ? currentUser : undefined,
-          }));
+          msgs = (data.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
         }
 
         if (msgs.length !== lastMessageCountRef.current) {
@@ -268,6 +266,11 @@ export function usePersonaChat(currentUser: string) {
           setMessages(prev => prev.filter(m => m.id !== tempId));
           return;
         }
+      } else {
+        // Issue #1 fix: handle falsy channelId - set error and remove optimistic message
+        setError('Failed to start conversation — please try again');
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        return;
       }
 
       // Issue #4: clear any existing reload timeout and capture personaId in closure
@@ -275,7 +278,7 @@ export function usePersonaChat(currentUser: string) {
       reloadTimeoutRef.current = setTimeout(() => {
         // Only reload if the user hasn't switched to a different persona
         if (capturedPersonaId === selectedPersonaId) {
-          loadMessages(capturedPersonaId);
+          loadMessages(capturedPersonaId, true); // silentRefresh: true to avoid loading flash
         }
         reloadTimeoutRef.current = null;
       }, 500);
