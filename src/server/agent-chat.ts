@@ -85,6 +85,9 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     )
   );
 
+  // Declare recentMessages upfront for reuse across the function
+  let recentMessages: Awaited<ReturnType<typeof getMessages>> = [];
+
   if (mentionedPersonas.length === 0) {
     console.log('🔍 No matching personas found for mentions');
     return;
@@ -94,7 +97,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   const rememberCmd = parseRememberCommand(message.content);
 
   // Handle "yes, create ticket" response to a ticket offer
-  const recentMessages = await getMessages(message.channelId, 5);
+  recentMessages = await getMessages(message.channelId, 5);
   const lastPersonaMsg = recentMessages
     .reverse()
     .find(m => m.authorType === 'persona' && m.content?.includes('create a ticket'));
@@ -126,8 +129,10 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     const prUrl = prUrlMatch?.content?.match(/(https:\/\/github\.com\/[^\s]+)/)?.[1];
     
     // Build task object with extracted info
+    // Strip @mention prefix from content before using as title
+    const rawTitle = lastHumanMsg?.content?.replace(/^@[\w-]+\s+/i, '').trim() || '';
     const extractedTask: IntentResult['extractedTask'] = {
-      title: lastHumanMsg?.content?.substring(0, 50) || 'Retrospective task',
+      title: rawTitle.substring(0, 50) || 'Retrospective task',
       description: lastHumanMsg?.content || 'Completed via direct execution',
       tags: ['retrospective', 'direct-execution']
     };
@@ -154,10 +159,12 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   }
 
   // Detect intent (action vs discussion)
-  // Get recent messages for context
+  // Reuse recentMessages from ticket confirmation check if available
   let recentContext: string[] = [];
   try {
-    const recentMessages = await getMessages(message.channelId, 5);
+    if (!recentMessages) {
+      recentMessages = await getMessages(message.channelId, 5);
+    }
     recentContext = recentMessages
       .slice(-5)
       .map(m => `${m.author}: ${m.content}`);
