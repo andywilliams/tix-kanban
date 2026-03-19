@@ -33,7 +33,9 @@ import {
   toggleReminderCheckScheduler,
   updateReminderCheckInterval,
   triggerReminderCheck,
-  getRequiredProviders
+  getRequiredProviders,
+  updateMaxConcurrentPersonas,
+  toggleAllowDuplicatePersonas
 } from './worker.js';
 import {
   getRules,
@@ -1161,6 +1163,42 @@ app.post('/api/worker/reminder-check/trigger', async (_req, res) => {
   } catch (error) {
     console.error('POST /api/worker/reminder-check/trigger error:', error);
     res.status(500).json({ error: 'Failed to trigger reminder check' });
+  }
+});
+
+// PUT /api/worker/max-concurrent-personas - Update max concurrent personas
+app.put('/api/worker/max-concurrent-personas', async (req, res) => {
+  try {
+    const { max } = req.body;
+    
+    if (typeof max !== 'number' || !Number.isInteger(max) || max < 1) {
+      return res.status(400).json({ error: 'max must be a positive integer' });
+    }
+    
+    await updateMaxConcurrentPersonas(max);
+    const status = getWorkerStatus();
+    res.json({ status });
+  } catch (error) {
+    console.error('PUT /api/worker/max-concurrent-personas error:', error);
+    res.status(500).json({ error: 'Failed to update max concurrent personas' });
+  }
+});
+
+// POST /api/worker/allow-duplicate-personas - Toggle allow duplicate personas
+app.post('/api/worker/allow-duplicate-personas', async (req, res) => {
+  try {
+    const { allow } = req.body;
+    
+    if (typeof allow !== 'boolean') {
+      return res.status(400).json({ error: 'allow must be a boolean' });
+    }
+    
+    await toggleAllowDuplicatePersonas(allow);
+    const status = getWorkerStatus();
+    res.json({ status });
+  } catch (error) {
+    console.error('POST /api/worker/allow-duplicate-personas error:', error);
+    res.status(500).json({ error: 'Failed to toggle allow duplicate personas' });
   }
 });
 

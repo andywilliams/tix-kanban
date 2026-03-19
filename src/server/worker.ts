@@ -207,6 +207,12 @@ interface WorkerTriggerState {
   tasks: Record<string, WorkerTriggerTaskState>;
 }
 
+interface ActiveSession {
+  personaId: string;
+  taskId: string;
+  startedAt: Date;
+}
+
 interface WorkerState {
   enabled: boolean;
   interval: string; // cron expression
@@ -223,6 +229,9 @@ interface WorkerState {
   reminderCheckEnabled: boolean; // reminder rules engine
   reminderCheckInterval: string; // cron expression for reminder check frequency
   lastReminderCheckRun?: string;
+  maxConcurrentPersonas: number; // max simultaneous persona sessions (default 1)
+  allowDuplicatePersonas: boolean; // allow same persona type on multiple tasks (default false)
+  activeSessions: ActiveSession[]; // currently running sessions
 }
 
 let workerState: WorkerState = {
@@ -236,12 +245,27 @@ let workerState: WorkerState = {
   slxSyncInterval: '0 */1 * * *', // Default: every 1 hour
   reminderCheckEnabled: true, // Enable personal reminders check by default
   reminderCheckInterval: '*/5 * * * *', // Default: every 5 minutes
+  maxConcurrentPersonas: 1, // Default: sequential (1 at a time) for backward compatibility
+  allowDuplicatePersonas: false, // Default: prevent same persona on multiple tasks
+  activeSessions: [], // No active sessions initially
 };
 
 let cronJob: cron.ScheduledTask | null = null;
 let standupCronJob: cron.ScheduledTask | null = null;
 let slxSyncCronJob: cron.ScheduledTask | null = null;
 let reminderCheckCronJob: cron.ScheduledTask | null = null;
+
+// Write queue/mutex to serialize state persistence and prevent race conditions
+let writeQueue: Promise<void> = Promise.resolve();
+
+// Add a state save to the write queue (serializes all writes)
+function enqueueStateSave(): Promise<void> {
+  const currentQueue = writeQueue;
+  writeQueue = (async () => {
+    await currentQueue;
+  })();
+  return writeQueue;
+}
 
 // Ensure worker directories exist
 async function ensureWorkerDirectories(): Promise<void> {
@@ -271,8 +295,11 @@ async function loadWorkerState(): Promise<void> {
   }
 }
 
-// Save worker state to file
+// Save worker state to file (serialized via write queue to prevent race conditions)
 async function saveWorkerState(): Promise<void> {
+  // Wait for any pending writes to complete first
+  await enqueueStateSave();
+  
   try {
     await ensureWorkerDirectories();
     const content = JSON.stringify(workerState, null, 2);
@@ -1536,6 +1563,10 @@ async function processTask(task: Task): Promise<void> {
       }
     }
 
+    // Add session tracking
+    addActiveSession(persona.id, fullTask.id);
+    await saveWorkerState();
+
     // Move task to in-progress only after provider access checks pass
     await updateTask(task.id, { status: 'in-progress' });
 
@@ -1720,6 +1751,10 @@ async function processTask(task: Task): Promise<void> {
       status: 'backlog',
       agentActivity: undefined,
     });
+  } finally {
+    // Always remove session on completion (success, failure, or error)
+    removeActiveSession(task.id);
+    await saveWorkerState();
   }
 }
 
@@ -1994,6 +2029,72 @@ async function processAutoReviewTasks(): Promise<void> {
 // Default threshold for considering a working task as stale (10 minutes)
 const STALE_TASK_THRESHOLD_MS = 10 * 60 * 1000;
 
+// Session tracking functions
+function addActiveSession(personaId: string, taskId: string): void {
+  workerState.activeSessions.push({
+    personaId,
+    taskId,
+    startedAt: new Date(),
+  });
+  console.log(`📝 Added active session: ${personaId} -> ${taskId} (total: ${workerState.activeSessions.length})`);
+}
+
+function removeActiveSession(taskId: string): void {
+  const before = workerState.activeSessions.length;
+  workerState.activeSessions = workerState.activeSessions.filter(s => s.taskId !== taskId);
+  const removed = before - workerState.activeSessions.length;
+  if (removed > 0) {
+    console.log(`🗑️  Removed active session for task ${taskId} (total: ${workerState.activeSessions.length})`);
+  }
+}
+
+function isPersonaActive(personaId: string): boolean {
+  return workerState.activeSessions.some(s => s.personaId === personaId);
+}
+
+function getAvailableSlots(): number {
+  return Math.max(0, workerState.maxConcurrentPersonas - workerState.activeSessions.length);
+}
+
+async function pruneStaleActiveSessions(tasks: Task[]): Promise<void> {
+  const now = Date.now();
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const staleToRemove: string[] = [];
+
+  for (const session of workerState.activeSessions) {
+    const task = taskMap.get(session.taskId);
+    if (!task) {
+      // Task no longer exists — remove session
+      staleToRemove.push(session.taskId);
+      continue;
+    }
+
+    // Check if task is no longer in-progress
+    if (task.status !== 'in-progress') {
+      staleToRemove.push(session.taskId);
+      continue;
+    }
+
+    // Check if session has exceeded timeout
+    const taskTimeout = (task as any).timeoutMs || STALE_TASK_THRESHOLD_MS;
+    const elapsed = now - new Date(session.startedAt).getTime();
+    const timeoutThreshold = Math.max(taskTimeout * 2, STALE_TASK_THRESHOLD_MS);
+    
+    if (elapsed > timeoutThreshold) {
+      console.log(`⏱️  Session for task ${session.taskId} is stale (${Math.floor(elapsed / 60000)}min > ${Math.floor(timeoutThreshold / 60000)}min threshold)`);
+      staleToRemove.push(session.taskId);
+    }
+  }
+
+  if (staleToRemove.length > 0) {
+    console.log(`🧹 Pruning ${staleToRemove.length} stale session(s)...`);
+    for (const taskId of staleToRemove) {
+      removeActiveSession(taskId);
+    }
+    await saveWorkerState();
+  }
+}
+
 // Evaluate whether a stale in-progress task is ready for review
 async function evaluateStaleTask(task: Task, persona: Persona): Promise<'review' | 'backlog'> {
   try {
@@ -2081,6 +2182,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           status: 'backlog',
           agentActivity: undefined,
         });
+        // Clean up any phantom active session
+        removeActiveSession(task.id);
+        await saveWorkerState();
         console.log(`📥 Recovered stale task (no persona) → backlog: ${task.title}`);
         continue;
       }
@@ -2109,6 +2213,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
             agentActivity: undefined,
           });
           await executeReviewCycle(task.id);
+          // Clean up any phantom active session
+          removeActiveSession(task.id);
+          await saveWorkerState();
           console.log(`🔍 Recovered stale task → auto-review: ${task.title}`);
         } else {
           await updateTask(task.id, {
@@ -2116,6 +2223,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
             comments: updatedComments,
             agentActivity: undefined,
           });
+          // Clean up any phantom active session
+          removeActiveSession(task.id);
+          await saveWorkerState();
           console.log(`✅ Recovered stale task → review: ${task.title}`);
         }
       } else {
@@ -2124,6 +2234,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
           comments: updatedComments,
           agentActivity: undefined,
         });
+        // Clean up any phantom active session
+        removeActiveSession(task.id);
+        await saveWorkerState();
         console.log(`📥 Recovered stale task → backlog: ${task.title}`);
       }
     } catch (error) {
@@ -2133,6 +2246,9 @@ async function recoverStaleTasks(tasks: Task[]): Promise<void> {
         status: 'backlog',
         agentActivity: undefined,
       });
+      // Clean up any phantom active session
+      removeActiveSession(task.id);
+      await saveWorkerState();
     }
   }
 }
@@ -2154,13 +2270,16 @@ async function runWorkerCycle(): Promise<void> {
   // Get all tasks
   let tasks = await getAllTasks();
 
+  // Prune stale active sessions (completed, timeout, or orphaned tasks)
+  await pruneStaleActiveSessions(tasks);
+
   // Recover any tasks stuck at in-progress (e.g. from worker crash or server restart)
   await recoverStaleTasks(tasks);
   tasks = await getAllTasks();
 
-  const backlogTasks = tasks
-    .filter(task => task.status === 'backlog' && task.persona)
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)); // Highest priority first
+  // Calculate workload and available slots
+  const availableSlots = getAvailableSlots();
+  console.log(`📊 Concurrent slots: ${workerState.activeSessions.length}/${workerState.maxConcurrentPersonas} used, ${availableSlots} available`);
 
   workerState.workload = tasks.filter(task =>
     task.status === 'backlog' || task.status === 'in-progress' || task.status === 'auto-review'
@@ -2175,11 +2294,23 @@ async function runWorkerCycle(): Promise<void> {
     workerState.interval = '*/10 * * * *'; // Every 10 minutes
   }
 
-  // Find the highest-priority task whose persona has the required provider access.
-  // This prevents a provider-restricted task at the top of the queue from
-  // blocking all other tasks via an infinite deny → backlog → retry loop.
-  let taskToProcess: Task | undefined;
+  // If no available slots, skip task processing this cycle
+  if (availableSlots <= 0) {
+    console.log(`⏸️  No available slots (${workerState.maxConcurrentPersonas} max reached). Waiting for running sessions to complete.`);
+    const refreshedTasks = await getAllTasks();
+    await processEventBasedPersonaTriggers(refreshedTasks);
+    console.log('✅ Worker cycle completed (no slots available).');
+    return;
+  }
+
+  // Categorize and sort tasks by priority
+  const backlogTasks = tasks
+    .filter(task => task.status === 'backlog' && task.persona)
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+  // Find eligible tasks (provider access + persona availability)
   const eligibleBacklogTasks: Task[] = [];
+  const personasInCurrentBatch: Set<string> = new Set();
   for (const candidate of backlogTasks) {
     const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
     if (!candidatePersona) continue;
@@ -2194,6 +2325,7 @@ async function runWorkerCycle(): Promise<void> {
 
     const requiredProviders = getRequiredProviders(candidate);
 
+    // Check provider access
     let eligible = true;
     for (const provider of requiredProviders) {
       try {
@@ -2212,35 +2344,49 @@ async function runWorkerCycle(): Promise<void> {
       }
     }
 
-    if (eligible) {
-      eligibleBacklogTasks.push(candidate);
-      if (!taskToProcess) {
-        taskToProcess = candidate;
-      }
+    if (!eligible) continue;
+
+    // Check if persona is already active (unless duplicates allowed)
+    // Also check batch-local set to prevent same persona being scheduled multiple times in single cycle
+    if (!workerState.allowDuplicatePersonas && (isPersonaActive(candidatePersona.id) || personasInCurrentBatch.has(candidatePersona.id))) {
+      console.log(`⏭️  Skipping task "${candidate.title}" — persona ${candidatePersona.name} already active on another task`);
+      continue;
     }
+
+    personasInCurrentBatch.add(candidatePersona.id);
+    eligibleBacklogTasks.push(candidate);
   }
 
-  if (taskToProcess) {
-    workerState.lastTaskId = taskToProcess.id;
-    await processTask(taskToProcess);
-  } else if (backlogTasks.length === 0) {
-    console.log('📭 No backlog tasks with personas found');
-  } else {
-    console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions)');
+  // Select tasks to process concurrently (up to available slots)
+  const tasksToProcess = eligibleBacklogTasks.slice(0, availableSlots);
+
+  if (tasksToProcess.length === 0) {
+    if (backlogTasks.length === 0) {
+      console.log('📭 No backlog tasks with personas found');
+    } else {
+      console.log('📭 No eligible backlog tasks found (all blocked by provider restrictions or active personas)');
+    }
+    const refreshedTasks = await getAllTasks();
+    await processEventBasedPersonaTriggers(refreshedTasks);
+    console.log('✅ Worker cycle completed (no eligible tasks).');
+    return;
   }
+
+  // Process tasks concurrently
+  console.log(`🚀 Processing ${tasksToProcess.length} task(s) concurrently...`);
+  const processingPromises = tasksToProcess.map(task => {
+    workerState.lastTaskId = task.id; // Track last processed (overwrites for each, but that's fine)
+    return processTask(task).catch(error => {
+      console.error(`❌ Failed to process task ${task.id}:`, error);
+    });
+  });
+
+  await Promise.all(processingPromises);
 
   const refreshedTasks = await getAllTasks();
   await processEventBasedPersonaTriggers(refreshedTasks);
 
-  if (taskToProcess) {
-    const processedIndex = eligibleBacklogTasks.findIndex(t => t.id === taskToProcess.id);
-    const nextTask = processedIndex >= 0 && processedIndex + 1 < eligibleBacklogTasks.length
-      ? eligibleBacklogTasks[processedIndex + 1]
-      : null;
-    console.log(`✅ Worker cycle completed. Next task: ${nextTask ? nextTask.title : 'None'}`);
-  } else {
-    console.log('✅ Worker cycle completed.');
-  }
+  console.log(`✅ Worker cycle completed. Processed ${tasksToProcess.length} task(s).`);
 }
 
 async function runWorker(): Promise<void> {
@@ -2626,4 +2772,21 @@ export async function triggerReminderCheck(): Promise<void> {
 // Get worker status
 export function getWorkerStatus(): WorkerState {
   return { ...workerState };
+}
+
+// Update max concurrent personas
+export async function updateMaxConcurrentPersonas(max: number): Promise<void> {
+  if (!Number.isInteger(max) || max < 1) {
+    throw new Error('maxConcurrentPersonas must be a positive integer');
+  }
+  workerState.maxConcurrentPersonas = max;
+  await saveWorkerState();
+  console.log(`⚙️  Updated maxConcurrentPersonas to ${max}`);
+}
+
+// Toggle allow duplicate personas
+export async function toggleAllowDuplicatePersonas(allow: boolean): Promise<void> {
+  workerState.allowDuplicatePersonas = allow;
+  await saveWorkerState();
+  console.log(`⚙️  ${allow ? 'Enabled' : 'Disabled'} allowDuplicatePersonas`);
 }

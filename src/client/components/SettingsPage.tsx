@@ -29,6 +29,11 @@ interface ReminderCheckConfig {
   lastRun?: string;
 }
 
+interface ConcurrencyConfig {
+  maxConcurrentPersonas: number;
+  allowDuplicatePersonas: boolean;
+}
+
 interface SettingsPageProps {
   onSettingsChange?: (settings: UserSettings) => void;
 }
@@ -56,6 +61,10 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
   const [reminderSaved, setReminderSaved] = useState(false);
   const [prSaving, setPRSaving] = useState(false);
   const [prSaved, setPRSaved] = useState(false);
+  const [concurrencyConfig, setConcurrencyConfig] = useState<ConcurrencyConfig>({ maxConcurrentPersonas: 1, allowDuplicatePersonas: false });
+  const [concurrencySaving, setConcurrencySaving] = useState(false);
+  const [concurrencySaved, setConcurrencySaved] = useState(false);
+  const [concurrencyError, setConcurrencyError] = useState<string | null>(null);
 
   // Provider state
   const [providerConfig, setProviderConfig] = useState<{ ticketProvider: string; messageProvider: string }>({ ticketProvider: 'tix', messageProvider: 'slx' });
@@ -135,6 +144,12 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
           enabled: status.reminderCheckEnabled ?? false,
           interval: status.reminderCheckInterval ?? '0 9 * * 1-5',
           lastRun: status.lastReminderCheckRun,
+        });
+
+        // Parse concurrency config
+        setConcurrencyConfig({
+          maxConcurrentPersonas: status.maxConcurrentPersonas ?? 1,
+          allowDuplicatePersonas: status.allowDuplicatePersonas ?? false,
         });
       }
     } catch (error) {
@@ -261,6 +276,52 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
     } catch (error) {
       console.error('Failed to trigger reminder check:', error);
       alert('Failed to trigger reminder check. Is the server running?');
+    }
+  };
+
+  const saveConcurrencyConfig = async () => {
+    setConcurrencySaving(true);
+    setConcurrencySaved(false);
+    setConcurrencyError(null);
+    
+    // Store original values for potential rollback
+    const originalConfig = { ...concurrencyConfig };
+    
+    try {
+      const maxRes = await fetch('/api/worker/max-concurrent-personas', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max: concurrencyConfig.maxConcurrentPersonas }),
+      });
+      if (!maxRes.ok) throw new Error('Failed to update max concurrent personas');
+
+      const dupRes = await fetch('/api/worker/allow-duplicate-personas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow: concurrencyConfig.allowDuplicatePersonas }),
+      });
+      if (!dupRes.ok) throw new Error('Failed to update allow duplicate personas');
+
+      setConcurrencySaved(true);
+      setTimeout(() => setConcurrencySaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save concurrency config:', error);
+      setConcurrencyError(error instanceof Error ? error.message : 'Failed to save concurrency settings');
+      
+      // Attempt rollback of first setting if second failed
+      if (originalConfig.maxConcurrentPersonas !== concurrencyConfig.maxConcurrentPersonas) {
+        try {
+          await fetch('/api/worker/max-concurrent-personas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max: originalConfig.maxConcurrentPersonas }),
+          });
+        } catch (rollbackError) {
+          console.error('Failed to rollback concurrency config:', rollbackError);
+        }
+      }
+    } finally {
+      setConcurrencySaving(false);
     }
   };
 
@@ -923,6 +984,59 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
               Check Now
             </button>
           </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>Worker Concurrency</h3>
+          <p className="settings-description">
+            Control how many persona tasks can run simultaneously. Increase concurrency to process multiple tasks in parallel, or keep it at 1 for sequential processing (safer, more predictable).
+          </p>
+
+          <div className="form-group">
+            <label htmlFor="maxConcurrentPersonas">Max Concurrent Personas</label>
+            <input
+              id="maxConcurrentPersonas"
+              type="number"
+              min="1"
+              max="10"
+              value={concurrencyConfig.maxConcurrentPersonas}
+              onChange={e => setConcurrencyConfig(prev => ({ ...prev, maxConcurrentPersonas: parseInt(e.target.value) || 1 }))}
+              style={{ maxWidth: '120px' }}
+            />
+            <small className="form-help">
+              Maximum number of personas that can work on tasks simultaneously (1-10). Default: 1 (sequential processing).
+            </small>
+          </div>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={concurrencyConfig.allowDuplicatePersonas}
+                onChange={e => setConcurrencyConfig(prev => ({ ...prev, allowDuplicatePersonas: e.target.checked }))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              Allow duplicate personas
+            </label>
+            <small className="form-help" style={{ marginTop: '4px' }}>
+              When enabled, the same persona type can work on multiple tasks concurrently (e.g., two developer personas). When disabled, each persona type can only work on one task at a time.
+            </small>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+            <button
+              className="save-btn"
+              onClick={saveConcurrencyConfig}
+              disabled={concurrencySaving}
+            >
+              {concurrencySaving ? 'Saving...' : concurrencySaved ? 'Saved!' : 'Save Concurrency Settings'}
+            </button>
+          </div>
+          {concurrencyError && (
+            <div style={{ color: '#ef4444', marginTop: '8px', fontSize: '0.9rem' }}>
+              {concurrencyError}
+            </div>
+          )}
         </div>
       </div>
 
