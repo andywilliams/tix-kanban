@@ -74,11 +74,9 @@ import {
 import { enforceProviderAccess } from './persona-yaml-loader.js';
 import {
   getOrCreateSession,
-  addMessage,
   getSessionHistory,
   resetSession,
-  getSessionStats,
-  buildConversationHistory
+  getSessionStats
 } from '../services/sessionService.js';
 
 /**
