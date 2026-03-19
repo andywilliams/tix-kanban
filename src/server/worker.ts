@@ -337,6 +337,12 @@ You have access to the tix-kanban API running at http://localhost:3001/api
 - "review" - Task is completed and needs review
 - "done" - Task is fully completed
 
+🚨 **CRITICAL RULE — Status Transitions:**
+- **NEVER mark a task "done" yourself.** Tasks are moved to "done" automatically by the PR monitor when the linked PR is actually merged on GitHub.
+- Your job is to move tasks to "review" when the work (PR) is ready. After that, leave the status alone.
+- If a task is already in "review" and has an open (not merged) PR, do NOT touch the status — leave it in review.
+- Only the PR monitor and the stranded-task cleanup code may set status to "done".
+
 ### Add Work Comments:
 - POST /api/tasks/:id/comments
   Body: {"body": "your detailed work summary", "author": "claude-worker"}
