@@ -110,11 +110,20 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     
     // Extract task info from the most recent human message that requested action
     // Look for the last message from a human that triggered the execution
-    // Filter out the confirmation message itself ("yes, create ticket")
+    // Filter out the confirmation message itself ("yes, create ticket") - strip @mention prefix first
     const humanMessages = channelMessages
       .filter(m => m.authorType === 'human')
-      .filter(m => !m.content?.match(/^(yes|yes,? create (the )?ticket)$/i));
+      .filter(m => {
+        const cleanedMsgContent = m.content?.replace(/^@[\w-]+\s+/i, '').trim() || '';
+        return !cleanedMsgContent.match(/^(yes|yes,? create (the )?ticket)$/i);
+      });
     const lastHumanMsg = humanMessages[humanMessages.length - 1];
+    
+    // Extract PR URL from channel messages (posted by postExecutionStatus)
+    const prUrlMatch = channelMessages.find(m => 
+      m.content?.includes('github.com') && m.content?.includes('/pull/')
+    );
+    const prUrl = prUrlMatch?.content?.match(/(https:\/\/github\.com\/[^\s]+)/)?.[1];
     
     // Build task object with extracted info
     const extractedTask: IntentResult['extractedTask'] = {
@@ -128,7 +137,8 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       await createRetrospectiveTicket(
         message.channelId,
         personaName,
-        extractedTask
+        extractedTask,
+        prUrl
       );
       return;
     } catch (err) {
