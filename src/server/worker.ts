@@ -2178,6 +2178,14 @@ async function runWorkerCycle(): Promise<void> {
     const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
     if (!candidatePersona) continue;
 
+    // Check if persona is paused due to budget exceeded - filter out BEFORE selection
+    const { isPersonaPaused } = await import('./collaboration-budget.js');
+    const isPaused = await isPersonaPaused(candidatePersona.id);
+    if (isPaused) {
+      console.log(`⏸️ Skipping task "${candidate.title}" — persona "${candidatePersona.name}" is paused due to budget`);
+      continue;
+    }
+
     const requiredProviders = getRequiredProviders(candidate);
 
     let eligible = true;
