@@ -10,6 +10,7 @@ export function useChatStreaming() {
   const [isThinking, setIsThinking] = useState(false);
   const [streamingChannelId, setStreamingChannelId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const streamIdRef = useRef<number>(0); // Track stream session to guard against race conditions
 
   const cancelStream = useCallback(() => {
     if (eventSourceRef.current) {
@@ -31,6 +32,9 @@ export function useChatStreaming() {
   ) => {
     // Cancel any existing stream
     cancelStream();
+    
+    // Increment stream ID to track this session
+    const currentStreamId = ++streamIdRef.current;
     
     // Set the channel ID for this stream
     setStreamingChannelId(channelId);
@@ -57,10 +61,31 @@ export function useChatStreaming() {
       eventSource.addEventListener('done', async (event) => {
         const data = JSON.parse(event.data);
         console.log('✅ SSE: Response complete');
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtStart = currentStreamId;
         // Call onComplete first and await it to avoid flash while waiting for refresh
         try {
           await onComplete(data.messageId, data.fullText);
         } finally {
+          // Only reset state if this is still the current stream (no new stream started)
+          if (streamIdRef.current === streamIdAtStart) {
+            setIsThinking(false);
+            setStreamingMessageId(null);
+            setStreamingText('');
+            setStreamingChannelId(null);
+            eventSource.close();
+            eventSourceRef.current = null;
+          }
+        }
+      });
+
+      eventSource.onerror = (err) => {
+        console.error('❌ SSE: Connection error', err);
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtError = currentStreamId;
+        
+        // Only reset state if this is still the current stream
+        if (streamIdRef.current === streamIdAtError) {
           setIsThinking(false);
           setStreamingMessageId(null);
           setStreamingText('');
@@ -68,16 +93,6 @@ export function useChatStreaming() {
           eventSource.close();
           eventSourceRef.current = null;
         }
-      });
-
-      eventSource.onerror = (err) => {
-        console.error('❌ SSE: Connection error', err);
-        setIsThinking(false);
-        setStreamingMessageId(null);
-        setStreamingText('');
-        setStreamingChannelId(null);
-        eventSource.close();
-        eventSourceRef.current = null;
         
         if (onError) {
           onError('Connection to server lost');
