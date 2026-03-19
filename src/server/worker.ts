@@ -1021,7 +1021,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
       }
     }
 
-    const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
+    const { prompt, tokenCount, memoryTruncated, sessionId } = await createPersonaContext(
       persona.id,
       task.title,
       task.description,
@@ -1035,9 +1035,6 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
-    
-    // Get or create session for this persona
-    const sessionId = await getOrCreateSession(persona.id);
     
     // Add task context to session as a user message
     // Wrap in try-catch to allow task execution even if logging fails
@@ -1242,7 +1239,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
 - The report should be complete and self-contained
 `;
     
-    const { prompt, tokenCount } = await createPersonaContext(
+    const { prompt, tokenCount, sessionId } = await createPersonaContext(
       persona.id,
       `Research Task: ${task.title}`,
       task.description,
@@ -1273,6 +1270,23 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     if (!reportContent || reportContent.length < 100) {
       console.error(`Research task produced insufficient output: ${reportContent.length} chars`);
       return { success: false };
+    }
+    
+    // Log research task to persona session
+    try {
+      const researchTaskMessage = `## Research Task: ${task.title}\n\n${task.description}\n\nTags: ${[...(task.tags || []), 'research'].join(', ')}\n\n${additionalContext}`;
+      await addMessage(sessionId, 'user', researchTaskMessage, {
+        taskId: task.id,
+        taskTitle: task.title,
+      });
+      await addMessage(sessionId, 'assistant', reportContent, {
+        taskId: task.id,
+        taskTitle: task.title,
+        type: 'research-report',
+      });
+    } catch (logError) {
+      console.error(`Failed to log research to session for task ${task.id}:`, logError);
+      // Continue - session logging is non-essential
     }
     
     // Generate title and summary from the task

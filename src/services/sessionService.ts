@@ -321,9 +321,14 @@ export async function buildConversationHistory(sessionId: string): Promise<Array
   const history = await getSessionHistory(sessionId);
   
   // Convert to Claude message format
-  // Note: 'system' and 'tool' messages are included as 'assistant' messages for now
-  return history.map(msg => ({
-    role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-    content: msg.content,
-  }));
+  // Preserve 'system' role for compacted summaries, map others appropriately
+  return history.map(msg => {
+    if (msg.role === 'system') {
+      return { role: 'system' as const, content: msg.content };
+    }
+    return {
+      role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: msg.content,
+    };
+  });
 }
