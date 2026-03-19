@@ -478,8 +478,8 @@ async function handlePRStateChanges(
       return;
     }
 
-    // Track PR creation if it's open (first time we see it)
-    if (current.state === 'open') {
+    // Track PR creation if it's open (first time we see it) — guard against tasks without a persona
+    if (current.state === 'open' && task.persona) {
       const persona = await getPersona(task.persona);
       const personaName = persona?.name || task.persona;
       const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
