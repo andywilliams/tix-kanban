@@ -515,8 +515,6 @@ async function handlePRStateChanges(
 
       // Track PR merged activity
       if (task.persona) {
-        const [repo] = prRef.split('#');
-        const prNumber = parseInt(prRef.split('#')[1] || '0', 10);
         const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
         
         // Get persona name dynamically using getPersona lookup
