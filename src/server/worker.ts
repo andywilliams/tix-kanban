@@ -1746,7 +1746,16 @@ async function advanceTaskInPipeline(
         return;
       } else {
         // No previous stage - just move to backlog with current persona
+        // Still persist the updated attempts and history
+        const bouncedPipelineState: TaskPipelineState = {
+          ...pipelineState,
+          stageAttempts: updatedAttempts,
+          stageHistory: updatedHistory,
+          updatedAt: new Date()
+        };
+        
         console.log(`🔄 Pipeline: ${task.title} has no previous stage, moving to backlog`);
+        await updateTaskPipelineState(bouncedPipelineState);
         await updateTask(task.id, {
           status: 'backlog',
           comments: updatedComments,
