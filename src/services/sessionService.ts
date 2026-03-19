@@ -185,7 +185,7 @@ export async function compactSession(sessionId: string): Promise<void> {
     // to ensure it sorts correctly (before recent messages in asc order)
     const summaryMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
-    const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1);
+    const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1000);
     
     await db.insert(messages).values({
       id: summaryMessageId,
