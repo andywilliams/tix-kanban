@@ -11,7 +11,7 @@ export const personas = sqliteTable('personas', {
 
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
-  personaId: text('persona_id').references(() => personas.id),
+  personaId: text('persona_id').references(() => personas.id).unique(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   tokenCount: integer('token_count').default(0),

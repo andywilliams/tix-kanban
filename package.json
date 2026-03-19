@@ -41,7 +41,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.15.0",
     "react-syntax-highlighter": "^16.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "tiktoken": "^1.0.22"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

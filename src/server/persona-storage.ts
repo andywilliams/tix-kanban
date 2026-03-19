@@ -6,6 +6,7 @@ import { addMemoryEntry as addAgentMemoryEntry, buildTaskMemoryContext } from '.
 import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
+import { getOrCreateSession, buildConversationHistory, countTokens } from '../services/sessionService.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -694,7 +695,7 @@ export async function getPersonaMemoryWithTokens(personaId: string): Promise<{ m
 }
 
 // Create context for AI with memory injection and token limits
-export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean }> {
+export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean; sessionId: string }> {
   try {
     const persona = await getPersona(personaId);
     if (!persona) {
@@ -737,10 +738,32 @@ Before you finish working on this task, you MUST output a structured summary wit
 
 This summary will be reviewed by QA. Be specific and complete.` : '';
 
-    // Calculate token budget for memory (account for soul prompt)
+    // Calculate token budget for memory (account for soul prompt and conversation history)
     const maxTokens = 50000;
-    const baseTokens = estimateTokenCount(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
-    const memoryTokenBudget = Math.min(8000, maxTokens - baseTokens - 1000);
+    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
+
+    // Get session conversation history
+    const sessionId = await getOrCreateSession(personaId);
+    const conversationHistory = await buildConversationHistory(sessionId, 10);
+    
+    // Build conversation history context (recent messages only, to avoid token bloat)
+    let conversationSection = '';
+    let historyTokens = 0;
+    if (conversationHistory.length > 0) {
+      // Take up to last 10 exchanges for context continuity
+      const recentHistory = conversationHistory.slice(-10);
+      const historyText = recentHistory
+        .map(msg => `[${msg.role}]: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`)
+        .join('\n\n');
+      historyTokens = countTokens(historyText);
+      
+      conversationSection = `\n\n## Recent Conversation History (${recentHistory.length} messages, ~${historyTokens} tokens)\n${historyText}`;
+      console.log(`📝 Including ${recentHistory.length} recent messages in context (~${historyTokens} tokens)`);
+    }
+
+    // Deduct conversation history tokens from memory budget (guard against negative)
+    const rawBudget = maxTokens - baseTokens - 1000 - historyTokens;
+    const memoryTokenBudget = Math.max(0, Math.min(8000, rawBudget));
 
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
@@ -749,12 +772,13 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
-      tokenCount: estimateTokenCount(fullPrompt),
-      memoryTruncated
+      tokenCount: countTokens(fullPrompt),
+      memoryTruncated,
+      sessionId  // Return sessionId so caller can reuse it
     };
   } catch (error) {
     console.error(`Failed to create context for persona ${personaId}:`, error);

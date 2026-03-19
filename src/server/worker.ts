@@ -11,6 +11,7 @@ import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import { getOrCreateSession, addMessage as addSessionMessage } from '../services/sessionService.js';
 import { BUILTIN_TRIGGER_DEFAULTS } from './persona-constants.js';
 import { 
   getPipeline, 
@@ -1020,7 +1021,7 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
       }
     }
 
-    const { prompt, tokenCount, memoryTruncated } = await createPersonaContext(
+    const { prompt, tokenCount, memoryTruncated, sessionId } = await createPersonaContext(
       persona.id,
       task.title,
       task.description,
@@ -1034,6 +1035,19 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     
     console.log(`📊 Generated prompt with ${tokenCount.toLocaleString()} estimated tokens`);
     console.log(`📋 Task context includes: ${task.comments?.length || 0} comments, ${task.links?.length || 0} links`);
+    
+    // Add task context to session as a user message
+    // Wrap in try-catch to allow task execution even if logging fails
+    const taskContextMessage = `## Task: ${task.title}\n\n${task.description}\n\nTags: ${task.tags.join(', ')}\n\n${additionalContext}`;
+    try {
+      await addSessionMessage(sessionId, 'user', taskContextMessage, {
+        taskId: task.id,
+        taskTitle: task.title,
+      });
+    } catch (compactionError) {
+      console.error(`Failed to add user message (compaction error) for task ${task.id}:`, compactionError);
+      // Continue with task execution - session logging is non-essential
+    }
     
     // Determine working directory for Claude CLI
     let cwd: string | undefined;
@@ -1081,6 +1095,18 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     
     const output = stdout.trim();
     const success = !stderr && output.length > 0;
+    
+    // Add AI output to session as an assistant message
+    // Wrap in try-catch to preserve successful output even if compaction fails
+    try {
+      await addSessionMessage(sessionId, 'assistant', output, {
+        taskId: task.id,
+        success,
+      });
+    } catch (compactionError) {
+      console.error(`Failed to add message (compaction error) for task ${task.id}:`, compactionError);
+      // Preserve the successful output - compaction can be retried later
+    }
     
     return { output, success };
   } catch (error) {
@@ -1213,7 +1239,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
 - The report should be complete and self-contained
 `;
     
-    const { prompt, tokenCount } = await createPersonaContext(
+    const { prompt, tokenCount, sessionId } = await createPersonaContext(
       persona.id,
       `Research Task: ${task.title}`,
       task.description,
@@ -1244,6 +1270,23 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
     if (!reportContent || reportContent.length < 100) {
       console.error(`Research task produced insufficient output: ${reportContent.length} chars`);
       return { success: false };
+    }
+    
+    // Log research task to persona session
+    try {
+      const researchTaskMessage = `## Research Task: ${task.title}\n\n${task.description}\n\nTags: ${[...(task.tags || []), 'research'].join(', ')}\n\n${additionalContext}`;
+      await addSessionMessage(sessionId, 'user', researchTaskMessage, {
+        taskId: task.id,
+        taskTitle: task.title,
+      });
+      await addSessionMessage(sessionId, 'assistant', reportContent, {
+        taskId: task.id,
+        taskTitle: task.title,
+        type: 'research-report',
+      });
+    } catch (logError) {
+      console.error(`Failed to log research to session for task ${task.id}:`, logError);
+      // Continue - session logging is non-essential
     }
     
     // Generate title and summary from the task

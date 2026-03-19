@@ -72,6 +72,12 @@ import {
   updatePersonaStats
 } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
+import {
+  getOrCreateSession,
+  getSessionHistory,
+  resetSession,
+  getSessionStats
+} from '../services/sessionService.js';
 
 /**
  * Refresh persona-derived runtime state after a CRUD mutation.
@@ -2130,6 +2136,45 @@ app.get('/api/souls', async (_req, res) => {
   } catch (error) {
     console.error('GET /api/souls error:', error);
     res.status(500).json({ error: 'Failed to fetch souls' });
+  }
+});
+
+// Session management API routes
+
+// GET /api/personas/:id/session - Get session info and stats
+app.get('/api/personas/:id/session', async (req, res) => {
+  try {
+    const sessionId = await getOrCreateSession(req.params.id);
+    const stats = await getSessionStats(sessionId);
+    res.json({ sessionId, ...stats });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/session error:`, error);
+    res.status(500).json({ error: 'Failed to get session info' });
+  }
+});
+
+// POST /api/personas/:id/session/reset - Reset session (clear all messages)
+app.post('/api/personas/:id/session/reset', async (req, res) => {
+  try {
+    const sessionId = await getOrCreateSession(req.params.id);
+    await resetSession(sessionId);
+    res.json({ success: true, message: 'Session reset successfully' });
+  } catch (error) {
+    console.error(`POST /api/personas/${req.params.id}/session/reset error:`, error);
+    res.status(500).json({ error: 'Failed to reset session' });
+  }
+});
+
+// GET /api/personas/:id/session/messages - Get session message history
+app.get('/api/personas/:id/session/messages', async (req, res) => {
+  try {
+    const sessionId = await getOrCreateSession(req.params.id);
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+    const messages = await getSessionHistory(sessionId, limit);
+    res.json({ messages });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/session/messages error:`, error);
+    res.status(500).json({ error: 'Failed to get session messages' });
   }
 });
 
