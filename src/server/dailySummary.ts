@@ -20,16 +20,6 @@ function getSummaryPath(date: string): string {
   return path.join(SUMMARIES_DIR, `${date}.md`);
 }
 
-// Check if summary exists for a date
-export async function summaryExists(date: string): Promise<boolean> {
-  try {
-    await fs.access(getSummaryPath(date));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Read summary for a specific date
 export async function readSummary(date: string): Promise<string | null> {
   try {
