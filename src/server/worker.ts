@@ -42,7 +42,8 @@ import {
 import {
   trackTaskStarted,
   trackTaskCompleted,
-  trackTaskFailed
+  trackTaskFailed,
+  trackReviewCompleted
 } from './activityTracker.js';
 
 
@@ -1568,6 +1569,9 @@ async function processTask(task: Task): Promise<void> {
       output = lgtmResult.output;
       shouldAdvance = lgtmResult.shouldAdvance;
       console.log(`🔍 lgtm review result: success=${success}, shouldAdvance=${shouldAdvance}`);
+      // Track review completion for daily summaries
+      const outcome = shouldAdvance ? 'approved' : 'changes-requested';
+      await trackReviewCompleted(persona.id, persona.name, fullTask, outcome);
     } else if (isResearchTask(fullTask, persona)) {
       // Handle as research task - generate report
       const researchResult = await processResearchTask(fullTask, persona);
