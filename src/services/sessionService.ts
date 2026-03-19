@@ -315,7 +315,7 @@ export async function getSessionStats(sessionId: string): Promise<{
  * Returns an array of message objects suitable for passing to Claude
  */
 export async function buildConversationHistory(sessionId: string): Promise<Array<{
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }>> {
   const history = await getSessionHistory(sessionId);
