@@ -24,6 +24,8 @@ import {
   toggleWorker,
   updateWorkerInterval,
   getWorkerStatus,
+  getFullWorkerStatus,
+  runWorker,
   toggleStandupScheduler,
   updateStandupTime,
   triggerStandupGeneration,
@@ -37,6 +39,7 @@ import {
   updateMaxConcurrentPersonas,
   toggleAllowDuplicatePersonas
 } from './worker.js';
+import { processReviewTasksPRStatus } from './pr-monitor.js';
 import {
   getRules,
   addRule,
@@ -954,14 +957,39 @@ app.post('/api/documents/refresh', async (_req, res) => {
 
 // Worker API routes
 
-// GET /api/worker/status - Get worker status
-app.get('/api/worker/status', (_req, res) => {
+// GET /api/worker/status - Get worker status including PR monitor stats
+app.get('/api/worker/status', async (_req, res) => {
   try {
-    const status = getWorkerStatus();
-    res.json({ status });
+    const fullStatus = await getFullWorkerStatus();
+    res.json(fullStatus);
   } catch (error) {
     console.error('GET /api/worker/status error:', error);
     res.status(500).json({ error: 'Failed to get worker status' });
+  }
+});
+
+// POST /api/worker/trigger - Manually trigger a worker cycle
+app.post('/api/worker/trigger', async (_req, res) => {
+  try {
+    console.log('🔄 Manual worker cycle triggered via API');
+    await runWorker();
+    const fullStatus = await getFullWorkerStatus();
+    res.json({ message: 'Worker cycle triggered', ...fullStatus });
+  } catch (error) {
+    console.error('POST /api/worker/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger worker cycle' });
+  }
+});
+
+// POST /api/worker/pr-monitor/trigger - Manually trigger PR monitor
+app.post('/api/worker/pr-monitor/trigger', async (_req, res) => {
+  try {
+    console.log('🔍 Manual PR monitor triggered via API');
+    const stats = await processReviewTasksPRStatus();
+    res.json({ message: 'PR monitor triggered', stats });
+  } catch (error) {
+    console.error('POST /api/worker/pr-monitor/trigger error:', error);
+    res.status(500).json({ error: 'Failed to trigger PR monitor' });
   }
 });
 
