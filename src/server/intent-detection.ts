@@ -18,10 +18,11 @@ export interface IntentResult {
 
 // Action keywords and phrases that indicate executable intent
 // Note: These must NOT match question words (how, what, why, etc.) at start of string
+// Also exclude conversational phrases like "update me", "change the subject", "add me to", "build on"
 const ACTION_PATTERNS = [
-  /^(go ahead|do it|make it|create|add|implement|build|fix|update|change)/i,
-  // Negative lookbehind: exclude if preceded by question words at start
-  /^(?!how|what|why|when|where|who|which|should|would|could|can)\S*(please )?(go ahead|do it|make it|create|add|implement|build|fix|update|change)/i,
+  /^(go ahead|do it|make it|create|add|implement|build|fix|update|change)(?!\s+(me|us|you|the\s+(subject|topic|meeting|group)|on\s+what|on\s+that))/i,
+  // Negative lookahead: exclude if preceded by question words at start, and exclude conversational uses
+  /^(?!how|what|why|when|where|who|which|should|would|could|can)\S*(please )?(go ahead|do it|make it|create|add|implement|build|fix|update|change)(?!\s+(me|us|you|the\s+(subject|topic|meeting|group)|on\s+what|on\s+that))/i,
   /can you (create|add|implement|build|fix|update|change)/i,
   /could you (create|add|implement|build|fix|update|change)/i,
   /would you (create|add|implement|build|fix|update|change)/i,
