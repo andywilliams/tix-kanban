@@ -695,7 +695,7 @@ export async function getPersonaMemoryWithTokens(personaId: string): Promise<{ m
 }
 
 // Create context for AI with memory injection and token limits
-export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean }> {
+export async function createPersonaContext(personaId: string, taskTitle: string, taskDescription: string, taskTags: string[], additionalContext?: string): Promise<{ prompt: string; tokenCount: number; memoryTruncated: boolean; sessionId: string }> {
   try {
     const persona = await getPersona(personaId);
     if (!persona) {
@@ -777,7 +777,8 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     return {
       prompt: fullPrompt,
       tokenCount: countTokens(fullPrompt),
-      memoryTruncated
+      memoryTruncated,
+      sessionId  // Return sessionId so caller can reuse it
     };
   } catch (error) {
     console.error(`Failed to create context for persona ${personaId}:`, error);

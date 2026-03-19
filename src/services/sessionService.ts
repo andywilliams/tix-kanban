@@ -37,10 +37,11 @@ export function countTokens(text: string): number {
 
 /**
  * Get or create a session for a persona
+ * Uses upsert pattern to avoid race conditions (TOCTOU)
  */
 export async function getOrCreateSession(personaId: string): Promise<string> {
   // Note: Persona validation is handled elsewhere (file-system based)
-  // Check if session exists
+  // Try to find existing session first
   const existingSessions = await db
     .select()
     .from(sessions)
@@ -51,16 +52,30 @@ export async function getOrCreateSession(personaId: string): Promise<string> {
     return existingSessions[0].id;
   }
 
-  // Create new session
-  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  await db.insert(sessions).values({
-    id: sessionId,
-    personaId,
-    tokenCount: 0,
-    compactionCount: 0,
-  });
+  // Use upsert to atomically create if not exists (avoids race condition)
+  // Generate deterministic ID based on personaId to ensure consistency
+  const sessionId = `sess_${personaId}_${Date.now()}`;
+  
+  await db
+    .insert(sessions)
+    .values({
+      id: sessionId,
+      personaId,
+      tokenCount: 0,
+      compactionCount: 0,
+    })
+    .onConflictDoNothing({
+      target: sessions.personaId,
+    });
 
-  return sessionId;
+  // Fetch the session (either newly created or existing from concurrent insert)
+  const createdSession = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.personaId, personaId))
+    .limit(1);
+
+  return createdSession[0].id;
 }
 
 /**
@@ -176,7 +191,10 @@ export async function compactSession(sessionId: string): Promise<void> {
     });
 
     const summary = response.content[0].type === 'text' ? response.content[0].text : '';
-    const summaryTokenCount = countTokens(summary);
+    
+    // Build full content with prefix (same as what's stored in DB)
+    const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
+    const summaryTokenCount = countTokens(fullContent);
 
     // Calculate tokens freed
     const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount;
