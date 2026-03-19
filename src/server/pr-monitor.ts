@@ -519,7 +519,10 @@ async function handlePRStateChanges(
     ) {
       console.log(`✅ PR is clean and ready for task ${task.id} (first observation): ${prRef}`);
       
-      // Check if task is held for manual merge
+      // Check if task is held for manual merge.
+      // NOTE: This flag is consumed by EXTERNAL kanban workers that perform actual merges.
+      // The pr-monitor itself ALWAYS moves tasks to verified when PR is clean, regardless
+      // of holdForMerge. The flag signals external tooling to skip auto-merge after verification.
       const isHeldForMerge = task.holdForMerge === true;
       
       // Build the comment - different message based on hold status
@@ -677,7 +680,10 @@ async function handlePRStateChanges(
     if (!wasClean) {
       console.log(`✅ PR is clean and ready for task ${task.id}: ${prRef}`);
       
-      // Check if task is held for manual merge
+      // Check if task is held for manual merge.
+      // NOTE: This flag is consumed by EXTERNAL kanban workers that perform actual merges.
+      // The pr-monitor itself ALWAYS moves tasks to verified when PR is clean, regardless
+      // of holdForMerge. The flag signals external tooling to skip auto-merge after verification.
       const isHeldForMerge = task.holdForMerge === true;
       
       // Build the comment - different message based on hold status
