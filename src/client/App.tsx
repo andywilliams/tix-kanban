@@ -64,6 +64,7 @@ import { DailyNotesPage } from './components/DailyNotesPage';
 import SlackSettings from './components/SlackSettings';
 import SlackView from './components/SlackView';
 import ReminderRulesPage from './components/ReminderRulesPage';
+import { PersonaChatPage } from './components/PersonaChatPage';
 import { Task } from './types';
 import { useTasks } from './hooks/useTasks';
 import { usePersonas } from './hooks/usePersonas';
@@ -179,11 +180,12 @@ function AppContent() {
             </Link>
             <NavDropdown 
               label="🔧 Work" 
-              active={['/pipelines', '/personas', '/dashboard', '/memories'].some(p => location.pathname.startsWith(p))}
+              active={['/pipelines', '/personas', '/dashboard', '/memories', '/chat'].some(p => location.pathname.startsWith(p))}
               items={[
                 { to: '/dashboard', label: '📊 Dashboard', active: location.pathname === '/dashboard' },
                 { to: '/pipelines', label: '📋 Pipelines', active: location.pathname === '/pipelines' },
                 { to: '/personas', label: '🤖 Personas', active: location.pathname === '/personas' },
+                { to: '/chat', label: '💬 Persona Chat', active: location.pathname === '/chat' },
                 { to: '/memories', label: '🧠 Memories', active: location.pathname === '/memories' },
               ]}
             />
@@ -296,6 +298,10 @@ function AppContent() {
           <Route
             path="/personas"
             element={<PersonasPage />}
+          />
+          <Route
+            path="/chat"
+            element={<PersonaChatPage currentUser={userName} />}
           />
           <Route
             path="/dashboard"
