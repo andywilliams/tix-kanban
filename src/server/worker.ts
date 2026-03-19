@@ -29,7 +29,7 @@ import {
   saveStandupEntry,
   getAllStandupEntries
 } from './standup-storage.js';
-import { createOrGetChannel, addMessage } from './chat-storage.js';
+import { createOrGetChannel, addMessage, getMessages } from './chat-storage.js';
 import { evaluateReminderRules } from './reminder-rules.js';
 import { initializeTriggerSystem } from './event-triggers.js';
 import { evaluateFieldCondition } from './condition-utils.js';
