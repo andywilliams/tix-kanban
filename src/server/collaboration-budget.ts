@@ -13,6 +13,7 @@ import os from 'os';
 
 const BUDGET_DIR = path.join(os.homedir(), '.tix-kanban', 'budgets');
 const DAILY_BUDGET_FILE = path.join(BUDGET_DIR, 'daily-budget.json');
+const MONTHLY_BUDGET_FILE = path.join(BUDGET_DIR, 'monthly-budget.json');
 
 // File lock to prevent concurrent read-modify-write races on budget file
 let budgetLock: Promise<void> = Promise.resolve();
@@ -58,6 +59,19 @@ export interface DailyBudget {
   totalCost: number;
   byTask: Record<string, number>;
   byPersona: Record<string, number>;
+}
+
+export interface MonthlyPersonaBudget {
+  month: string; // "2026-03"
+  personaId: string;
+  tokenLimit: number; // e.g. 10_000_000
+  tokensUsed: number;
+  paused: boolean;
+}
+
+export interface MonthlyBudgetData {
+  month: string;
+  personas: Record<string, MonthlyPersonaBudget>;
 }
 
 export async function initializeBudgetStorage(): Promise<void> {
@@ -190,5 +204,134 @@ export async function archiveTodaysBudget(): Promise<void> {
     const budget = await getTodaysBudget();
     await fs.writeFile(path.join(BUDGET_DIR, `daily-budget-${budget.date}.json`), JSON.stringify(budget, null, 2));
     console.log(`📦 Archived budget for ${budget.date}: $${budget.totalCost.toFixed(2)}`);
+  });
+}
+
+// Monthly budget tracking functions
+
+async function getMonthlyBudget(): Promise<MonthlyBudgetData> {
+  const currentMonth = new Date().toISOString().substring(0, 7); // "2026-03"
+  try {
+    const data = await fs.readFile(MONTHLY_BUDGET_FILE, 'utf8');
+    const budget: MonthlyBudgetData = JSON.parse(data);
+    
+    // Reset if new month
+    if (budget.month !== currentMonth) {
+      console.log(`📅 New month detected (${currentMonth}), resetting monthly budgets`);
+      // Archive previous month's data
+      if (Object.keys(budget.personas).length > 0) {
+        const archivePath = path.join(BUDGET_DIR, `monthly-budget-${budget.month}.json`);
+        await fs.writeFile(archivePath, JSON.stringify(budget, null, 2));
+        console.log(`📦 Archived monthly budget for ${budget.month}`);
+      }
+      return { month: currentMonth, personas: {} };
+    }
+    return budget;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { month: currentMonth, personas: {} };
+    }
+    throw error;
+  }
+}
+
+async function saveMonthlyBudget(budget: MonthlyBudgetData): Promise<void> {
+  await fs.writeFile(MONTHLY_BUDGET_FILE, JSON.stringify(budget, null, 2));
+}
+
+export async function recordTokenUsage(
+  personaId: string,
+  inputTokens: number,
+  outputTokens: number,
+  tokenLimit?: number
+): Promise<void> {
+  return withBudgetLock(async () => {
+    const budget = await getMonthlyBudget();
+    const totalTokens = inputTokens + outputTokens;
+    
+    // Initialize persona budget if not exists
+    if (!budget.personas[personaId]) {
+      budget.personas[personaId] = {
+        month: budget.month,
+        personaId,
+        tokenLimit: tokenLimit || 0, // 0 = unlimited
+        tokensUsed: 0,
+        paused: false,
+      };
+    }
+    
+    const personaBudget = budget.personas[personaId];
+    personaBudget.tokensUsed += totalTokens;
+    
+    // Update token limit if provided
+    if (tokenLimit !== undefined) {
+      personaBudget.tokenLimit = tokenLimit;
+    }
+    
+    // Check if budget exceeded
+    if (personaBudget.tokenLimit > 0 && personaBudget.tokensUsed >= personaBudget.tokenLimit) {
+      if (!personaBudget.paused) {
+        personaBudget.paused = true;
+        console.warn(`⚠️ ${personaId} has exceeded its monthly token budget (${personaBudget.tokensUsed.toLocaleString()} / ${personaBudget.tokenLimit.toLocaleString()} tokens)`);
+      }
+    }
+    
+    await saveMonthlyBudget(budget);
+    console.log(`🪙 Token usage: ${personaId} used ${totalTokens.toLocaleString()} tokens (total: ${personaBudget.tokensUsed.toLocaleString()})`);
+  });
+}
+
+export async function getPersonaBudgetStatus(personaId: string): Promise<{
+  tokensUsed: number;
+  tokenLimit: number;
+  percentage: number;
+  paused: boolean;
+  month: string;
+} | null> {
+  return withBudgetLock(async () => {
+    const budget = await getMonthlyBudget();
+    const personaBudget = budget.personas[personaId];
+    
+    if (!personaBudget) {
+      return null;
+    }
+    
+    const percentage = personaBudget.tokenLimit > 0 
+      ? (personaBudget.tokensUsed / personaBudget.tokenLimit) * 100 
+      : 0;
+    
+    return {
+      tokensUsed: personaBudget.tokensUsed,
+      tokenLimit: personaBudget.tokenLimit,
+      percentage,
+      paused: personaBudget.paused,
+      month: personaBudget.month,
+    };
+  });
+}
+
+export async function isPersonaPaused(personaId: string): Promise<boolean> {
+  return withBudgetLock(async () => {
+    const budget = await getMonthlyBudget();
+    return budget.personas[personaId]?.paused || false;
+  });
+}
+
+export async function resetMonthlyBudgets(): Promise<void> {
+  return withBudgetLock(async () => {
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const budget = await getMonthlyBudget();
+    
+    // Archive current month
+    if (budget.month !== currentMonth && Object.keys(budget.personas).length > 0) {
+      const archivePath = path.join(BUDGET_DIR, `monthly-budget-${budget.month}.json`);
+      await fs.writeFile(archivePath, JSON.stringify(budget, null, 2));
+      console.log(`📦 Archived monthly budget for ${budget.month}`);
+    }
+    
+    // Reset to new month
+    const newBudget: MonthlyBudgetData = { month: currentMonth, personas: {} };
+    await saveMonthlyBudget(newBudget);
+    console.log(`🔄 Monthly budgets reset for ${currentMonth}`);
   });
 }

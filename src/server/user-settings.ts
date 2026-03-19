@@ -50,6 +50,11 @@ export interface UserSettings {
    * Defaults to ~/.tix-kanban if not set.
    */
   backupDir?: string;
+  workerLimits?: {
+    maxTokensPerCycle?: number; // default 500,000
+    maxSubagentsPerCycle?: number; // default 5
+    stopOnBudgetExceeded?: boolean; // default true
+  };
 }
 
 /**

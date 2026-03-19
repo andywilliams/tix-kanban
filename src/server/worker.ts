@@ -1096,6 +1096,19 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     const output = stdout.trim();
     const success = !stderr && output.length > 0;
     
+    // Track token usage (estimate: ~4 chars per token)
+    const inputTokens = Math.ceil(prompt.length / 4);
+    const outputTokens = Math.ceil(output.length / 4);
+    
+    // Record token usage for monthly budget tracking
+    const { recordTokenUsage } = await import('./collaboration-budget.js');
+    const monthlyTokenLimit = persona.budgetCap?.monthlyTokens || 0;
+    try {
+      await recordTokenUsage(persona.id, inputTokens, outputTokens, monthlyTokenLimit);
+    } catch (budgetError) {
+      console.error(`Failed to record token usage for ${persona.id}:`, budgetError);
+    }
+    
     // Add AI output to session as an assistant message
     // Wrap in try-catch to preserve successful output even if compaction fails
     try {
@@ -1464,6 +1477,16 @@ async function processTask(task: Task): Promise<void> {
     const persona = fullTask.persona ? await getPersona(fullTask.persona) : null;
     if (!persona) {
       console.log(`⚠️  No persona found for task ${fullTask.id}, skipping`);
+      return;
+    }
+
+    // Check if persona is paused due to budget exceeded
+    const { isPersonaPaused } = await import('./collaboration-budget.js');
+    const paused = await isPersonaPaused(persona.id);
+    if (paused) {
+      console.warn(`⚠️ Persona ${persona.name} is paused due to monthly budget exceeded, skipping task`);
+      // Post notification to task channel
+      await postTaskUpdate(fullTask, persona, `⚠️ I've exceeded my monthly token budget and am paused until next month. This task will be skipped for now.`);
       return;
     }
 

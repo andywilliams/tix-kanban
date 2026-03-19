@@ -131,7 +131,7 @@ export interface Persona {
   triggers?: PersonaTriggers; // Phase 3: Event-driven activation
   providers?: string[]; // Allowed provider names – security boundary
   skills?: string[]; // Capabilities this persona can perform
-  budgetCap?: { perTask?: number; perDay?: number }; // Token budget caps
+  budgetCap?: { perTask?: number; perDay?: number; monthlyTokens?: number }; // Token budget caps
   // Phase 3: Orchestrator pattern
   orchestrator?: boolean; // Can delegate to other personas
   canDelegate?: boolean; // Alias for orchestrator

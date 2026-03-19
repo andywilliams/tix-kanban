@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Persona, PersonaMood, AgentSoul } from '../types/index';
+import { PersonaBudgetDisplay } from './PersonaBudgetDisplay';
 
 interface PersonaCardProps {
   persona: Persona;
@@ -103,6 +104,9 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
       </div>
 
       <p className="persona-card-description">{persona.description}</p>
+
+      {/* Budget Display */}
+      <PersonaBudgetDisplay personaId={persona.id} />
 
       {/* Soul Preview */}
       {soul && (
