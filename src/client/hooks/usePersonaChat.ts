@@ -28,6 +28,8 @@ export function usePersonaChat(currentUser: string) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMessageCountRef = useRef<number>(0);
   const reloadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Store the direct channel id per persona so reads and writes use the same store (Issue #1)
+  const personaChannelIds = useRef<Record<string, string>>({});
 
   // Load all personas
   const loadPersonas = useCallback(async () => {
@@ -90,20 +92,40 @@ export function usePersonaChat(currentUser: string) {
   }, [personas, loadLastMessages]);
 
   // Load messages for selected persona
+  // Issue #1: read from the direct channel if we have one, otherwise fall back to session
   const loadMessages = useCallback(async (personaId: string) => {
     setError(null); // Clear any previous errors (Issue #3)
     setLoadingMessages(true);
     try {
-      const res = await fetch(`/api/personas/${personaId}/session/messages`);
-      if (!res.ok) throw new Error('Failed to load messages');
-      const data = await res.json();
-      const msgs: PersonaChatMessage[] = (data.messages || []).map((m: any) => ({
-        id: m.id,
-        role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
-        content: m.content,
-        createdAt: m.createdAt,
-        author: m.role === 'user' ? currentUser : undefined,
-      }));
+      const channelId = personaChannelIds.current[personaId];
+      let msgs: PersonaChatMessage[] = [];
+
+      if (channelId) {
+        // Read from the same channel we write to (Issue #1 fix)
+        const res = await fetch(`/api/chat/${channelId}/messages`);
+        if (!res.ok) throw new Error('Failed to load messages');
+        const data = await res.json();
+        msgs = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.authorType === 'persona' ? 'assistant' : 'user',
+          content: m.content,
+          createdAt: m.createdAt,
+          author: m.authorType === 'human' ? currentUser : undefined,
+        }));
+      } else {
+        // Fall back to session endpoint before a channel has been established
+        const res = await fetch(`/api/personas/${personaId}/session/messages`);
+        if (!res.ok) throw new Error('Failed to load messages');
+        const data = await res.json();
+        msgs = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+          content: m.content,
+          createdAt: m.createdAt,
+          author: m.role === 'user' ? currentUser : undefined,
+        }));
+      }
+
       setMessages(msgs);
       lastMessageCountRef.current = msgs.length;
     } catch (err) {
@@ -118,16 +140,33 @@ export function usePersonaChat(currentUser: string) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/personas/${personaId}/session/messages`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const msgs: PersonaChatMessage[] = (data.messages || []).map((m: any) => ({
-          id: m.id,
-          role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
-          content: m.content,
-          createdAt: m.createdAt,
-          author: m.role === 'user' ? currentUser : undefined,
-        }));
+        const channelId = personaChannelIds.current[personaId];
+        let msgs: PersonaChatMessage[] = [];
+
+        if (channelId) {
+          const res = await fetch(`/api/chat/${channelId}/messages`);
+          if (!res.ok) return;
+          const data = await res.json();
+          msgs = (data.messages || []).map((m: any) => ({
+            id: m.id,
+            role: m.authorType === 'persona' ? 'assistant' : 'user',
+            content: m.content,
+            createdAt: m.createdAt,
+            author: m.authorType === 'human' ? currentUser : undefined,
+          }));
+        } else {
+          const res = await fetch(`/api/personas/${personaId}/session/messages`);
+          if (!res.ok) return;
+          const data = await res.json();
+          msgs = (data.messages || []).map((m: any) => ({
+            id: m.id,
+            role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+            content: m.content,
+            createdAt: m.createdAt,
+            author: m.role === 'user' ? currentUser : undefined,
+          }));
+        }
+
         if (msgs.length !== lastMessageCountRef.current) {
           setMessages(msgs);
           lastMessageCountRef.current = msgs.length;
@@ -156,7 +195,7 @@ export function usePersonaChat(currentUser: string) {
   // Select a persona and load their conversation
   const selectPersona = useCallback(async (personaId: string) => {
     stopPolling();
-    // Clear any pending reload timeout when switching personas (Issue #4)
+    // Clear any pending reload timeout when switching persona (Issue #4)
     if (reloadTimeoutRef.current) {
       clearTimeout(reloadTimeoutRef.current);
       reloadTimeoutRef.current = null;
@@ -175,8 +214,8 @@ export function usePersonaChat(currentUser: string) {
   // Send a message to the selected persona
   const sendMessage = useCallback(async (content: string) => {
     if (!selectedPersonaId || !content.trim()) return;
-    setError(null); // Clear any previous errors (Issue #3)
     setSending(true);
+    setError(null); // Clear any previous errors (Issue #3)
 
     // Optimistically add user message
     const tempId = `temp-${Date.now()}`;
@@ -189,25 +228,30 @@ export function usePersonaChat(currentUser: string) {
     };
     setMessages(prev => [...prev, tempMsg]);
 
+    // Capture the current persona at call time to guard against stale refs (Issue #4)
+    const capturedPersonaId = selectedPersonaId;
+
     try {
-      // Issue #1 & #2: Use session endpoint consistently for both read and write
       // Start direct conversation via the persona chat endpoint
-      const startRes = await fetch(`/api/personas/${selectedPersonaId}/chat/start`, {
+      const startRes = await fetch(`/api/personas/${capturedPersonaId}/chat/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser }),
       });
 
       if (!startRes.ok) {
-        // Issue #2: Set error and don't schedule reload if chat start fails
-        setError('Failed to start chat session. Please try again.');
+        // Issue #2: surface the error instead of silently losing the message
+        setError('Failed to start conversation — please try again');
         setMessages(prev => prev.filter(m => m.id !== tempId));
         return;
       }
 
       const { channelId } = await startRes.json();
       if (channelId) {
-        // Send to channel
+        // Store the channel id so future loadMessages reads from the same store (Issue #1)
+        personaChannelIds.current[capturedPersonaId] = channelId;
+
+        // Send to channel (Issue #5: check response.ok)
         const messageRes = await fetch(`/api/chat/${channelId}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -218,17 +262,20 @@ export function usePersonaChat(currentUser: string) {
           }),
         });
 
-        // Issue #5: Check response status
         if (!messageRes.ok) {
-          throw new Error('Failed to send message to channel');
+          // Issue #5: handle failed message POST
+          setError('Failed to send message — please try again');
+          setMessages(prev => prev.filter(m => m.id !== tempId));
+          return;
         }
       }
 
-      // Issue #4: Store timeout ID and check persona still matches before reloading
+      // Issue #4: clear any existing reload timeout and capture personaId in closure
+      if (reloadTimeoutRef.current) clearTimeout(reloadTimeoutRef.current);
       reloadTimeoutRef.current = setTimeout(() => {
-        // Only reload if we're still viewing the same persona
-        if (selectedPersonaId === selectedPersonaId) {
-          loadMessages(selectedPersonaId);
+        // Only reload if the user hasn't switched to a different persona
+        if (capturedPersonaId === selectedPersonaId) {
+          loadMessages(capturedPersonaId);
         }
         reloadTimeoutRef.current = null;
       }, 500);
@@ -241,14 +288,11 @@ export function usePersonaChat(currentUser: string) {
     }
   }, [selectedPersonaId, currentUser, loadMessages]);
 
-  // Cleanup polling and timeouts on unmount
+  // Cleanup polling and pending timeouts on unmount
   useEffect(() => {
     return () => {
       stopPolling();
-      if (reloadTimeoutRef.current) {
-        clearTimeout(reloadTimeoutRef.current);
-        reloadTimeoutRef.current = null;
-      }
+      if (reloadTimeoutRef.current) clearTimeout(reloadTimeoutRef.current);
     };
   }, [stopPolling]);
 
