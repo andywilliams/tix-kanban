@@ -1548,7 +1548,7 @@ async function processTask(task: Task): Promise<void> {
         // Check if task is part of a pipeline
         const pipelineState = await getTaskPipelineState(fullTask.id);
         if (pipelineState && fullTask.pipelineId) {
-          await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output, shouldAdvance);
+          await advanceTaskInPipeline(fullTask, pipelineState, updatedComments, output, shouldAdvance, clearedActivity);
           if (shouldAdvance) {
             await postTaskUpdate(fullTask, persona, `Work complete. Advancing to the next pipeline stage.`);
           } else {
@@ -1636,21 +1636,22 @@ async function advanceTaskInPipeline(
   pipelineState: TaskPipelineState, 
   updatedComments: Comment[], 
   output: string,
-  shouldAdvance: boolean = true // For lgtm-reviewer: false means bounce back
+  shouldAdvance: boolean = true,
+  clearedActivity?: { personaId: string; personaName: string; personaEmoji: string; status: 'idle'; startedAt: Date }
 ): Promise<void> {
   try {
     const pipeline = await getPipeline(pipelineState.pipelineId);
     if (!pipeline) {
       console.error(`Pipeline ${pipelineState.pipelineId} not found for task ${task.id}`);
       // Fall back to normal review
-      await updateTask(task.id, { status: 'review', comments: updatedComments });
+      await updateTask(task.id, { status: 'review', comments: updatedComments, agentActivity: clearedActivity });
       return;
     }
 
     const currentStageIndex = pipeline.stages.findIndex(s => s.id === pipelineState.currentStageId);
     if (currentStageIndex === -1) {
       console.error(`Current stage ${pipelineState.currentStageId} not found in pipeline`);
-      await updateTask(task.id, { status: 'review', comments: updatedComments });
+      await updateTask(task.id, { status: 'review', comments: updatedComments, agentActivity: clearedActivity });
       return;
     }
 
@@ -1708,7 +1709,8 @@ async function advanceTaskInPipeline(
         };
         await updateTask(task.id, {
           status: 'review',
-          comments: [...updatedComments, stuckComment]
+          comments: [...updatedComments, stuckComment],
+          agentActivity: clearedActivity
         });
         
         return;
@@ -1737,7 +1739,8 @@ async function advanceTaskInPipeline(
           status: 'backlog',
           persona: previousStage.persona,
           assignee: previousStage.persona,
-          comments: updatedComments
+          comments: updatedComments,
+          agentActivity: clearedActivity
         });
         
         return;
@@ -1746,7 +1749,8 @@ async function advanceTaskInPipeline(
         console.log(`🔄 Pipeline: ${task.title} has no previous stage, moving to backlog`);
         await updateTask(task.id, {
           status: 'backlog',
-          comments: updatedComments
+          comments: updatedComments,
+          agentActivity: clearedActivity
         });
         return;
       }
@@ -1783,7 +1787,8 @@ async function advanceTaskInPipeline(
         status: currentStage.autoAdvance ? 'backlog' : 'review', // Auto-advance or wait for review
         persona: nextStage.persona,
         assignee: nextStage.persona,
-        comments: updatedComments
+        comments: updatedComments,
+        agentActivity: clearedActivity
       });
       
       if (currentStage.autoAdvance) {
@@ -1805,13 +1810,14 @@ async function advanceTaskInPipeline(
       await updateTaskPipelineState(completedPipelineState);
       await updateTask(task.id, { 
         status: 'review', 
-        comments: updatedComments 
+        comments: updatedComments,
+        agentActivity: clearedActivity
       });
     }
   } catch (error) {
     console.error(`Failed to advance task ${task.id} in pipeline:`, error);
     // Fall back to normal review
-    await updateTask(task.id, { status: 'review', comments: updatedComments });
+    await updateTask(task.id, { status: 'review', comments: updatedComments, agentActivity: clearedActivity });
   }
 }
 
