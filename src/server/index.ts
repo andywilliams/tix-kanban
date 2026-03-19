@@ -2518,6 +2518,20 @@ app.get('/api/chat/:channelId/stream', async (req, res) => {
       // First, check if a response already exists (processChatMention may have already completed)
       let responseMessages = findResponse(messages);
 
+      // Fallback: if no replyTo match, find the most recent persona message created after the trigger
+      // This handles cases where replyTo might not be set correctly
+      if (responseMessages.length === 0 && triggerMessage) {
+        const triggerTime = new Date(triggerMessage.createdAt).getTime();
+        responseMessages = messages.filter(
+          m => m.authorType === 'persona' && 
+               new Date(m.createdAt).getTime() > triggerTime
+        );
+        // Sort by createdAt to get the earliest response after the trigger
+        responseMessages.sort((a, b) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+      }
+
       // Poll for response if not found (wait for processChatMention to complete)
       const maxWaitMs = 60000; // 60 second max wait
       const pollIntervalMs = 500;

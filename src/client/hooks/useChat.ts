@@ -341,8 +341,12 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
       clearInterval(messagePolling);
     }
 
-    // Start polling new channel for updates
+    // Start polling new channel for updates (skip if streaming is active for this channel)
     const interval = setInterval(() => {
+      // Skip polling while SSE stream is active for this channel to avoid duplicates
+      if (streamingChannelId === channel.id) {
+        return;
+      }
       refreshMessages(channel.id);
     }, 2000);
     setMessagePolling(interval);
@@ -486,6 +490,13 @@ export function useChat(currentUser: string = 'User'): UseChatReturn {
     }, 5000);
     return () => clearInterval(interval);
   }, [refreshChannels]);
+
+  // Cleanup EventSource on unmount to prevent memory leaks and stale connections
+  useEffect(() => {
+    return () => {
+      cancelStream();
+    };
+  }, [cancelStream]);
 
   const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
 

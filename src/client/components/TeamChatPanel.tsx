@@ -61,16 +61,10 @@ export default function TeamChatPanel({
     }
   }, [personas]);
 
-<<<<<<< HEAD
   // Scroll to bottom when messages change - useLayoutEffect for instant scroll before paint
   useLayoutEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [currentChannel?.messages]);
-=======
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentChannel?.messages, streamingText]);
->>>>>>> 21a19e9a (fix: auto-scroll on streaming tokens; use isStreaming prop; remove unused import)
 
   // Mention autocomplete
   useEffect(() => {

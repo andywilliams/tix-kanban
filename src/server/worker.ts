@@ -2828,4 +2828,3 @@ export async function getFullWorkerStatus(): Promise<{ worker: WorkerState; prMo
     prMonitor: prMonitorStats,
   };
 }
-}

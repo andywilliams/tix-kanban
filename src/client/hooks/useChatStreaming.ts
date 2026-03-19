@@ -85,6 +85,31 @@ export function useChatStreaming() {
         }
       });
 
+      // Listen for server-sent error events (different from EventSource native onerror)
+      eventSource.addEventListener('error', (event) => {
+        const data = event.data ? JSON.parse(event.data) : { error: 'Unknown error' };
+        console.error('❌ SSE: Server sent error event:', data.error);
+        // Mark stream as completed (with error) so onerror doesn't double-process
+        streamCompletedRef.current = true;
+        
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtError = currentStreamId;
+        
+        // Only reset state and invoke onError if this is still the current stream
+        if (streamIdRef.current === streamIdAtError) {
+          setIsThinking(false);
+          setStreamingMessageId(null);
+          setStreamingText('');
+          setStreamingChannelId(null);
+          eventSource.close();
+          eventSourceRef.current = null;
+
+          if (onError) {
+            onError(data.error || 'Server error');
+          }
+        }
+      });
+
       eventSource.onerror = (err) => {
         // EventSource fires onerror when the server closes the connection after 'done'.
         // Close and bail out without resetting state or invoking onError in that case.

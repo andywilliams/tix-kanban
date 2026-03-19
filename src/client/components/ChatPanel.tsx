@@ -81,7 +81,6 @@ export default function ChatPanel({
 
   // Reset scroll state when channel changes
   useEffect(() => {
-<<<<<<< HEAD
     setNewMessagesIndicator(false);
     isAtBottomRef.current = true;
     prevMessagesLengthRef.current = 0;
@@ -147,11 +146,7 @@ export default function ChatPanel({
     }
     
     prevMessagesLengthRef.current = currentLength;
-  }, [currentChannel?.messages]);
-=======
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChannel?.messages, streamingText]);
->>>>>>> 21a19e9a (fix: auto-scroll on streaming tokens; use isStreaming prop; remove unused import)
 
   // Initialize scroll tracking on container mount
   useEffect(() => {
