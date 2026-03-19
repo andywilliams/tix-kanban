@@ -5,12 +5,16 @@ import ToolResultRenderer from './chat/ToolResultRenderer';
 import TicketPreviewCard from './chat/TicketPreviewCard';
 import BoardSummary from './chat/BoardSummary';
 
-// Typing indicator animation keyframes
-const typingKeyframes = `
+// Animation keyframes
+const keyframes = `
   @keyframes typing {
     0% { opacity: 0.2; }
     20% { opacity: 1; }
     100% { opacity: 0.2; }
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
   }
 `;
 
@@ -26,6 +30,11 @@ interface ChatPanelProps {
   onSwitchChannel: (channel: ChatChannel) => void;
   onCreateTaskChannel: (taskId: string, taskTitle: string) => void;
   onCreatePersonaChannel?: (personaId: string, personaName: string, personaEmoji: string) => Promise<ChatChannel>;
+  // Streaming support
+  streamingMessageId?: string | null;
+  streamingText?: string;
+  isThinking?: boolean;
+  streamingChannelId?: string | null;
 }
 
 interface PendingTicket {
@@ -38,7 +47,8 @@ interface PendingTicket {
 
 export default function ChatPanel({ 
   isOpen, onClose, currentChannel, channels, personas, currentUser, tasks = [],
-  onSendMessage, onSwitchChannel, onCreateTaskChannel, onCreatePersonaChannel 
+  onSendMessage, onSwitchChannel, onCreateTaskChannel, onCreatePersonaChannel,
+  streamingMessageId, streamingText, isThinking, streamingChannelId
 }: ChatPanelProps) {
   const [showPersonaList, setShowPersonaList] = useState(false);
   const [messageInput, setMessageInput] = useState('');
@@ -58,13 +68,13 @@ export default function ChatPanel({
   const isAtBottomRef = useRef<boolean>(true);
   const prevChannelIdRef = useRef<string | null>(null);
 
-  // Inject typing animation keyframes into DOM once on mount
+  // Inject animation keyframes into DOM once on mount
   useEffect(() => {
-    const styleId = 'chat-panel-typing-styles';
+    const styleId = 'chat-panel-animation-styles';
     if (!document.getElementById(styleId)) {
       const style = document.createElement('style');
       style.id = styleId;
-      style.textContent = typingKeyframes;
+      style.textContent = keyframes;
       document.head.appendChild(style);
     }
   }, []);
@@ -458,10 +468,62 @@ export default function ChatPanel({
           );
         })}
         
-        {/* Typing indicator */}
-        {currentChannel?.speakingPersona && (() => {
-          const persona = personas.find(p => p.id === currentChannel.speakingPersona);
-          return persona ? <TypingIndicator persona={persona} /> : null;
+        {/* Streaming message (in-progress response) */}
+        {streamingMessageId && streamingText && streamingChannelId === currentChannel?.id && (
+          <div className="chat-message-group streaming-message">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+              <div style={{
+                width: '2.25rem', height: '2.25rem', background: 'var(--bg-tertiary)', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem',
+                flexShrink: 0, color: 'var(--text-primary)', border: '1px solid var(--border)', fontWeight: '500'
+              }}>
+                🤖
+              </div>
+              
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                    AI Response
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    streaming...
+                  </span>
+                </div>
+                <div style={{ 
+                  fontSize: '0.875rem', 
+                  color: 'var(--text-secondary)', 
+                  wordBreak: 'break-word', 
+                  lineHeight: '1.5',
+                  opacity: 0.9
+                }}>
+                  {streamingText}
+                  <span style={{ 
+                    animation: 'blink 1s infinite',
+                    marginLeft: '2px'
+                  }}>▌</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Typing indicator (thinking state) */}
+        {(
+          (isThinking && streamingChannelId === currentChannel?.id && !streamingText) ||
+          (currentChannel?.speakingPersona && streamingChannelId !== currentChannel?.id)
+        ) && (() => {
+          const persona = personas.find(p => p.id === currentChannel?.speakingPersona);
+          return persona ? <TypingIndicator persona={persona} /> : (
+            <TypingIndicator persona={{ 
+              id: 'thinking', 
+              name: 'AI', 
+              emoji: '🤖', 
+              description: '', 
+              specialties: [], 
+              model: '', 
+              thinkingMode: 'low' 
+            }} />
+          );
         })()}
 
         {/* Pending ticket preview */}

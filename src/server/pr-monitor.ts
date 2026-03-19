@@ -6,6 +6,8 @@ import { promisify } from 'util';
 import { Task } from '../client/types/index.js';
 import { parsePRLinks } from './pr-utils.js';
 import { updateTask, getTask, getAllTasks } from './storage.js';
+import { trackPRMerged, trackPRCreated } from './activityTracker.js';
+import { getPersona } from './persona-storage.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -532,6 +534,14 @@ async function handlePRStateChanges(
       return;
     }
 
+    // Track PR creation if it's open (first time we see it) — guard against tasks without a persona
+    if (current.state === 'open' && task.persona) {
+      const persona = await getPersona(task.persona);
+      const personaName = persona?.name || task.persona;
+      const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
+      await trackPRCreated(task.persona, personaName, task.id, current.repo, current.number, prUrl);
+    }
+
     // No actionable state found, just record initial state
     console.log(`📝 Initial state recorded for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}`);
     return;
@@ -558,6 +568,17 @@ async function handlePRStateChanges(
           },
         ],
       });
+
+      // Track PR merged activity
+      if (task.persona) {
+        const prUrl = `https://github.com/${current.repo}/pull/${current.number}`;
+        
+        // Get persona name dynamically using getPersona lookup
+        const persona = await getPersona(task.persona);
+        const personaName = persona?.name || task.persona;
+        
+        await trackPRMerged(task.persona, personaName, task.id, current.repo, current.number, prUrl);
+      }
     } else {
       console.log(`ℹ️ PR merged for task ${task.id}: ${prRef}, but task is in "${task.status}" status - skipping auto-move to done`);
     }

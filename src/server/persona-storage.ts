@@ -7,6 +7,7 @@ import { loadPersonasFromDir } from './persona-yaml-loader.js';
 import { getAgentSoul, generateSoulPrompt, initializeSoulForPersona } from './agent-soul.js';
 import { loadPermissionsFromPersonas } from './persona-invocation-permissions.js';
 import { getOrCreateSession, buildConversationHistory, countTokens } from '../services/sessionService.js';
+import { getRecentSummaries } from './dailySummary.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -738,25 +739,33 @@ Before you finish working on this task, you MUST output a structured summary wit
 
 This summary will be reviewed by QA. Be specific and complete.` : '';
 
-    // Calculate token budget for memory (account for soul prompt and conversation history)
+    // Get recent daily summaries for continuity (non-critical — don't let errors block task execution)
+    let summariesSection = '';
+    try {
+      const recentSummaries = await getRecentSummaries();
+      summariesSection = recentSummaries ? `\n\n## Recent Activity Summaries\n\n${recentSummaries}` : '';
+    } catch (summaryError) {
+      console.warn('Failed to load recent summaries (non-fatal):', summaryError);
+    }
+
+    // Calculate token budget for memory (account for soul prompt, conversation history, and summaries)
     const maxTokens = 50000;
-    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection);
+    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection + summariesSection);
 
     // Get session conversation history
     const sessionId = await getOrCreateSession(personaId);
     const conversationHistory = await buildConversationHistory(sessionId, 10);
-    
+
     // Build conversation history context (recent messages only, to avoid token bloat)
     let conversationSection = '';
     let historyTokens = 0;
     if (conversationHistory.length > 0) {
-      // Take up to last 10 exchanges for context continuity
       const recentHistory = conversationHistory.slice(-10);
       const historyText = recentHistory
         .map(msg => `[${msg.role}]: ${msg.content.substring(0, 500)}${msg.content.length > 500 ? '...' : ''}`)
         .join('\n\n');
       historyTokens = countTokens(historyText);
-      
+
       conversationSection = `\n\n## Recent Conversation History (${recentHistory.length} messages, ~${historyTokens} tokens)\n${historyText}`;
       console.log(`📝 Including ${recentHistory.length} recent messages in context (~${historyTokens} tokens)`);
     }
@@ -772,7 +781,7 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}${summariesSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,

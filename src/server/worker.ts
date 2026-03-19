@@ -40,6 +40,12 @@ import {
   markReminderTriggered,
   cleanupOldReminders,
 } from './personal-reminders.js';
+import {
+  trackTaskStarted,
+  trackTaskCompleted,
+  trackTaskFailed,
+  trackReviewCompleted
+} from './activityTracker.js';
 
 
 const execFile = promisify(execFileCallback);
@@ -1582,6 +1588,9 @@ async function processTask(task: Task): Promise<void> {
       }
     });
 
+    // Track activity: task started
+    await trackTaskStarted(persona.id, persona.name, fullTask);
+
     // Notify via chat that work is starting
     await postTaskUpdate(fullTask, persona, `Starting work on this task. I'll update you when I'm done.`);
 
@@ -1598,6 +1607,11 @@ async function processTask(task: Task): Promise<void> {
       output = lgtmResult.output;
       shouldAdvance = lgtmResult.shouldAdvance;
       console.log(`🔍 lgtm review result: success=${success}, shouldAdvance=${shouldAdvance}`);
+      // Track review completion for daily summaries (only when review actually completed, not errored)
+      if (success) {
+        const outcome = shouldAdvance ? 'approved' : 'changes-requested';
+        await trackReviewCompleted(persona.id, persona.name, fullTask, outcome);
+      }
     } else if (isResearchTask(fullTask, persona)) {
       // Handle as research task - generate report
       const researchResult = await processResearchTask(fullTask, persona);
@@ -1662,6 +1676,9 @@ async function processTask(task: Task): Promise<void> {
         console.log(`🔍 Research task completed: ${fullTask.title}`);
 
         await postTaskUpdate(fullTask, persona, `Research complete! The report has been saved. Moving this to done.`);
+
+        // Track activity: task completed
+        await trackTaskCompleted(persona.id, persona.name, fullTask);
 
         // Update persona stats
         const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
@@ -1729,6 +1746,9 @@ async function processTask(task: Task): Promise<void> {
             });
 
             await postTaskUpdate(fullTask, persona, `Work complete! I've moved this to review — ready for your eyes.`);
+
+            // Track activity: dev task completed (moved to review)
+            await trackTaskCompleted(persona.id, persona.name, fullTask);
           }
         }
       }
@@ -1741,6 +1761,9 @@ async function processTask(task: Task): Promise<void> {
       });
 
       await postTaskUpdate(fullTask, persona, `I ran into some issues with this task and wasn't able to complete it. Moving it back to the backlog — I'll have another go next cycle.`);
+
+      // Track activity: task failed
+      await trackTaskFailed(persona.id, persona.name, fullTask, 'AI worker unable to complete task');
     }
 
     console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);

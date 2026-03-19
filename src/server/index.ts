@@ -119,6 +119,7 @@ import {
   runArchiveMaintenance
 } from './chat-storage.js';
 import { processChatMention, startDirectConversation, getTeamOverview } from './agent-chat.js';
+import { initSSE, sendSSE } from './streaming-chat.js';
 import {
   loadProviderConfig,
   listProviders,
@@ -217,6 +218,10 @@ import {
   updateStandupEntry,
   StandupEntry
 } from './standup-storage.js';
+import {
+  generateDailySummary,
+  readSummary,
+} from './dailySummary.js';
 // Notion sync removed - now using CLI-based providers
 // See documentation/providers.md for the new architecture
 import {
@@ -2440,6 +2445,151 @@ app.post('/api/chat/:channelId/messages', async (req, res) => {
   }
 });
 
+// GET /api/chat/:channelId/stream - Stream persona response via SSE
+app.get('/api/chat/:channelId/stream', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const { messageId, personaId } = req.query;
+
+    if (!messageId || typeof messageId !== 'string') {
+      return res.status(400).json({ error: 'messageId query parameter is required' });
+    }
+
+    if (!personaId || typeof personaId !== 'string') {
+      return res.status(400).json({ error: 'personaId query parameter is required' });
+    }
+
+    // Initialize SSE connection
+    initSSE(res);
+
+    // Get the channel and recent messages
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      sendSSE(res, { event: 'error', data: { error: 'Channel not found' } });
+      res.end();
+      return;
+    }
+
+    const messages = await getMessages(channelId, 15);
+    const triggerMessage = messages.find(m => m.id === messageId);
+    
+    if (!triggerMessage) {
+      sendSSE(res, { event: 'error', data: { error: 'Message not found' } });
+      res.end();
+      return;
+    }
+
+    // Get the persona
+    const persona = await getPersona(personaId);
+    if (!persona) {
+      sendSSE(res, { event: 'error', data: { error: 'Persona not found' } });
+      res.end();
+      return;
+    }
+
+    // Send thinking event immediately
+    sendSSE(res, { event: 'thinking', data: {} });
+
+    // Handle client disconnect
+    let clientDisconnected = false;
+    req.on('close', () => {
+      clientDisconnected = true;
+      console.log(`SSE client disconnected from ${channelId}`);
+    });
+
+    // FIX: Instead of regenerating, wait for the response from processChatMention
+    // which should already be running (or will be triggered by the message)
+    try {
+      // Helper: find the persona's response to our trigger message.
+      // Primary: match by replyTo (set when persona replies to a specific message).
+      // Fallback: most recent persona message from this persona created after the trigger,
+      //           in case processChatMention didn't set replyTo.
+      const triggerTime = triggerMessage.createdAt ? new Date(triggerMessage.createdAt).getTime() : Date.now();
+      const findResponse = (msgs: typeof messages) => {
+        const byReplyTo = msgs.filter(m => m.replyTo === messageId && m.authorType === 'persona');
+        if (byReplyTo.length > 0) return byReplyTo;
+        return msgs.filter(
+          m => m.authorType === 'persona' &&
+               m.author === persona.name &&
+               new Date(m.createdAt).getTime() > triggerTime
+        );
+      };
+
+      // First, check if a response already exists (processChatMention may have already completed)
+      let responseMessages = findResponse(messages);
+
+      // Poll for response if not found (wait for processChatMention to complete)
+      const maxWaitMs = 60000; // 60 second max wait
+      const pollIntervalMs = 500;
+      let waitedMs = 0;
+
+      while (responseMessages.length === 0 && waitedMs < maxWaitMs && !clientDisconnected) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        waitedMs += pollIntervalMs;
+        
+        // Re-fetch messages to check for new response
+        const updatedMessages = await getMessages(channelId, 15);
+        responseMessages = findResponse(updatedMessages);
+      }
+
+      if (clientDisconnected) {
+        res.end();
+        return;
+      }
+
+      if (responseMessages.length > 0) {
+        // Found existing response - stream it
+        const responseMessage = responseMessages[0];
+        
+        // Stream the content in chunks
+        const content = responseMessage.content;
+        const chunkSize = 20;
+        for (let i = 0; i < content.length && !clientDisconnected; i += chunkSize) {
+          const chunk = content.substring(i, Math.min(i + chunkSize, content.length));
+          sendSSE(res, { event: 'token', data: { text: chunk } });
+          // Small delay to simulate streaming feel
+          await new Promise(resolve => setTimeout(resolve, 30));
+        }
+
+        if (!clientDisconnected) {
+          sendSSE(res, {
+            event: 'done',
+            data: {
+              messageId: responseMessage.id,
+              fullText: content
+            }
+          });
+        }
+      } else {
+        // No response found after polling - this shouldn't happen if processChatMention is working
+        console.warn(`No persona response found for message ${messageId} after ${waitedMs}ms`);
+        sendSSE(res, {
+          event: 'error',
+          data: { error: 'Persona response not found (may have failed to generate)' }
+        });
+      }
+    } catch (streamError) {
+      console.error('Streaming error:', streamError);
+      if (!clientDisconnected) {
+        sendSSE(res, {
+          event: 'error',
+          data: { error: 'Failed to stream response' }
+        });
+      }
+    }
+
+    res.end();
+  } catch (error) {
+    console.error(`GET /api/chat/${req.params.channelId}/stream error:`, error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream response' });
+    } else {
+      sendSSE(res, { event: 'error', data: { error: 'Internal server error' } });
+      res.end();
+    }
+  }
+});
+
 // GitHub API routes
 
 // GET /api/github/config - Get GitHub configuration
@@ -3321,6 +3471,46 @@ app.delete('/api/standup/:id', async (req, res) => {
   } catch (error) {
     console.error(`DELETE /api/standup/${req.params.id} error:`, error);
     res.status(500).json({ error: 'Failed to delete standup' });
+  }
+});
+
+// POST /api/daily-summary/generate - Generate daily summary for a date (defaults to today)
+app.post('/api/daily-summary/generate', async (req, res) => {
+  try {
+    const { date } = req.body as { date?: string };
+    
+    // Validate date format (YYYY-MM-DD) if provided
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+    
+    const summary = await generateDailySummary(date);
+    res.json({ summary, date: date || new Date().toISOString().split('T')[0] });
+  } catch (error) {
+    console.error('POST /api/daily-summary/generate error:', error);
+    res.status(500).json({ error: 'Failed to generate daily summary' });
+  }
+});
+
+// GET /api/daily-summary/:date - Get daily summary for a specific date
+app.get('/api/daily-summary/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+    
+    const summary = await readSummary(date);
+    if (!summary) {
+      return res.status(404).json({ error: `No summary found for ${date}` });
+    }
+    
+    res.json({ summary, date });
+  } catch (error) {
+    console.error(`GET /api/daily-summary/${req.params.date} error:`, error);
+    res.status(500).json({ error: 'Failed to fetch daily summary' });
   }
 });
 
