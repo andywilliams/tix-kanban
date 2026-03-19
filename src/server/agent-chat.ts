@@ -98,8 +98,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
 
   // Handle "yes, create ticket" response to a ticket offer
   recentMessages = await getMessages(message.channelId, 5);
-  const lastPersonaMsg = recentMessages
-    .reverse()
+  const lastPersonaMsg = [...recentMessages].reverse()
     .find(m => m.authorType === 'persona' && m.content?.includes('create a ticket'));
   
   // Strip @mention prefix before checking confirmation (supports hyphenated names like code-reviewer)
