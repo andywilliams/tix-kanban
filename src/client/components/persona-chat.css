@@ -2,6 +2,52 @@
    Full-page Persona Chat — Discord/Slack style layout
    ===================================================== */
 
+/* ── Execution status indicators ─────────────────── */
+.persona-chat__execution-status {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.persona-chat__execution-status--spawned {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #3b82f6;
+}
+
+.persona-chat__execution-status--working {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+}
+
+.persona-chat__execution-status--done {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.persona-chat__execution-status--error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.persona-chat__execution-status a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.persona-chat__execution-status a:hover {
+  opacity: 0.8;
+}
+
 .persona-chat {
   display: flex;
   height: calc(100vh - var(--header-height, 56px));

@@ -46,6 +46,8 @@ import {
 import { getConversationBackground, maybeUpdateSummary } from './chat-summarizer.js';
 import { getSlackData } from './slx-service.js';
 import { renderWorkspaceContext, getCachedWorkspaceContext } from './workspace-context.js';
+import { detectIntent, buildClarificationPrompt } from './intent-detection.js';
+import { executeDirectly, createRetrospectiveTicket } from './direct-execution.js';
 
 
 export interface ChatContext {
@@ -91,6 +93,21 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   // Check for "remember" command
   const rememberCmd = parseRememberCommand(message.content);
 
+  // Detect intent (action vs discussion)
+  // Get recent messages for context
+  let recentContext: string[] = [];
+  try {
+    const recentMessages = await getMessages(message.channelId, 5);
+    recentContext = recentMessages
+      .slice(-5)
+      .map(m => `${m.author}: ${m.content}`);
+  } catch (err) {
+    // Ignore context fetch errors
+  }
+  
+  const intent = detectIntent(message.content, recentContext);
+  console.log(`🎯 Intent detected: ${intent.intent} (confidence: ${intent.confidence})`);
+
   // Process each mentioned persona sequentially to ensure fair turn-taking
   // When multiple personas are mentioned, they respond one at a time
   for (const persona of mentionedPersonas) {
@@ -100,7 +117,44 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
       continue;
     }
 
-    // Generate contextual response - await to ensure fair queuing
+    // Handle based on intent
+    if (intent.intent === 'action' && intent.confidence >= 0.7) {
+      // Direct execution mode - spawn sub-agent
+      console.log(`⚡ Direct execution triggered for ${persona.name}`);
+      
+      try {
+        const result = await executeDirectly(
+          persona,
+          message.channelId,
+          intent,
+          'M2.5' // Default to M2.5, will auto-select Sonnet for complex tasks
+        );
+        
+        // If execution succeeded, no need for normal chat response
+        if (result.success) {
+          continue;
+        }
+        
+        // If execution failed, fall back to normal chat (to explain what went wrong)
+        console.log(`⚠️ Direct execution failed for ${persona.name}, falling back to chat`);
+      } catch (execError) {
+        console.error(`❌ Direct execution error for ${persona.name}:`, execError);
+        // Fall through to normal chat response
+      }
+    } else if (intent.intent === 'clarification_needed') {
+      // Request is too vague - ask for clarification
+      const clarification = buildClarificationPrompt(message.content);
+      await addMessage(
+        message.channelId,
+        persona.name,
+        'persona',
+        clarification,
+        message.id
+      );
+      continue;
+    }
+
+    // Normal discussion mode - generate contextual response
     try {
       await generatePersonaResponse(message, persona);
     } catch (error) {

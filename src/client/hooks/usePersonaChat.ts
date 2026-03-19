@@ -7,6 +7,8 @@ export interface PersonaChatMessage {
   content: string;
   createdAt: string;
   author?: string;
+  executionStatus?: 'spawned' | 'working' | 'done' | 'error';
+  prUrl?: string;
 }
 
 export interface PersonaWithSession {
