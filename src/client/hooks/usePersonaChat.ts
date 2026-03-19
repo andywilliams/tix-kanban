@@ -45,20 +45,20 @@ export function usePersonaChat(currentUser: string) {
     // Strip status emoji/text from content to avoid displaying twice
     // (the status badge in the UI will show it)
     let cleanContent = content;
-    if (content.includes('🚀 Spawning')) {
+    if (content.startsWith('🚀 Spawning')) {
       executionStatus = 'spawned';
       cleanContent = content.replace(/^🚀 Spawning[^\n]*\n?/, '').trim();
-    } else if (content.includes('⚙️ Working')) {
+    } else if (content.startsWith('⚙️ Working')) {
       executionStatus = 'working';
       cleanContent = content.replace(/^⚙️ Working[^\n]*\n?/, '').trim();
-    } else if (content.includes('✅ Done!')) {
+    } else if (content.startsWith('✅ Done!')) {
       executionStatus = 'done';
       // Extract PR URL if present
       const prMatch = content.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
       if (prMatch) prUrl = prMatch[0];
       // Strip the entire "✅ Done! ..." line including PR URL - badge shows status
       cleanContent = content.replace(/^✅ Done![^\n]*/i, '').trim();
-    } else if (content.includes('❌') && (content.includes('failed') || content.includes('error'))) {
+    } else if (content.startsWith('❌') && (content.toLowerCase().includes('failed') || content.toLowerCase().includes('error'))) {
       executionStatus = 'error';
       cleanContent = content.replace(/^❌ [^\n]*\n?/, '').trim();
     }
