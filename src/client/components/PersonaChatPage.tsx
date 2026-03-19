@@ -240,7 +240,6 @@ export function PersonaChatPage({ currentUser = 'User' }: PersonaChatPageProps) 
                             {msg.executionStatus && (
                               <div className={`persona-chat__execution-status persona-chat__execution-status--${msg.executionStatus}`}>
                                 {msg.executionStatus === 'spawned' && '🚀 Spawning sub-agent...'}
-                                {msg.executionStatus === 'working' && '⚙️ Working on it...'}
                                 {msg.executionStatus === 'done' && (
                                   msg.prUrl ? (
                                     <>✅ Done! <a href={msg.prUrl} target="_blank" rel="noopener noreferrer">View PR</a></>

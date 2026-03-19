@@ -7,7 +7,7 @@ export interface PersonaChatMessage {
   content: string;
   createdAt: string;
   author?: string;
-  executionStatus?: 'spawned' | 'working' | 'done' | 'error';
+  executionStatus?: 'spawned' | 'done' | 'error';
   prUrl?: string;
 }
 
