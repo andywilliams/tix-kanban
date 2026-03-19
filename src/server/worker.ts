@@ -1402,7 +1402,7 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
 
 // Check if this is an lgtm-reviewer persona task
 function isLgtmReviewerTask(persona?: Persona): boolean {
-  return persona?.id === 'lgtm-reviewer' || persona?.name?.toLowerCase().includes('lgtm');
+  return persona?.id === 'lgtm-reviewer';
 }
 
 // Process a single task
@@ -1526,8 +1526,9 @@ async function processTask(task: Task): Promise<void> {
     const clearedActivity = { personaId: persona.id, personaName: persona.name, personaEmoji: persona.emoji, status: 'idle' as const, startedAt: new Date() };
 
     if (success) {
-      // Research tasks go directly to done - no review needed
-      if (isResearchTask(fullTask, persona)) {
+      // lgtm-reviewer tasks must go through pipeline logic (respects shouldAdvance)
+      // Do NOT let research-task logic bypass pipeline bounce-back
+      if (!isLgtmReviewerTask(persona) && isResearchTask(fullTask, persona)) {
         await updateTask(fullTask.id, {
           status: 'done',
           comments: updatedComments,
