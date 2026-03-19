@@ -162,7 +162,7 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
   // Reuse recentMessages from ticket confirmation check if available
   let recentContext: string[] = [];
   try {
-    if (!recentMessages) {
+    if (recentMessages.length === 0) {
       recentMessages = await getMessages(message.channelId, 5);
     }
     recentContext = recentMessages

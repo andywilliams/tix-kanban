@@ -7,7 +7,7 @@ export interface PersonaChatMessage {
   content: string;
   createdAt: string;
   author?: string;
-  executionStatus?: 'spawned' | 'done' | 'error';
+  executionStatus?: 'spawned' | 'done' | 'error' | 'working';
   prUrl?: string;
 }
 
@@ -48,6 +48,9 @@ export function usePersonaChat(currentUser: string) {
     if (content.includes('🚀 Spawning')) {
       executionStatus = 'spawned';
       cleanContent = content.replace(/^🚀 Spawning[^\n]*\n?/, '').trim();
+    } else if (content.includes('⚙️ Working')) {
+      executionStatus = 'working';
+      cleanContent = content.replace(/^⚙️ Working[^\n]*\n?/, '').trim();
     } else if (content.includes('✅ Done!')) {
       executionStatus = 'done';
       // Extract PR URL if present
