@@ -70,14 +70,25 @@ async function readDailyActivity(date?: string): Promise<DailyActivity> {
   }
 }
 
-// Write daily activity
+// Write daily activity (atomic - write to temp file then rename)
 async function writeDailyActivity(activity: DailyActivity): Promise<void> {
   try {
     await ensureActivityDirectory();
     const activityPath = getActivityPath(activity.date);
+    const tempPath = `${activityPath}.tmp.${Date.now()}`;
     const content = JSON.stringify(activity, null, 2);
-    await fs.writeFile(activityPath, content, 'utf8');
+    
+    // Write to temp file first (atomic write pattern)
+    await fs.writeFile(tempPath, content, 'utf8');
+    
+    // Atomic rename (overwrites existing file)
+    await fs.rename(tempPath, activityPath);
   } catch (error) {
+    // Clean up temp file if it exists
+    try {
+      const tempPath = `${getActivityPath(activity.date)}.tmp.${Date.now()}`;
+      await fs.unlink(tempPath);
+    } catch {}
     console.error('Failed to write daily activity:', error);
     throw error;
   }
@@ -193,6 +204,7 @@ export async function trackTaskFailed(
 }
 
 // Track PR created
+// TODO: Wire up where PRs are created (e.g., in pr-monitor.ts when a PR is opened)
 export async function trackPRCreated(
   personaId: string,
   personaName: string,
@@ -255,6 +267,7 @@ export async function trackPRMerged(
 }
 
 // Track review completed
+// TODO: Wire up where reviews are completed (e.g., in pr-monitor.ts when a review is submitted)
 export async function trackReviewCompleted(
   personaId: string,
   personaName: string,
