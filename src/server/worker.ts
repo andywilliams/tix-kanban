@@ -1282,7 +1282,7 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
         output: `✅ **lgtm Review: PASSED**\n\nNo issues found. PR is ready for the next stage.${duplicatesSkipped > 0 ? `\n\n(${duplicatesSkipped} duplicate comments skipped)` : ''}`,
         shouldAdvance: true
       };
-    } else if (commentsPosted > 0) {
+    } else if (commentsPosted > 0 && lgtmResult.success) {
       // Issues found - BOUNCE
       let issuesList = '';
       for (const comment of comments) {
@@ -1682,7 +1682,7 @@ async function advanceTaskInPipeline(
     if (!shouldAdvance) {
       // Check maxRetryAttempts before bouncing
       const currentAttempts = updatedAttempts[currentStage.id] || 0;
-      const maxAttempts = currentStage.maxRetryAttempts || 3;
+      const maxAttempts = currentStage.maxRetryAttempts ?? 3;
       
       if (currentAttempts > maxAttempts) {
         // Max retry attempts reached - mark as stuck and don't bounce
