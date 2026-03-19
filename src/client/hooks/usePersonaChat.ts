@@ -28,6 +28,7 @@ export function usePersonaChat(currentUser: string) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMessageCountRef = useRef<number>(0);
   const reloadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRequestIdRef = useRef<number>(0);
   // Store the direct channel id per persona so reads and writes use the same store (Issue #1)
   const personaChannelIds = useRef<Record<string, string>>({});
 
@@ -84,7 +85,7 @@ export function usePersonaChat(currentUser: string) {
           const res = await fetch(`/api/personas/${personaId}/session/messages?limit=1`);
           if (!res.ok) return;
           const data = await res.json();
-          const msgs: PersonaChatMessage[] = data.messages || [];
+          const msgs: PersonaChatMessage[] = (data.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
           const last = msgs[msgs.length - 1];
           if (last) {
             setPersonaData(prev => ({
@@ -111,7 +112,7 @@ export function usePersonaChat(currentUser: string) {
 
   // Load messages for selected persona
   // Issue #1: read from the direct channel if we have one, otherwise fall back to session
-  const loadMessages = useCallback(async (personaId: string, silentRefresh = false) => {
+  const loadMessages = useCallback(async (personaId: string, silentRefresh = false, requestId?: number) => {
     if (!silentRefresh) {
       setError(null); // Clear any previous errors (Issue #3)
       setLoadingMessages(true);
@@ -134,6 +135,10 @@ export function usePersonaChat(currentUser: string) {
         msgs = (data.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
       }
 
+      // Check if this request has been superseded by a newer one
+      if (requestId !== undefined && requestId !== latestRequestIdRef.current) {
+        return;
+      }
       setMessages(msgs);
       lastMessageCountRef.current = msgs.length;
     } catch (err) {
@@ -198,9 +203,13 @@ export function usePersonaChat(currentUser: string) {
       clearTimeout(reloadTimeoutRef.current);
       reloadTimeoutRef.current = null;
     }
+    // Increment request ID to guard against stale responses from rapid selections
+    const requestId = ++latestRequestIdRef.current;
     setSelectedPersonaId(personaId);
     setMessages([]);
-    await loadMessages(personaId);
+    await loadMessages(personaId, false, requestId);
+    // Check if this request is still the latest one before starting polling
+    if (requestId !== latestRequestIdRef.current) return;
     startPolling(personaId);
     // Clear unread
     setPersonaData(prev => ({
