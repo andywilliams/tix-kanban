@@ -99,7 +99,10 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     .reverse()
     .find(m => m.authorType === 'persona' && m.content?.includes('create a ticket'));
   
-  if (lastPersonaMsg && /^(yes|yes,? create (the )?ticket)$/i.test(message.content.trim())) {
+  // Strip @mention prefix before checking confirmation (supports hyphenated names like code-reviewer)
+  const cleanedContent = message.content.replace(/^@[\w-]+\s+/i, '').trim();
+  
+  if (lastPersonaMsg && /^(yes|yes,? create (the )?ticket)$/i.test(cleanedContent)) {
     // User confirmed - create retrospective ticket
     // Use the persona from the lastPersonaMsg (the one who offered to create a ticket)
     const personaName = lastPersonaMsg.author;
@@ -107,7 +110,10 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     
     // Extract task info from the most recent human message that requested action
     // Look for the last message from a human that triggered the execution
-    const humanMessages = channelMessages.filter(m => m.authorType === 'human');
+    // Filter out the confirmation message itself ("yes, create ticket")
+    const humanMessages = channelMessages
+      .filter(m => m.authorType === 'human')
+      .filter(m => !m.content?.match(/^(yes|yes,? create (the )?ticket)$/i));
     const lastHumanMsg = humanMessages[humanMessages.length - 1];
     
     // Build task object with extracted info
@@ -118,16 +124,11 @@ export async function processChatMention(message: ChatMessage): Promise<void> {
     };
     
     try {
+      // createRetrospectiveTicket already posts confirmation message - no need for duplicate
       await createRetrospectiveTicket(
         message.channelId,
         personaName,
         extractedTask
-      );
-      await addMessage(
-        message.channelId,
-        personaName,
-        'persona',
-        '✅ Done! Created a retrospective ticket for this work.'
       );
       return;
     } catch (err) {

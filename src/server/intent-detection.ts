@@ -57,7 +57,8 @@ export function detectIntent(
 ): IntentResult {
   // Strip @mentions from the message before pattern matching
   // e.g. "@Developer fix the login bug" -> "fix the login bug"
-  const cleanedMessage = message.replace(/^@\w+\s+/i, '').trim();
+  // Support hyphenated persona names like "code-reviewer"
+  const cleanedMessage = message.replace(/^@[\w-]+\s+/i, '').trim();
   const trimmed = cleanedMessage;
   
   // Check for vague patterns first

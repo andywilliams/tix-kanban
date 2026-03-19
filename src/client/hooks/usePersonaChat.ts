@@ -42,23 +42,31 @@ export function usePersonaChat(currentUser: string) {
     let prUrl: string | undefined;
     
     const content = m.content || '';
+    // Strip status emoji/text from content to avoid displaying twice
+    // (the status badge in the UI will show it)
+    let cleanContent = content;
     if (content.includes('🚀 Spawning')) {
       executionStatus = 'spawned';
+      cleanContent = content.replace(/^🚀 Spawning[^\n]*\n?/, '').trim();
     } else if (content.includes('⚙️ Working')) {
       executionStatus = 'working';
+      cleanContent = content.replace(/^⚙️ Working[^\n]*\n?/, '').trim();
     } else if (content.includes('✅ Done!')) {
       executionStatus = 'done';
       // Extract PR URL if present
       const prMatch = content.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
       if (prMatch) prUrl = prMatch[0];
+      // Strip the emoji, status text, and PR URL - badge shows "✅ Done! View PR"
+      cleanContent = content.replace(/^✅ Done! /, '').replace(prUrl || '', '').trim();
     } else if (content.includes('❌') && (content.includes('failed') || content.includes('error'))) {
       executionStatus = 'error';
+      cleanContent = content.replace(/^❌ [^\n]*\n?/, '').trim();
     }
     
     return {
       id: m.id,
       role: m.authorType === 'persona' ? 'assistant' : 'user',
-      content,
+      content: cleanContent,
       createdAt: m.createdAt,
       author: m.authorType === 'human' ? currentUser : undefined,
       executionStatus,
