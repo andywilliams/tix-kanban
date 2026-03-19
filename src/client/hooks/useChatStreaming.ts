@@ -11,6 +11,7 @@ export function useChatStreaming() {
   const [streamingChannelId, setStreamingChannelId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const streamIdRef = useRef<number>(0); // Track stream session to guard against race conditions
+  const streamCompletedRef = useRef<boolean>(false); // Track if stream completed successfully via 'done' event
 
   const cancelStream = useCallback(() => {
     if (eventSourceRef.current) {
@@ -35,6 +36,9 @@ export function useChatStreaming() {
     
     // Increment stream ID to track this session
     const currentStreamId = ++streamIdRef.current;
+    
+    // Reset completion flag for the new stream
+    streamCompletedRef.current = false;
     
     // Set the channel ID for this stream
     setStreamingChannelId(channelId);
@@ -61,6 +65,8 @@ export function useChatStreaming() {
       eventSource.addEventListener('done', async (event) => {
         const data = JSON.parse(event.data);
         console.log('✅ SSE: Response complete');
+        // Mark stream as successfully completed so onerror ignores the connection-close event
+        streamCompletedRef.current = true;
         // Capture current stream ID to guard against race with new streams
         const streamIdAtStart = currentStreamId;
         // Call onComplete first and await it to avoid flash while waiting for refresh
@@ -80,11 +86,18 @@ export function useChatStreaming() {
       });
 
       eventSource.onerror = (err) => {
+        // Ignore connection-close errors that fire after a successful 'done' event.
+        // EventSource fires onerror when the server closes the connection, even on success.
+        if (streamCompletedRef.current) {
+          console.log('📡 SSE: Connection closed after successful completion (onerror suppressed)');
+          return;
+        }
+
         console.error('❌ SSE: Connection error', err);
         // Capture current stream ID to guard against race with new streams
         const streamIdAtError = currentStreamId;
         
-        // Only reset state if this is still the current stream
+        // Only reset state and invoke onError if this is still the current stream
         if (streamIdRef.current === streamIdAtError) {
           setIsThinking(false);
           setStreamingMessageId(null);
@@ -92,10 +105,10 @@ export function useChatStreaming() {
           setStreamingChannelId(null);
           eventSource.close();
           eventSourceRef.current = null;
-        }
-        
-        if (onError) {
-          onError('Connection to server lost');
+
+          if (onError) {
+            onError('Connection to server lost');
+          }
         }
       };
 
