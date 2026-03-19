@@ -744,7 +744,7 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
 
     // Get session conversation history
     const sessionId = await getOrCreateSession(personaId);
-    const conversationHistory = await buildConversationHistory(sessionId);
+    const conversationHistory = await buildConversationHistory(sessionId, 10);
     
     // Build conversation history context (recent messages only, to avoid token bloat)
     let conversationSection = '';

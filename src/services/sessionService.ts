@@ -180,7 +180,7 @@ export async function compactSession(sessionId: string): Promise<void> {
     });
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2000,
       messages: [
         {
@@ -314,11 +314,11 @@ export async function getSessionStats(sessionId: string): Promise<{
  * Build conversation history for AI invocation
  * Returns an array of message objects suitable for passing to Claude
  */
-export async function buildConversationHistory(sessionId: string): Promise<Array<{
+export async function buildConversationHistory(sessionId: string, limit: number = 10): Promise<Array<{
   role: 'user' | 'assistant' | 'system';
   content: string;
 }>> {
-  const history = await getSessionHistory(sessionId);
+  const history = await getSessionHistory(sessionId, limit);
   
   // Convert to Claude message format
   // Preserve 'system' role for compacted summaries, map others appropriately
