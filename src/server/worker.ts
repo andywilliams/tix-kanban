@@ -24,6 +24,7 @@ import { initiateAutoReview, executeReviewCycle, deleteTaskReviewState } from '.
 import { getUserSettings } from './user-settings.js';
 import { saveReport } from './reports-storage.js';
 import { clearExpiredCache } from './github-rate-limit.js';
+import { processReviewTasksPRStatus, getPRMonitorStats } from './pr-monitor.js';
 import {
   generateStandupEntry,
   saveStandupEntry,
@@ -2267,6 +2268,9 @@ async function runWorkerCycle(): Promise<void> {
   // First, process any auto-review tasks
   await processAutoReviewTasks();
 
+  // Then, monitor PRs for review tasks (detect merged PRs, new comments, CI failures, conflicts)
+  await processReviewTasksPRStatus();
+
   // Get all tasks
   let tasks = await getAllTasks();
 
@@ -2389,10 +2393,10 @@ async function runWorkerCycle(): Promise<void> {
   console.log(`✅ Worker cycle completed. Processed ${tasksToProcess.length} task(s).`);
 }
 
-async function runWorker(): Promise<void> {
+export async function runWorker(): Promise<{ skipped: boolean; error?: string }> {
   if (workerState.isRunning) {
     console.log('⏭️  Worker already running, skipping this cycle');
-    return;
+    return { skipped: true };
   }
 
   try {
@@ -2400,8 +2404,10 @@ async function runWorker(): Promise<void> {
     workerState.lastRun = new Date().toISOString();
     await saveWorkerState();
     await runWorkerCycle();
+    return { skipped: false };
   } catch (error) {
     console.error('❌ Worker cycle failed:', error);
+    return { skipped: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     workerState.isRunning = false;
     await saveWorkerState();
@@ -2789,4 +2795,14 @@ export async function toggleAllowDuplicatePersonas(allow: boolean): Promise<void
   workerState.allowDuplicatePersonas = allow;
   await saveWorkerState();
   console.log(`⚙️  ${allow ? 'Enabled' : 'Disabled'} allowDuplicatePersonas`);
+}
+
+// Get full worker status including PR monitor stats
+export async function getFullWorkerStatus(): Promise<{ worker: WorkerState; prMonitor: { lastRunAt: string | null; tasksChecked: number; actionsTaken: number } }> {
+  const prMonitorStats = await getPRMonitorStats();
+  return {
+    worker: { ...workerState },
+    prMonitor: prMonitorStats,
+  };
+}
 }

@@ -115,7 +115,7 @@ export function SettingsPage({ onSettingsChange }: SettingsPageProps) {
       const response = await fetch('/api/worker/status');
       if (response.ok) {
         const data = await response.json();
-        const status = data.status || data;
+        const status = data.worker || data.status || data;
 
         // Parse standup config
         let time = '09:00';

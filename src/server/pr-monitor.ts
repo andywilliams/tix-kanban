@@ -12,6 +12,9 @@ const execFile = promisify(execFileCallback);
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PR_MONITOR_STATE_FILE = path.join(STORAGE_DIR, 'pr-monitor-state.json');
 
+// Concurrency guard — prevents duplicate runs from worker cycle + manual trigger
+let prMonitorRunning = false;
+
 export interface PRReviewThread {
   id: string;
   createdAt: string;
@@ -40,8 +43,15 @@ export interface PRMonitorSnapshot {
   hasUnresolvedThreads: boolean;
 }
 
+export interface PRMonitorStats {
+  lastRunAt: string | null;
+  tasksChecked: number;
+  actionsTaken: number;
+}
+
 export interface PRMonitorState {
   tasks: Record<string, Record<string, PRMonitorSnapshot>>; // taskId -> prKey -> snapshot
+  stats: PRMonitorStats;
 }
 
 /**
@@ -52,6 +62,10 @@ async function loadPRMonitorState(): Promise<PRMonitorState> {
     const content = await fs.readFile(PR_MONITOR_STATE_FILE, 'utf8');
     const parsed = JSON.parse(content);
     if (parsed && typeof parsed === 'object' && parsed.tasks) {
+      // Ensure stats field exists
+      if (!parsed.stats) {
+        parsed.stats = { lastRunAt: null, tasksChecked: 0, actionsTaken: 0 };
+      }
       return parsed as PRMonitorState;
     }
   } catch (error) {
@@ -59,7 +73,7 @@ async function loadPRMonitorState(): Promise<PRMonitorState> {
       console.error('Failed to load PR monitor state:', error);
     }
   }
-  return { tasks: {} };
+  return { tasks: {}, stats: { lastRunAt: null, tasksChecked: 0, actionsTaken: 0 } };
 }
 
 /**
@@ -262,7 +276,16 @@ function hasNewUnresolvedThreads(
 /**
  * Process all review tasks to monitor their PRs
  */
-export async function processReviewTasksPRStatus(): Promise<void> {
+export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { skipped?: boolean; error?: string }> {
+  if (prMonitorRunning) {
+    console.log('⏭️  PR monitor already running, skipping concurrent invocation');
+    return { tasksChecked: 0, actionsTaken: 0, lastRunAt: null, skipped: true };
+  }
+
+  prMonitorRunning = true;
+  let tasksChecked = 0;
+  let actionsTaken = 0;
+
   try {
     console.log('🔍 Monitoring PRs for review tasks...');
 
@@ -276,7 +299,14 @@ export async function processReviewTasksPRStatus(): Promise<void> {
 
     if (reviewTasks.length === 0) {
       console.log('📭 No review tasks with PRs to monitor');
-      return;
+      // Update stats even when no tasks
+      state.stats = {
+        lastRunAt: new Date().toISOString(),
+        tasksChecked: 0,
+        actionsTaken: 0,
+      };
+      await savePRMonitorState(state);
+      return state.stats;
     }
 
     console.log(`📊 Found ${reviewTasks.length} task(s) with PRs to monitor`);
@@ -288,6 +318,11 @@ export async function processReviewTasksPRStatus(): Promise<void> {
       const prLinks = parsePRLinks(fullTask.links);
       if (prLinks.length === 0) continue;
 
+      // Track initial comment count to detect if actions were taken
+      const initialCommentCount = (fullTask.comments || []).length;
+      const initialStatus = fullTask.status;
+
+      tasksChecked++;
       // Initialize task state if not exists
       if (!state.tasks[task.id]) {
         state.tasks[task.id] = {};
@@ -338,6 +373,16 @@ export async function processReviewTasksPRStatus(): Promise<void> {
         // (Bug 3 fix: this ensures subsequent transitions aren't missed)
         state.tasks[task.id][prKey] = currentSnapshot;
       }
+
+      // Check if any action was taken (new comment or status change)
+      const finalTask = await getTask(task.id);
+      if (finalTask) {
+        const finalCommentCount = (finalTask.comments || []).length;
+        const finalStatus = finalTask.status;
+        if (finalCommentCount > initialCommentCount || finalStatus !== initialStatus) {
+          actionsTaken++;
+        }
+      }
     }
 
     // Clean up state for deleted tasks
@@ -348,10 +393,21 @@ export async function processReviewTasksPRStatus(): Promise<void> {
       }
     }
 
+    // Update stats
+    state.stats = {
+      lastRunAt: new Date().toISOString(),
+      tasksChecked,
+      actionsTaken,
+    };
+
     await savePRMonitorState(state);
-    console.log('✅ PR monitoring complete');
+    console.log(`✅ PR monitoring complete (checked ${tasksChecked} tasks, took ${actionsTaken} actions)`);
+    return state.stats;
   } catch (error) {
     console.error('❌ PR monitoring failed:', error);
+    return { lastRunAt: new Date().toISOString(), tasksChecked, actionsTaken, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    prMonitorRunning = false;
   }
 }
 
@@ -600,4 +656,12 @@ async function handlePRStateChanges(
       });
     }
   }
+}
+
+/**
+ * Get PR monitor stats (last run time, tasks checked, actions taken)
+ */
+export async function getPRMonitorStats(): Promise<PRMonitorStats> {
+  const state = await loadPRMonitorState();
+  return state.stats;
 }
