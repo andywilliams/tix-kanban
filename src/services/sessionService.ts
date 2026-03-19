@@ -134,7 +134,7 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
     .select()
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
-    .orderBy(desc(messages.createdAt));
+    .orderBy(desc(messages.createdAt), desc(messages.id));
 
   const allMessages = limit ? await query.limit(limit) : await query;
 
