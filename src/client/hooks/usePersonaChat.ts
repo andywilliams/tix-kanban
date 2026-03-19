@@ -239,25 +239,32 @@ export function usePersonaChat(currentUser: string) {
     const capturedPersonaId = selectedPersonaId;
 
     try {
-      // Start direct conversation via the persona chat endpoint
-      const startRes = await fetch(`/api/personas/${capturedPersonaId}/chat/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser }),
-      });
+      // Use cached channelId if available, otherwise start a new conversation
+      let channelId = personaChannelIds.current[capturedPersonaId];
+      
+      if (!channelId) {
+        const startRes = await fetch(`/api/personas/${capturedPersonaId}/chat/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser }),
+        });
 
-      if (!startRes.ok) {
-        // Issue #2: surface the error instead of silently losing the message
-        setError('Failed to start conversation — please try again');
-        setMessages(prev => prev.filter(m => m.id !== tempId));
-        return;
+        if (!startRes.ok) {
+          // Issue #2: surface the error instead of silently losing the message
+          setError('Failed to start conversation — please try again');
+          setMessages(prev => prev.filter(m => m.id !== tempId));
+          return;
+        }
+
+        const { channelId: newChannelId } = await startRes.json();
+        channelId = newChannelId;
+        if (channelId) {
+          // Store the channel id so future loadMessages reads from the same store (Issue #1)
+          personaChannelIds.current[capturedPersonaId] = channelId;
+        }
       }
 
-      const { channelId } = await startRes.json();
       if (channelId) {
-        // Store the channel id so future loadMessages reads from the same store (Issue #1)
-        personaChannelIds.current[capturedPersonaId] = channelId;
-
         // Send to channel (Issue #5: check response.ok)
         const messageRes = await fetch(`/api/chat/${channelId}/messages`, {
           method: 'POST',
