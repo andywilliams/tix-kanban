@@ -27,9 +27,11 @@ export function usePersonaChat(currentUser: string) {
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMessageCountRef = useRef<number>(0);
+  const reloadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load all personas
   const loadPersonas = useCallback(async () => {
+    setError(null); // Clear any previous errors (Issue #3)
     try {
       const res = await fetch('/api/personas');
       if (!res.ok) throw new Error('Failed to load personas');
@@ -54,25 +56,27 @@ export function usePersonaChat(currentUser: string) {
     }
   }, []);
 
-  // Load last message preview for each persona
+  // Load last message preview for each persona (Issue #7: parallelize)
   const loadLastMessages = useCallback(async (personaIds: string[]) => {
-    for (const personaId of personaIds) {
-      try {
-        const res = await fetch(`/api/personas/${personaId}/session/messages?limit=1`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        const msgs: PersonaChatMessage[] = data.messages || [];
-        const last = msgs[msgs.length - 1];
-        if (last) {
-          setPersonaData(prev => ({
-            ...prev,
-            [personaId]: { ...prev[personaId], lastMessage: last },
-          }));
+    await Promise.all(
+      personaIds.map(async (personaId) => {
+        try {
+          const res = await fetch(`/api/personas/${personaId}/session/messages?limit=1`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const msgs: PersonaChatMessage[] = data.messages || [];
+          const last = msgs[msgs.length - 1];
+          if (last) {
+            setPersonaData(prev => ({
+              ...prev,
+              [personaId]: { ...prev[personaId], lastMessage: last },
+            }));
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
-      }
-    }
+      })
+    );
   }, []);
 
   useEffect(() => {
@@ -87,6 +91,7 @@ export function usePersonaChat(currentUser: string) {
 
   // Load messages for selected persona
   const loadMessages = useCallback(async (personaId: string) => {
+    setError(null); // Clear any previous errors (Issue #3)
     setLoadingMessages(true);
     try {
       const res = await fetch(`/api/personas/${personaId}/session/messages`);
@@ -151,6 +156,11 @@ export function usePersonaChat(currentUser: string) {
   // Select a persona and load their conversation
   const selectPersona = useCallback(async (personaId: string) => {
     stopPolling();
+    // Clear any pending reload timeout when switching personas (Issue #4)
+    if (reloadTimeoutRef.current) {
+      clearTimeout(reloadTimeoutRef.current);
+      reloadTimeoutRef.current = null;
+    }
     setSelectedPersonaId(personaId);
     setMessages([]);
     await loadMessages(personaId);
@@ -165,6 +175,7 @@ export function usePersonaChat(currentUser: string) {
   // Send a message to the selected persona
   const sendMessage = useCallback(async (content: string) => {
     if (!selectedPersonaId || !content.trim()) return;
+    setError(null); // Clear any previous errors (Issue #3)
     setSending(true);
 
     // Optimistically add user message
@@ -179,36 +190,48 @@ export function usePersonaChat(currentUser: string) {
     setMessages(prev => [...prev, tempMsg]);
 
     try {
+      // Issue #1 & #2: Use session endpoint consistently for both read and write
       // Start direct conversation via the persona chat endpoint
-      // This creates/gets the direct channel and then sends the message
       const startRes = await fetch(`/api/personas/${selectedPersonaId}/chat/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser }),
       });
 
-      if (startRes.ok) {
-        const { channelId } = await startRes.json();
-        if (channelId) {
-          // Send to channel
-          await fetch(`/api/chat/${channelId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              author: currentUser,
-              authorType: 'human',
-              content: content.trim(),
-            }),
-          });
-        }
-      } else {
-        // Fallback: write directly to session
-        // This ensures the message is at least recorded
-        console.warn('Chat start failed, message may not trigger persona response');
+      if (!startRes.ok) {
+        // Issue #2: Set error and don't schedule reload if chat start fails
+        setError('Failed to start chat session. Please try again.');
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        return;
       }
 
-      // Reload messages after a brief delay to get the updated state
-      setTimeout(() => loadMessages(selectedPersonaId), 500);
+      const { channelId } = await startRes.json();
+      if (channelId) {
+        // Send to channel
+        const messageRes = await fetch(`/api/chat/${channelId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            author: currentUser,
+            authorType: 'human',
+            content: content.trim(),
+          }),
+        });
+
+        // Issue #5: Check response status
+        if (!messageRes.ok) {
+          throw new Error('Failed to send message to channel');
+        }
+      }
+
+      // Issue #4: Store timeout ID and check persona still matches before reloading
+      reloadTimeoutRef.current = setTimeout(() => {
+        // Only reload if we're still viewing the same persona
+        if (selectedPersonaId === selectedPersonaId) {
+          loadMessages(selectedPersonaId);
+        }
+        reloadTimeoutRef.current = null;
+      }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
       // Remove optimistic message on error
@@ -218,9 +241,15 @@ export function usePersonaChat(currentUser: string) {
     }
   }, [selectedPersonaId, currentUser, loadMessages]);
 
-  // Cleanup polling on unmount
+  // Cleanup polling and timeouts on unmount
   useEffect(() => {
-    return () => stopPolling();
+    return () => {
+      stopPolling();
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current);
+        reloadTimeoutRef.current = null;
+      }
+    };
   }, [stopPolling]);
 
   const selectedPersona = selectedPersonaId

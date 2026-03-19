@@ -99,8 +99,6 @@ export function PersonaChatPage({ currentUser = 'User' }: PersonaChatPageProps) 
     p.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedPersonaInfo = selectedPersonaId ? personaData[selectedPersonaId] : null;
-
   return (
     <div className="persona-chat">
       {/* ── Left sidebar ── */}
