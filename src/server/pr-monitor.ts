@@ -717,6 +717,7 @@ async function handlePRStateChanges(
           },
         ],
       });
+      return; // Exit after handling PR clean transition to avoid falling through to "no action" logging
     } else {
       // Verified-clean check: PR is clean but already was clean last cycle
       console.log(`ℹ️ Verified-clean check for ${prRef}: PR already clean, no action needed`);
