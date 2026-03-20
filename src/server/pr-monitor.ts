@@ -280,7 +280,7 @@ function hasNewUnresolvedThreads(
  */
 export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { skipped?: boolean; error?: string }> {
   if (prMonitorRunning) {
-    console.log('⏭️  PR monitor already running, skipping concurrent invocation');
+    console.log('⏭️  PR monitor skipped — already invoked this cycle');
     return { tasksChecked: 0, actionsTaken: 0, lastRunAt: null, skipped: true };
   }
 
@@ -300,7 +300,7 @@ export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { s
     );
 
     if (reviewTasks.length === 0) {
-      console.log('📭 No review tasks with PRs to monitor');
+      console.log('📭 PR monitoring complete — no review tasks with PRs to monitor');
       // Update stats even when no tasks
       state.stats = {
         lastRunAt: new Date().toISOString(),
@@ -403,7 +403,13 @@ export async function processReviewTasksPRStatus(): Promise<PRMonitorStats & { s
     };
 
     await savePRMonitorState(state);
-    console.log(`✅ PR monitoring complete (checked ${tasksChecked} tasks, took ${actionsTaken} actions)`);
+    
+    // Log with explanation when no actions taken
+    if (actionsTaken === 0) {
+      console.log(`✅ PR monitoring complete (checked ${tasksChecked} tasks, took 0 actions) — no state changes detected requiring action`);
+    } else {
+      console.log(`✅ PR monitoring complete (checked ${tasksChecked} tasks, took ${actionsTaken} actions)`);
+    }
     return state.stats;
   } catch (error) {
     console.error('❌ PR monitoring failed:', error);
@@ -560,8 +566,8 @@ async function handlePRStateChanges(
       await trackPRCreated(task.persona, personaName, task.id, current.repo, current.number, prUrl);
     }
 
-    // No actionable state found, just record initial state
-    console.log(`📝 Initial state recorded for ${prRef}: state=${current.state}, ciState=${current.ciState}, mergeable=${current.mergeable}`);
+    // First observation — establishing baseline (no actionable state detected)
+    console.log(`📝 First observation — establishing baseline for ${prRef}: state=${current.state}, ciState=${current.ciState || 'none'}, mergeable=${current.mergeable || 'unknown'}, hasUnresolvedThreads=${current.hasUnresolvedThreads}, status=${task.status}`);
     return;
   }
 
@@ -711,7 +717,24 @@ async function handlePRStateChanges(
           },
         ],
       });
+    } else {
+      // Verified-clean check: PR is clean but already was clean last cycle
+      console.log(`ℹ️ Verified-clean check for ${prRef}: PR already clean, no action needed`);
     }
+  }
+
+  // No state changes detected that require action — log the reason
+  // Check conditions that would trigger action but didn't
+  if (!hasNewThreads && unresolvedCount > 0) {
+    // Unresolved threads exist but no new ones since last check
+    console.log(`ℹ️ No action taken for ${prRef}: no new unresolved threads (${unresolvedCount} existing threads unchanged)`);
+  } else if (task.status !== 'review' && task.status !== 'verified') {
+    console.log(`ℹ️ No action taken for ${prRef}: task status is "${task.status}" (not review/verified)`);
+  } else if (current.state !== 'open') {
+    console.log(`ℹ️ No action taken for ${prRef}: PR state is "${current.state}" (not open)`);
+  } else {
+    // Default: PR state unchanged from previous cycle
+    console.log(`ℹ️ No action taken for ${prRef}: PR state unchanged from previous cycle`);
   }
 }
 
