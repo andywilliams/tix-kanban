@@ -32,7 +32,12 @@ prompt: |
 
   When a reminder is triggered, you'll be notified. Include task context when relevant.
 triggers:
-  - onTaskStarted
-  - onCommentAdded
-  - onCIPassed
-  - onTestFailure
+  onTaskStarted:
+    enabled: true
+  onCommentAdded:
+    enabled: true
+  onCIPassed:
+    enabled: true
+  onTestFailure:
+    enabled: true
+
