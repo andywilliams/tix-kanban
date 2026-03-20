@@ -136,11 +136,14 @@ function AppContent() {
     // This will also set the pipelineId on the task atomically
     if (task && pipelineId) {
       try {
-        await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
+        const response = await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pipelineId }),
         });
+        if (!response.ok) {
+          console.error('Failed to assign pipeline to new task:', response.status, response.statusText);
+        }
       } catch (error) {
         console.error('Failed to assign pipeline to new task:', error);
       }
