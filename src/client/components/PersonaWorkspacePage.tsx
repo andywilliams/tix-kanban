@@ -19,7 +19,8 @@ export function PersonaWorkspacePage() {
   const [fileContent, setFileContent] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [contentLoading, setContentLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Initialize selected persona from URL
@@ -49,7 +50,7 @@ export function PersonaWorkspacePage() {
   const loadFiles = async () => {
     if (!selectedPersona) return;
     
-    setLoading(true);
+    setFilesLoading(true);
     try {
       const res = await fetch(`/api/personas/${selectedPersona}/workspace/files`);
       const data = await res.json();
@@ -62,14 +63,14 @@ export function PersonaWorkspacePage() {
     } catch (error) {
       console.error('Failed to load workspace files:', error);
     } finally {
-      setLoading(false);
+      setFilesLoading(false);
     }
   };
 
   const loadFileContent = async () => {
     if (!selectedPersona || !selectedFile) return;
 
-    setLoading(true);
+    setContentLoading(true);
     try {
       const res = await fetch(`/api/personas/${selectedPersona}/workspace/file?filename=${encodeURIComponent(selectedFile)}`);
       const data = await res.json();
@@ -80,7 +81,7 @@ export function PersonaWorkspacePage() {
       setFileContent('');
       setEditContent('');
     } finally {
-      setLoading(false);
+      setContentLoading(false);
     }
   };
 
@@ -214,7 +215,7 @@ export function PersonaWorkspacePage() {
             Workspace Files
           </h3>
           
-          {loading && files.length === 0 ? (
+          {filesLoading && files.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
               Loading...
             </div>
@@ -362,7 +363,7 @@ export function PersonaWorkspacePage() {
 
               {/* File Content */}
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                {loading ? (
+                {contentLoading ? (
                   <div style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
