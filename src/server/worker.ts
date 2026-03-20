@@ -782,10 +782,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
           
+          // Fire onCommentAdded for ALL unresolved threads every cycle.
+          // A thread is "handled" when it is resolved — until then, keep firing.
           for (const thread of unresolvedThreads) {
-            // Fire for ALL unresolved threads — not just new ones.
-            // A thread is "handled" once it is resolved; until then, keep firing.
-            // seenThreadIds is no longer used to suppress firing; it's kept for reference only.
             const firstComment = thread.comments[0];
             if (firstComment) {
               const metadata = {
@@ -812,9 +811,6 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
               for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
                 enqueueInvocation(fullTask, persona, 'onCommentAdded', `Unresolved review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
               }
-            }
-            if (!seenThreadIds.includes(thread.id)) {
-              seenThreadIds.push(thread.id);
             }
           }
 
