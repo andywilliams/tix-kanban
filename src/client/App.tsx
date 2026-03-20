@@ -141,7 +141,10 @@ function AppContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pipelineId }),
         });
-        if (!response.ok) {
+        if (response.ok) {
+          // Refresh tasks to get the updated task with pipelineId
+          refetch();
+        } else {
           console.error('Failed to assign pipeline to new task:', response.status, response.statusText);
         }
       } catch (error) {
