@@ -125,16 +125,21 @@ function AppContent() {
   };
 
   const handleAddTask = async (newTask: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    // Create the task first
-    const task = await createTask(newTask);
+    // Extract pipelineId before creating task - don't include it in the initial createTask payload
+    // The assign-pipeline endpoint will set pipelineId atomically when creating pipeline state
+    const { pipelineId, ...taskData } = newTask as any;
+    
+    // Create the task without pipelineId
+    const task = await createTask(taskData);
     
     // If a pipeline was selected, initialize the pipeline state at the first stage
-    if (task && newTask.pipelineId) {
+    // This will also set the pipelineId on the task atomically
+    if (task && pipelineId) {
       try {
         await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pipelineId: newTask.pipelineId }),
+          body: JSON.stringify({ pipelineId }),
         });
       } catch (error) {
         console.error('Failed to assign pipeline to new task:', error);
