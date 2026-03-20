@@ -782,37 +782,35 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
           
+          // Fire onCommentAdded for ALL unresolved threads every cycle.
+          // A thread is "handled" when it is resolved — until then, keep firing.
           for (const thread of unresolvedThreads) {
-            if (!seenThreadIds.includes(thread.id)) {
-              // New unresolved thread detected
-              const firstComment = thread.comments[0];
-              if (firstComment) {
-                const metadata = {
-                  prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
-                  prNumber: pr.number,
-                  repo: pr.repo,
-                  threadId: thread.id,
-                  firstComment: {
-                    id: firstComment.id,
-                    author: firstComment.author,
-                    body: firstComment.body,
-                    path: firstComment.path,
-                    line: firstComment.line,
-                    createdAt: firstComment.createdAt,
-                  },
-                  allComments: thread.comments.map(c => ({
-                    id: c.id,
-                    author: c.author,
-                    body: c.body,
-                    createdAt: c.createdAt,
-                  })),
-                };
-                
-                for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
-                  enqueueInvocation(fullTask, persona, 'onCommentAdded', `New review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
-                }
+            const firstComment = thread.comments[0];
+            if (firstComment) {
+              const metadata = {
+                prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
+                prNumber: pr.number,
+                repo: pr.repo,
+                threadId: thread.id,
+                firstComment: {
+                  id: firstComment.id,
+                  author: firstComment.author,
+                  body: firstComment.body,
+                  path: firstComment.path,
+                  line: firstComment.line,
+                  createdAt: firstComment.createdAt,
+                },
+                allComments: thread.comments.map(c => ({
+                  id: c.id,
+                  author: c.author,
+                  body: c.body,
+                  createdAt: c.createdAt,
+                })),
+              };
+              
+              for (const persona of getTriggeredPersonas(personas, 'onCommentAdded', fullTask)) {
+                enqueueInvocation(fullTask, persona, 'onCommentAdded', `Unresolved review comment on ${pr.repo}#${pr.number} by ${firstComment.author}: ${firstComment.body.substring(0, 100)}...`, metadata);
               }
-              seenThreadIds.push(thread.id);
             }
           }
 
