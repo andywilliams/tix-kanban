@@ -143,7 +143,7 @@ function AppContent() {
         });
         if (response.ok) {
           // Refresh tasks to get the updated task with pipelineId
-          refetch();
+          refetch(true);
         } else {
           console.error('Failed to assign pipeline to new task:', response.status, response.statusText);
         }
