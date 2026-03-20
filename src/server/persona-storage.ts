@@ -704,12 +704,14 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
     }
 
     // Ensure workspace exists on first task (non-fatal - allow task to continue if it fails)
+    let workspaceDir: string;
     try {
       await ensurePersonaWorkspace(personaId);
+      workspaceDir = getPersonaWorkspaceDir(personaId);
     } catch (error) {
       console.warn(`Failed to create workspace for persona ${personaId} (non-fatal):`, error);
+      workspaceDir = '';
     }
-    const workspaceDir = getPersonaWorkspaceDir(personaId);
 
     // Read CONTEXT.md from workspace
     let workspaceContext = '';
@@ -733,14 +735,16 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
     // Build memory from unified agent-memory system
     const taskContextStr = `${taskTitle} ${taskDescription} ${taskTags.join(' ')}`;
     const systemPrompt = persona.prompt;
+    const workspacePath = workspaceDir ? path.join(workspaceDir, 'workspace') : '';
+    const memoryPath = workspaceDir ? path.join(workspaceDir, 'MEMORY.md') : '';
     const taskContext = `## Task Details
 Title: ${taskTitle}
 Description: ${taskDescription}
 Tags: ${taskTags.join(', ')}
 
 **Your Workspace Directory:** \`${workspaceDir}\`
-- Use \`${workspaceDir}/workspace/\` for scratch files
-- You can write to \`${workspaceDir}/MEMORY.md\` to save learnings`;
+- Use \`${workspacePath}/\` for scratch files
+- You can write to \`${memoryPath}\` to save learnings`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
