@@ -821,7 +821,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           
           // Filter bot authors
           const BOT_AUTHORS = ['github-actions[bot]', 'cursor', 'jenna@dwlf.co.uk'];
-          const humanComments = plainComments.filter(c => !BOT_AUTHORS.includes(c.author));
+          const humanComments = plainComments.filter(c => !BOT_AUTHORS.includes(c.author) && !c.author.includes('[bot]'));
           
           for (const comment of humanComments) {
             if (!seenCommentIds.includes(comment.id)) {
@@ -914,9 +914,12 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const taskState = triggerState.tasks[task.id] || { prs: {}, lastStatus: task.status };
     const lastSeenId = taskState.lastSeenTaskCommentId;
     
-    // Filter bot comments
-    const BOT_AUTHORS = ['jenna@dwlf.co.uk', 'System', 'Worker (system)'];
-    const humanComments = task.comments.filter(c => !BOT_AUTHORS.some(bot => c.author.includes(bot)));
+    // Filter bot/AI/system comments to prevent trigger loops
+    const BOT_AUTHOR_PATTERNS = [
+      'jenna@dwlf.co.uk', 'System', 'Worker (system)',
+      'AI Trigger', 'AI Reviewer', 'PR Monitor', '(system)',
+    ];
+    const humanComments = task.comments.filter(c => !BOT_AUTHOR_PATTERNS.some(bot => c.author.includes(bot)));
     
     if (humanComments.length === 0) continue;
     
