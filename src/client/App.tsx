@@ -195,7 +195,7 @@ function AppContent() {
   }
 
   return (
-    <div className={`app ${darkMode ? 'dark' : ''}`}>
+    <div className={`app ${darkMode ? 'dark' : ''}${location.pathname === '/chat' ? ' app--chat' : ''}`}>
       <header className="app-header">
         <div className="header-left">
           <Link to="/" className="app-title">
@@ -311,7 +311,7 @@ function AppContent() {
           </button>
         </div>
       </header>
-      <main className="app-main">
+      <main className={`app-main${location.pathname === '/chat' ? ' app-main--chat' : ''}`}>
         <WorkerStatus />
         <Routes>
           <Route

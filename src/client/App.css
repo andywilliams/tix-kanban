@@ -53,6 +53,31 @@ body {
   background: var(--bg-primary);
 }
 
+/* When on the chat route, lock the full app to viewport height using flex */
+.app--chat {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Default: scrollable for most pages */
+.app-main {}
+
+/* Chat page: fill remaining space below header */
+.app-main--chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* In chat mode, WorkerStatus should not consume space */
+.app-main--chat .worker-status {
+  display: none;
+}
+
 /* Header */
 .app-header {
   display: flex;

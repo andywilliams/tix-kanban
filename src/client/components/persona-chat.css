@@ -50,7 +50,8 @@
 
 .persona-chat {
   display: flex;
-  height: calc(100vh - var(--header-height, 56px));
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg-primary, #0f0f0f);
   color: var(--text-primary, #e2e8f0);
