@@ -219,7 +219,7 @@ export function PersonaWorkspacePage() {
               {files.map(file => (
                 <button
                   key={file.path}
-                  onClick={() => setSelectedFile(file.path)}
+                  onClick={() => { setSelectedFile(file.path); setIsEditing(false); }}
                   style={{
                     padding: '0.75rem',
                     background: selectedFile === file.path ? 'var(--accent-bg)' : 'transparent',
