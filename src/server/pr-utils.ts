@@ -83,8 +83,8 @@ export async function getPRMergeableState(repo: string, number: number): Promise
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     const result = stdout.trim();
-    if (result === 'true') return 'MERGEABLE';
-    if (result === 'false') return 'CONFLICTING';
+    if (result === 'MERGEABLE') return 'MERGEABLE';
+    if (result === 'CONFLICTING') return 'CONFLICTING';
   } catch (error) {
     console.warn(`Failed to fetch PR mergeable state for ${repo}#${number}:`, error);
   }

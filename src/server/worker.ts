@@ -1001,7 +1001,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 
     // Clean PR detection — two-cycle auto-merge
     // Only process tasks in review or verified status with linked PRs
-    if (['review', 'verified'].includes(fullTask.status as string) && prLinks.length > 0) {
+    // Skip if human has explicitly held for manual merge
+    if (['review', 'verified'].includes(fullTask.status as string) && prLinks.length > 0 && !fullTask.holdForMerge) {
       const linkedPR = prLinks[0]; // Use first linked PR for auto-merge decision
       const prSnapshot = newSnapshots[linkedPR.key];
       
