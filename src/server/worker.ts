@@ -815,7 +815,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous || isMigration || isCommentMigration) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
         const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-        seenThreadIds = unresolvedThreads.map(t => t.id);
+        seenThreadIds = unresolvedThreads.map(t => t.id + ':' + t.comments.length);
         
         // Also pre-populate plain comments
         const plainComments = await getPRComments(pr.repo, pr.number);
@@ -841,7 +841,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         if (state === 'open') {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-          seenThreadIds = unresolvedThreads.map(t => t.id);
+          seenThreadIds = unresolvedThreads.map(t => t.id + ':' + t.comments.length);
           current.seenThreadIds = seenThreadIds;
           
           // Only fire onPROpened for genuinely new observations, not migrations
@@ -859,15 +859,17 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           
           // Fire onCommentAdded only for NEW unresolved threads (not seen before).
           // Skip threads we've already processed to avoid duplicate invocations.
+          // Use composite key (threadId:commentCount) to catch follow-up comments.
           for (const thread of unresolvedThreads) {
-            if (seenThreadIds.includes(thread.id)) {
-              continue; // Already processed this thread
+            const threadKey = thread.id + ':' + thread.comments.length;
+            if (seenThreadIds.includes(threadKey)) {
+              continue; // Already processed this thread at this comment count
             }
             
             const firstComment = thread.comments[0];
             if (firstComment) {
               // Mark thread as seen BEFORE enqueueing to prevent duplicates on crash
-              seenThreadIds.push(thread.id);
+              seenThreadIds.push(threadKey);
               current.seenThreadIds = seenThreadIds;
               
               const metadata = {
