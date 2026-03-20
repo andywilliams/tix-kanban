@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
-import { parsePRLinks, getPRState } from './pr-utils.js';
+import { parsePRLinks, getPRState, getPRMergeableState } from './pr-utils.js';
 import { getPRReviewThreads, getPRComments, ReviewThread } from './github.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
@@ -839,6 +839,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         seenCommentIds,
         lastCommentCheck: new Date().toISOString(),
         hasUnresolvedThreads: unresolvedThreads.length > 0,
+        mergeable: state === 'open' ? await getPRMergeableState(pr.repo, pr.number) : undefined,
       };
       newSnapshots[pr.key] = current;
 
@@ -1056,7 +1057,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
               try {
                 const mergeResult = await execFile(
                   'gh',
-                  ['pr', 'merge', String(linkedPR.number), '--repo', linkedPR.repo, '--squash', '--delete-branch', '--admin', '--merge'],
+                  ['pr', 'merge', String(linkedPR.number), '--repo', linkedPR.repo, '--squash', '--delete-branch', '--admin'],
                   { timeout: 30000 }
                 );
                 

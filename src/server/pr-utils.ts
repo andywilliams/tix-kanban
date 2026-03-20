@@ -71,3 +71,22 @@ export async function getPRState(repo: string, number: number): Promise<'open' |
   }
   return null;
 }
+
+/**
+ * Fetch the mergeable state of a GitHub PR.
+ */
+export async function getPRMergeableState(repo: string, number: number): Promise<'MERGEABLE' | 'CONFLICTING' | null> {
+  try {
+    const { stdout } = await execFile(
+      'gh',
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'mergeable', '--jq', '.mergeable'],
+      { timeout: 10000, maxBuffer: 1024 * 1024 }
+    );
+    const result = stdout.trim();
+    if (result === 'true') return 'MERGEABLE';
+    if (result === 'false') return 'CONFLICTING';
+  } catch (error) {
+    console.warn(`Failed to fetch PR mergeable state for ${repo}#${number}:`, error);
+  }
+  return null;
+}
