@@ -173,7 +173,7 @@ function AppContent() {
       <header className="app-header">
         <div className="header-left">
           <Link to="/" className="app-title">
-            <h1>Tix Kanban</h1>
+            <h1>Forge</h1>
           </Link>
           <nav className="app-nav">
             <Link 
