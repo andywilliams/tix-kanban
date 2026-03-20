@@ -194,7 +194,7 @@ function AppContent() {
   }
 
   return (
-    <div className={`app ${darkMode ? 'dark' : ''}`}>
+    <div className={`app ${darkMode ? 'dark' : ''}${location.pathname === '/chat' ? ' app--chat' : ''}`}>
       <header className="app-header">
         <div className="header-left">
           <Link to="/" className="app-title">
