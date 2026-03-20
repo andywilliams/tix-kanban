@@ -86,6 +86,7 @@ export function useChatStreaming() {
       });
 
       // Listen for server-sent error events (different from EventSource native onerror)
+      // Only handle if event.data exists - native connection errors don't have data
       eventSource.addEventListener('error', (event) => {
         // Ignore errors after successful completion (connection close after 'done' event)
         if (streamCompletedRef.current) {
@@ -93,7 +94,14 @@ export function useChatStreaming() {
           return;
         }
         
-        const data = event.data ? JSON.parse(event.data) : { error: 'Unknown error' };
+        // Only process server-sent error events (which have event.data)
+        // Native EventSource connection errors don't have event.data - let onerror handle those
+        if (!event.data) {
+          console.log('📡 SSE: Native connection error (letting onerror handler process)');
+          return;
+        }
+        
+        const data = JSON.parse(event.data);
         console.error('❌ SSE: Server sent error event:', data.error);
         // Mark stream as completed (with error) so onerror doesn't double-process
         streamCompletedRef.current = true;
