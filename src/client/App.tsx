@@ -125,7 +125,21 @@ function AppContent() {
   };
 
   const handleAddTask = async (newTask: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await createTask(newTask);
+    // Create the task first
+    const task = await createTask(newTask);
+    
+    // If a pipeline was selected, initialize the pipeline state at the first stage
+    if (task && newTask.pipelineId) {
+      try {
+        await fetch(`/api/tasks/${task.id}/assign-pipeline`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pipelineId: newTask.pipelineId }),
+        });
+      } catch (error) {
+        console.error('Failed to assign pipeline to new task:', error);
+      }
+    }
   };
 
   const isLoading = tasksLoading || personasLoading || chatLoading;
