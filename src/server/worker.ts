@@ -491,6 +491,81 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
   }
 }
 
+// Auto-link PRs to task after agent completes work
+// Scans GitHub for PRs with branch matching feature/{taskId}-* and links them if not already linked
+async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
+  if (!taskId || !repo) {
+    return;
+  }
+
+  try {
+    console.log(`🔗 Auto-linking PRs for task ${taskId} in repo ${repo}...`);
+
+    // Fetch the current task to check existing links
+    const task = await getTask(taskId);
+    if (!task) {
+      console.warn(`⚠️  Task ${taskId} not found for auto-linking`);
+      return;
+    }
+
+    // Build pattern to match: feature/{taskId}-*
+    const branchPattern = `feature/${taskId}-`;
+
+    // Use gh pr list to find open PRs with matching branch
+    const { stdout } = await execFile(
+      'gh',
+      ['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,headRefName,url', '--limit', '20'],
+      { timeout: 15000 }
+    );
+
+    let prs: Array<{ number: number; headRefName: string; url: string }> = [];
+    try {
+      prs = JSON.parse(stdout);
+    } catch (parseError) {
+      console.warn(`⚠️  Failed to parse gh pr list output: ${stdout}`);
+      return;
+    }
+
+    // Filter PRs whose branch matches our pattern
+    const matchingPRs = prs.filter(pr => pr.headRefName.startsWith(branchPattern));
+
+    if (matchingPRs.length === 0) {
+      console.log(`🔗 No matching PRs found for pattern ${branchPattern}`);
+      return;
+    }
+
+    console.log(`🔗 Found ${matchingPRs.length} matching PR(s)`);
+
+    // Get existing PR links to avoid duplicates
+    const existingPRUrls = new Set(
+      (task.links || [])
+        .filter(link => link.type === 'pr' || link.url?.includes('/pull/'))
+        .map(link => link.url)
+    );
+
+    // Link each matching PR that's not already linked
+    for (const pr of matchingPRs) {
+      if (existingPRUrls.has(pr.url)) {
+        console.log(`🔗 PR #${pr.number} already linked to task ${taskId}`);
+        continue;
+      }
+
+      console.log(`🔗 Linking PR #${pr.number} (${pr.headRefName}) to task ${taskId}`);
+
+      await addTaskLink(taskId, {
+        url: pr.url,
+        title: `PR #${pr.number}: ${pr.headRefName}`,
+        type: 'pr'
+      }, 'worker-auto-link');
+
+      existingPRUrls.add(pr.url);
+    }
+  } catch (error) {
+    // Don't fail the task if auto-linking fails - it's a best-effort operation
+    console.warn(`⚠️  Auto-link failed for task ${taskId}:`, error);
+  }
+}
+
 function getPersonaTriggerValue(persona: Persona, eventType: TriggerEventType): boolean {
   const defaults = BUILTIN_TRIGGER_DEFAULTS[persona.id] || {};
   const effectiveTriggers = { ...defaults, ...(persona.triggers || {}) };
@@ -740,7 +815,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       if (!previous || isMigration || isCommentMigration) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
         const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-        seenThreadIds = unresolvedThreads.map(t => t.id);
+        seenThreadIds = unresolvedThreads.map(t => t.id + ':' + t.comments.length);
         
         // Also pre-populate plain comments
         const plainComments = await getPRComments(pr.repo, pr.number);
@@ -766,7 +841,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         if (state === 'open') {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
-          seenThreadIds = unresolvedThreads.map(t => t.id);
+          seenThreadIds = unresolvedThreads.map(t => t.id + ':' + t.comments.length);
           current.seenThreadIds = seenThreadIds;
           
           // Only fire onPROpened for genuinely new observations, not migrations
@@ -782,11 +857,21 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
           
-          // Fire onCommentAdded for ALL unresolved threads every cycle.
-          // A thread is "handled" when it is resolved — until then, keep firing.
+          // Fire onCommentAdded only for NEW unresolved threads (not seen before).
+          // Skip threads we've already processed to avoid duplicate invocations.
+          // Use composite key (threadId:commentCount) to catch follow-up comments.
           for (const thread of unresolvedThreads) {
+            const threadKey = thread.id + ':' + thread.comments.length;
+            if (seenThreadIds.includes(threadKey)) {
+              continue; // Already processed this thread at this comment count
+            }
+            
             const firstComment = thread.comments[0];
             if (firstComment) {
+              // Mark thread as seen BEFORE enqueueing to prevent duplicates on crash
+              seenThreadIds.push(threadKey);
+              current.seenThreadIds = seenThreadIds;
+              
               const metadata = {
                 prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
                 prNumber: pr.number,
@@ -1733,6 +1818,9 @@ async function processTask(task: Task): Promise<void> {
               agentActivity: clearedActivity,
             });
 
+            // Keep in-memory state in sync for auto-link check
+            fullTask.status = 'auto-review';
+
             await postTaskUpdate(fullTask, persona, `I've finished my work and it's now being auto-reviewed.`);
 
             // Execute the first review cycle
@@ -1745,6 +1833,9 @@ async function processTask(task: Task): Promise<void> {
               comments: updatedComments,
               agentActivity: clearedActivity,
             });
+
+            // Keep in-memory state in sync for auto-link check
+            fullTask.status = 'review';
 
             await postTaskUpdate(fullTask, persona, `Work complete! I've moved this to review — ready for your eyes.`);
 
@@ -1765,6 +1856,11 @@ async function processTask(task: Task): Promise<void> {
 
       // Track activity: task failed
       await trackTaskFailed(persona.id, persona.name, fullTask, 'AI worker unable to complete task');
+    }
+
+    // Auto-link PRs for successful tasks that have a repo configured
+    if (success && fullTask.repo && (fullTask.status === 'review' || fullTask.status === 'done' || fullTask.status === 'auto-review')) {
+      await autoLinkPRToTask(fullTask.id, fullTask.repo);
     }
 
     console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);
