@@ -309,7 +309,7 @@ function AppContent() {
           </button>
         </div>
       </header>
-      <main className="app-main">
+      <main className={`app-main${location.pathname === '/chat' ? ' app-main--chat' : ''}`}>
         <WorkerStatus />
         <Routes>
           <Route

@@ -49,18 +49,24 @@ body {
 }
 
 .app {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  min-height: 100vh;
   background: var(--bg-primary);
 }
 
-.app-main {
-  flex: 1;
-  overflow: hidden;
+/* Default: scrollable for most pages */
+.app-main {}
+
+/* Chat page: lock to remaining viewport height so the chat panel fills the screen */
+.app-main--chat {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - var(--header-height, 56px));
+  overflow: hidden;
+}
+
+/* In chat mode, WorkerStatus should be compact/hidden or not consume space */
+.app-main--chat .worker-status {
+  display: none;
 }
 
 /* Header */
