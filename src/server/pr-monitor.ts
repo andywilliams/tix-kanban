@@ -518,14 +518,32 @@ async function handlePRStateChanges(
       (task.status === 'review' || task.status === 'verified')
     ) {
       console.log(`✅ PR is clean and ready for task ${task.id} (first observation): ${prRef}`);
+      
+      // Check if task is held for manual merge.
+      // NOTE: This flag is consumed by EXTERNAL kanban workers that perform actual merges.
+      // The pr-monitor itself ALWAYS moves tasks to verified when PR is clean, regardless
+      // of holdForMerge. The flag signals external tooling to skip auto-merge after verification.
+      const isHeldForMerge = task.holdForMerge === true;
+      
+      // Build the comment - different message based on hold status
+      let commentBody: string;
+      if (isHeldForMerge) {
+        // Task is held - don't say "ready for merge", indicate it's waiting for manual merge
+        commentBody = `✅ **PR is clean**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified but **held for manual merge**. It will not auto-merge.`;
+      } else {
+        commentBody = `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`;
+      }
+      
+      const statusUpdate = { status: 'verified' as const };
+      
       await updateTask(task.id, {
-        status: 'verified',
+        ...statusUpdate,
         comments: [
           ...(task.comments || []),
           {
             id: Math.random().toString(36).substr(2, 9),
             taskId: task.id,
-            body: `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`,
+            body: commentBody,
             author: 'PR Monitor (system)',
             createdAt: new Date(),
           },
@@ -661,15 +679,33 @@ async function handlePRStateChanges(
 
     if (!wasClean) {
       console.log(`✅ PR is clean and ready for task ${task.id}: ${prRef}`);
+      
+      // Check if task is held for manual merge.
+      // NOTE: This flag is consumed by EXTERNAL kanban workers that perform actual merges.
+      // The pr-monitor itself ALWAYS moves tasks to verified when PR is clean, regardless
+      // of holdForMerge. The flag signals external tooling to skip auto-merge after verification.
+      const isHeldForMerge = task.holdForMerge === true;
+      
+      // Build the comment - different message based on hold status
+      let commentBody: string;
+      if (isHeldForMerge) {
+        // Task is held - don't say "ready for merge", indicate it's waiting for manual merge
+        commentBody = `✅ **PR is clean**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified but **held for manual merge**. It will not auto-merge.`;
+      } else {
+        commentBody = `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`;
+      }
+      
+      const statusUpdate = { status: 'verified' as const };
+      
       // Keep in review but add a comment indicating it's ready to merge
       await updateTask(task.id, {
-        status: 'verified',
+        ...statusUpdate,
         comments: [
           ...(task.comments || []),
           {
             id: Math.random().toString(36).substr(2, 9),
             taskId: task.id,
-            body: `✅ **PR is ready to merge**: ${prRef}\n\n- ✅ CI checks passed\n- ✅ No unresolved review threads\n- ✅ No merge conflicts\n\nThis task is verified and ready for merge.`,
+            body: commentBody,
             author: 'PR Monitor (system)',
             createdAt: new Date(),
           },

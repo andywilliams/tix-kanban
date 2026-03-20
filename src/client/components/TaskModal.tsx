@@ -465,6 +465,23 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
               </div>
 
               <div className="form-group">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={editedTask.holdForMerge || false}
+                    onChange={(e) => setEditedTask({ 
+                      ...editedTask, 
+                      holdForMerge: e.target.checked 
+                    })}
+                  />
+                  <span>Hold for manual merge</span>
+                </label>
+                <small className="form-help">
+                  When enabled, the worker will NOT auto-merge this task's PR but will still monitor it and move to verified when the PR is clean.
+                </small>
+              </div>
+
+              <div className="form-group">
                 <label>Pipeline</label>
                 <select
                   value={editedTask.pipelineId || ''}
@@ -558,6 +575,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, personas, currentUser, onCl
                       ) : 'Loading...';
                     })()
                   }</p>
+                )}
+                {task.holdForMerge && (
+                  <p><strong>🔒 Hold for manual merge:</strong> Enabled — worker will not auto-merge but will monitor PR and move to verified when clean.</p>
                 )}
               </div>
 

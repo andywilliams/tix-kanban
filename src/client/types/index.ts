@@ -23,6 +23,7 @@ export interface Task {
   agentActivity?: AgentActivity; // Live agent working status
   testSuites?: TestSuiteLink[]; // Linked apix test suites as acceptance criteria
   testStatus?: TestSuiteStatus; // Aggregated test status
+  holdForMerge?: boolean; // When true, signals external kanban workers to skip auto-merge; pr-monitor still moves to verified when PR is clean
   conversationState?: ConversationState; // Phase 2: Multi-persona collaboration state
   // Runtime-only property for atomic comment addition (not persisted to task)
   newComment?: Partial<Comment>;
