@@ -770,7 +770,7 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
 
     // Calculate token budget for memory (account for soul prompt, conversation history, and summaries)
     const maxTokens = 50000;
-    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection + summariesSection);
+    const baseTokens = countTokens(systemPrompt + soulPrompt + taskContext + additionalSection + completionSummarySection + summariesSection + workspaceContext);
 
     // Get session conversation history
     const sessionId = await getOrCreateSession(personaId);
@@ -925,6 +925,13 @@ export async function getPersonaWorkspaceFile(personaId: string, filename: strin
   try {
     const workspaceDir = getPersonaWorkspaceDir(personaId);
     const filePath = path.join(workspaceDir, filename);
+    
+    // Prevent directory traversal
+    const normalizedPath = path.normalize(filePath);
+    if (!normalizedPath.startsWith(workspaceDir + path.sep)) {
+      throw new Error('Invalid file path: directory traversal detected');
+    }
+    
     const content = await fs.readFile(filePath, 'utf8');
     return content;
   } catch (error) {
@@ -945,7 +952,7 @@ export async function setPersonaWorkspaceFile(personaId: string, filename: strin
     
     // Prevent directory traversal
     const normalizedPath = path.normalize(filePath);
-    if (!normalizedPath.startsWith(workspaceDir)) {
+    if (!normalizedPath.startsWith(workspaceDir + path.sep)) {
       throw new Error('Invalid file path: directory traversal detected');
     }
     
