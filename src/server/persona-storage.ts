@@ -882,8 +882,25 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
 const FORGE_DIR = path.join(os.homedir(), '.forge');
 const WORKSPACE_BASE_DIR = path.join(FORGE_DIR, 'personas');
 
+// Validate personaId to prevent path traversal attacks
+function validatePersonaId(personaId: string): void {
+  // Check for path separators
+  if (personaId.includes('/') || personaId.includes('\\')) {
+    throw new Error('Invalid personaId: path separators not allowed');
+  }
+  // Check for directory traversal attempts
+  if (personaId.includes('..')) {
+    throw new Error('Invalid personaId: directory traversal not allowed');
+  }
+  // Ensure safe format (alphanumeric, underscore, hyphen only)
+  if (!/^[a-zA-Z0-9_-]+$/.test(personaId)) {
+    throw new Error('Invalid personaId: only alphanumeric, underscore, and hyphen allowed');
+  }
+}
+
 // Get workspace directory path for a persona
 export function getPersonaWorkspaceDir(personaId: string): string {
+  validatePersonaId(personaId);
   return path.join(WORKSPACE_BASE_DIR, personaId);
 }
 
@@ -905,12 +922,13 @@ export async function ensurePersonaWorkspace(personaId: string): Promise<void> {
       await fs.writeFile(memoryPath, '# Memory\n\nLong-term notes and lessons learned will appear here.\n', 'utf8');
     }
     
-    // Initialize CONTEXT.md if it doesn't exist
+    // Initialize CONTEXT.md if it doesn't exist (leave empty for user to fill in)
     const contextPath = path.join(workspaceDir, 'CONTEXT.md');
     try {
       await fs.access(contextPath);
     } catch {
-      await fs.writeFile(contextPath, '# Context\n\nThis content is injected into every task you work on.\n\nUse this space for:\n- Project-specific guidelines\n- Code style preferences\n- Common patterns or anti-patterns\n- Things to always remember\n', 'utf8');
+      // Empty file - user can add their own context via UI
+      await fs.writeFile(contextPath, '', 'utf8');
     }
     
     console.log(`✅ Ensured workspace for persona ${personaId} at ${workspaceDir}`);
