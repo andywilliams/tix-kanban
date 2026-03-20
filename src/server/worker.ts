@@ -982,12 +982,14 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const hasAutoReviewNote = fullTask.comments?.some(
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
+    let taskMarkedDoneByStrandedHandler = false;
     if (hasAutoReviewNote && prLinks.length > 0) {
       // Match isPRMerged semantics: any linked PR merged is sufficient to close the task
       const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
       if (anyMerged) {
         console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
+        taskMarkedDoneByStrandedHandler = true;
         // Update persona stats if we know which persona worked this task
         const workerId = fullTask.persona;
         if (workerId) {
@@ -1002,12 +1004,13 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     // Clean PR detection — two-cycle auto-merge
     // Only process tasks in review or verified status with linked PRs
     // Skip if human has explicitly held for manual merge
-    if (['review', 'verified'].includes(fullTask.status as string) && prLinks.length > 0 && !fullTask.holdForMerge) {
+    // Skip if task was already marked done by stranded-review handler
+    if (!taskMarkedDoneByStrandedHandler && ['review', 'verified'].includes(fullTask.status as string) && prLinks.length > 0 && !fullTask.holdForMerge) {
       const linkedPR = prLinks[0]; // Use first linked PR for auto-merge decision
       const prSnapshot = newSnapshots[linkedPR.key];
       
-      // PR is clean if: open, no unresolved threads (hasUnresolvedThreads === false), and CI passing or null
-      const isClean = prSnapshot && prSnapshot.state === 'open' && prSnapshot.hasUnresolvedThreads === false;
+      // PR is clean if: open, no unresolved threads, and mergeable (not conflicting)
+      const isClean = prSnapshot && prSnapshot.state === 'open' && prSnapshot.hasUnresolvedThreads === false && prSnapshot.mergeable === 'MERGEABLE';
       
       if (isClean) {
         // Check CI — passing or null (no required checks)
