@@ -2291,6 +2291,10 @@ app.get('/api/personas/:id/workspace/file', async (req, res) => {
     if (!filename) {
       return res.status(400).json({ error: 'filename query parameter required' });
     }
+    // Reject path traversal attempts
+    if (filename.includes('..') || path.isAbsolute(filename)) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
     // Validate persona exists
     const persona = await getPersona(personaId);
     if (!persona) {

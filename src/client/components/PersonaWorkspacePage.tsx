@@ -87,19 +87,27 @@ export function PersonaWorkspacePage() {
   const saveFile = async () => {
     if (!selectedPersona || !selectedFile) return;
 
+    // Capture values at call time to avoid stale closure issues if user switches file/persona before response arrives
+    const personaToSave = selectedPersona;
+    const fileToSave = selectedFile;
+    const contentToSave = editContent;
+
     setSaveStatus('saving');
     try {
-      const res = await fetch(`/api/personas/${selectedPersona}/workspace/file`, {
+      const res = await fetch(`/api/personas/${personaToSave}/workspace/file`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: selectedFile, content: editContent }),
+        body: JSON.stringify({ filename: fileToSave, content: contentToSave }),
       });
 
       if (res.ok) {
-        setFileContent(editContent);
-        setIsEditing(false);
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
+        // Only update UI state if user is still viewing the same file
+        if (selectedPersona === personaToSave && selectedFile === fileToSave) {
+          setFileContent(contentToSave);
+          setIsEditing(false);
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        }
       } else {
         setSaveStatus('error');
       }
