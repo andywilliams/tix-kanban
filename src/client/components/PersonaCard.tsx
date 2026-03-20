@@ -8,10 +8,11 @@ interface PersonaCardProps {
   onDelete: () => void;
   onEditSoul?: () => void;
   onViewMemory?: () => void;
+  onViewWorkspace?: () => void;
   onChat?: () => void;
 }
 
-export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemory, onChat }: PersonaCardProps) {
+export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemory, onViewWorkspace, onChat }: PersonaCardProps) {
   const [mood, setMood] = useState<PersonaMood | null>(null);
   const [soul, setSoul] = useState<AgentSoul | null>(null);
   const [memoryCount, setMemoryCount] = useState<number>(0);
@@ -255,6 +256,25 @@ export function PersonaCard({ persona, onEdit, onDelete, onEditSoul, onViewMemor
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
           >
             💾 View Memory
+          </button>
+        )}
+        {onViewWorkspace && (
+          <button onClick={onViewWorkspace} style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: '0.5rem',
+            color: 'var(--text-muted)',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            textAlign: 'center',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
+            📁 Workspace
           </button>
         )}
       </div>

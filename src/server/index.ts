@@ -74,7 +74,10 @@ import {
   deletePersona,
   initializePersonas,
   updatePersonaRating,
-  updatePersonaStats
+  updatePersonaStats,
+  listPersonaWorkspaceFiles,
+  getPersonaWorkspaceFile,
+  setPersonaWorkspaceFile
 } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
 import {
@@ -2258,6 +2261,55 @@ app.get('/api/personas/:id/session/messages', async (req, res) => {
   } catch (error) {
     console.error(`GET /api/personas/${req.params.id}/session/messages error:`, error);
     res.status(500).json({ error: 'Failed to get session messages' });
+  }
+});
+
+// Workspace API routes
+
+// GET /api/personas/:id/workspace/files - List all workspace files
+app.get('/api/personas/:id/workspace/files', async (req, res) => {
+  try {
+    const files = await listPersonaWorkspaceFiles(req.params.id);
+    res.json({ files });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/workspace/files error:`, error);
+    res.status(500).json({ error: 'Failed to list workspace files' });
+  }
+});
+
+// GET /api/personas/:id/workspace/file - Get workspace file content
+app.get('/api/personas/:id/workspace/file', async (req, res) => {
+  try {
+    const filename = req.query.filename as string;
+    if (!filename) {
+      return res.status(400).json({ error: 'filename query parameter required' });
+    }
+    const content = await getPersonaWorkspaceFile(req.params.id, filename);
+    res.json({ content, filename });
+  } catch (error) {
+    console.error(`GET /api/personas/${req.params.id}/workspace/file error:`, error);
+    res.status(500).json({ error: 'Failed to read workspace file' });
+  }
+});
+
+// PUT /api/personas/:id/workspace/file - Update workspace file content
+app.put('/api/personas/:id/workspace/file', async (req, res) => {
+  try {
+    const { filename, content } = req.body;
+    if (!filename || content === undefined) {
+      return res.status(400).json({ error: 'filename and content required' });
+    }
+    
+    // Only allow editing CONTEXT.md and MEMORY.md from UI
+    if (filename !== 'CONTEXT.md' && filename !== 'MEMORY.md') {
+      return res.status(403).json({ error: 'Only CONTEXT.md and MEMORY.md can be edited via UI' });
+    }
+    
+    await setPersonaWorkspaceFile(req.params.id, filename, content);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`PUT /api/personas/${req.params.id}/workspace/file error:`, error);
+    res.status(500).json({ error: 'Failed to update workspace file' });
   }
 });
 

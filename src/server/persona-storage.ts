@@ -703,6 +703,22 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
       throw new Error(`Persona ${personaId} not found`);
     }
 
+    // Ensure workspace exists on first task
+    await ensurePersonaWorkspace(personaId);
+    const workspaceDir = getPersonaWorkspaceDir(personaId);
+
+    // Read CONTEXT.md from workspace
+    let workspaceContext = '';
+    try {
+      const contextContent = await getPersonaWorkspaceFile(personaId, 'CONTEXT.md');
+      if (contextContent.trim()) {
+        workspaceContext = `\n\n## Your Workspace Context\n\n${contextContent}`;
+      }
+    } catch (error) {
+      // Non-fatal — continue without workspace context
+      console.warn(`Failed to load CONTEXT.md for persona ${personaId} (non-fatal):`, error);
+    }
+
     // Build soul context
     let soul = await getAgentSoul(personaId);
     if (!soul) {
@@ -716,7 +732,11 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
     const taskContext = `## Task Details
 Title: ${taskTitle}
 Description: ${taskDescription}
-Tags: ${taskTags.join(', ')}`;
+Tags: ${taskTags.join(', ')}
+
+**Your Workspace Directory:** \`${workspaceDir}\`
+- Use \`${workspaceDir}/workspace/\` for scratch files
+- You can write to \`${workspaceDir}/MEMORY.md\` to save learnings`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
@@ -777,11 +797,11 @@ This summary will be reviewed by QA. Be specific and complete.` : '';
     const memory = await buildTaskMemoryContext(personaId, taskContextStr, memoryTokenBudget);
     const memoryTruncated = memory.includes('(memory truncated)');
 
-    // Build final prompt — soul comes after base prompt, before memory and task
+    // Build final prompt — soul comes after base prompt, workspace context next, then memory and task
     const soulSection = `\n\n${soulPrompt}`;
     const memorySection = memory.length > 0 ? `\n\n## Your Memory\n${memory}` : '';
     
-    const fullPrompt = `${systemPrompt}${soulSection}${memorySection}${conversationSection}${summariesSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
+    const fullPrompt = `${systemPrompt}${soulSection}${workspaceContext}${memorySection}${conversationSection}${summariesSection}\n\n${taskContext}${additionalSection}${completionSummarySection}\n\nPlease work on this task and provide your output.`;
 
     return {
       prompt: fullPrompt,
@@ -854,6 +874,122 @@ export async function updatePersonaMemoryAfterTask(personaId: string, taskTitle:
     console.log(`📝 Updated memory for persona ${personaId} after task: ${taskTitle}`);
   } catch (error) {
     console.error(`Failed to update memory after task for persona ${personaId}:`, error);
+  }
+}
+
+// ==================== WORKSPACE FUNCTIONS ====================
+
+const FORGE_DIR = path.join(os.homedir(), '.forge');
+const WORKSPACE_BASE_DIR = path.join(FORGE_DIR, 'personas');
+
+// Get workspace directory path for a persona
+export function getPersonaWorkspaceDir(personaId: string): string {
+  return path.join(WORKSPACE_BASE_DIR, personaId);
+}
+
+// Ensure persona workspace directory exists with all required subdirectories
+export async function ensurePersonaWorkspace(personaId: string): Promise<void> {
+  try {
+    const workspaceDir = getPersonaWorkspaceDir(personaId);
+    
+    // Create main workspace directory and subdirectories
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(path.join(workspaceDir, 'workspace'), { recursive: true });
+    await fs.mkdir(path.join(workspaceDir, 'logs'), { recursive: true });
+    
+    // Initialize MEMORY.md if it doesn't exist
+    const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+    try {
+      await fs.access(memoryPath);
+    } catch {
+      await fs.writeFile(memoryPath, '# Memory\n\nLong-term notes and lessons learned will appear here.\n', 'utf8');
+    }
+    
+    // Initialize CONTEXT.md if it doesn't exist
+    const contextPath = path.join(workspaceDir, 'CONTEXT.md');
+    try {
+      await fs.access(contextPath);
+    } catch {
+      await fs.writeFile(contextPath, '# Context\n\nThis content is injected into every task you work on.\n\nUse this space for:\n- Project-specific guidelines\n- Code style preferences\n- Common patterns or anti-patterns\n- Things to always remember\n', 'utf8');
+    }
+    
+    console.log(`✅ Ensured workspace for persona ${personaId} at ${workspaceDir}`);
+  } catch (error) {
+    console.error(`Failed to ensure workspace for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Read workspace file
+export async function getPersonaWorkspaceFile(personaId: string, filename: string): Promise<string> {
+  try {
+    const workspaceDir = getPersonaWorkspaceDir(personaId);
+    const filePath = path.join(workspaceDir, filename);
+    const content = await fs.readFile(filePath, 'utf8');
+    return content;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ''; // File doesn't exist yet
+    }
+    console.error(`Failed to read workspace file ${filename} for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// Write workspace file
+export async function setPersonaWorkspaceFile(personaId: string, filename: string, content: string): Promise<void> {
+  try {
+    await ensurePersonaWorkspace(personaId);
+    const workspaceDir = getPersonaWorkspaceDir(personaId);
+    const filePath = path.join(workspaceDir, filename);
+    
+    // Prevent directory traversal
+    const normalizedPath = path.normalize(filePath);
+    if (!normalizedPath.startsWith(workspaceDir)) {
+      throw new Error('Invalid file path: directory traversal detected');
+    }
+    
+    await fs.writeFile(filePath, content, 'utf8');
+  } catch (error) {
+    console.error(`Failed to write workspace file ${filename} for persona ${personaId}:`, error);
+    throw error;
+  }
+}
+
+// List all files in workspace directory
+export async function listPersonaWorkspaceFiles(personaId: string): Promise<Array<{ name: string; path: string; size: number; modified: Date }>> {
+  try {
+    await ensurePersonaWorkspace(personaId);
+    const workspaceDir = getPersonaWorkspaceDir(personaId);
+    
+    const files: Array<{ name: string; path: string; size: number; modified: Date }> = [];
+    
+    async function scanDir(dir: string, prefix: string = ''): Promise<void> {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+        
+        if (entry.isDirectory()) {
+          await scanDir(fullPath, relativePath);
+        } else {
+          const stats = await fs.stat(fullPath);
+          files.push({
+            name: entry.name,
+            path: relativePath,
+            size: stats.size,
+            modified: stats.mtime
+          });
+        }
+      }
+    }
+    
+    await scanDir(workspaceDir);
+    return files;
+  } catch (error) {
+    console.error(`Failed to list workspace files for persona ${personaId}:`, error);
+    return [];
   }
 }
 
