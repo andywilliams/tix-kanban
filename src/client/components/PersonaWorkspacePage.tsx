@@ -56,7 +56,7 @@ export function PersonaWorkspacePage() {
       setFiles(data.files || []);
       
       // Auto-select CONTEXT.md if it exists
-      if (!selectedFile && data.files.some((f: WorkspaceFile) => f.path === 'CONTEXT.md')) {
+      if (!selectedFile && (data.files || []).some((f: WorkspaceFile) => f.path === 'CONTEXT.md')) {
         setSelectedFile('CONTEXT.md');
       }
     } catch (error) {

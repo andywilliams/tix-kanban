@@ -703,8 +703,12 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
       throw new Error(`Persona ${personaId} not found`);
     }
 
-    // Ensure workspace exists on first task
-    await ensurePersonaWorkspace(personaId);
+    // Ensure workspace exists on first task (non-fatal - allow task to continue if it fails)
+    try {
+      await ensurePersonaWorkspace(personaId);
+    } catch (error) {
+      console.warn(`Failed to create workspace for persona ${personaId} (non-fatal):`, error);
+    }
     const workspaceDir = getPersonaWorkspaceDir(personaId);
 
     // Read CONTEXT.md from workspace
