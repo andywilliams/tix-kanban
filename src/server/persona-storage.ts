@@ -737,14 +737,14 @@ export async function createPersonaContext(personaId: string, taskTitle: string,
     const systemPrompt = persona.prompt;
     const workspacePath = workspaceDir ? path.join(workspaceDir, 'workspace') : '';
     const memoryPath = workspaceDir ? path.join(workspaceDir, 'MEMORY.md') : '';
+    const workspaceSection = workspaceDir ? `
+**Your Workspace Directory:** \`${workspaceDir}\`
+- Use \`${workspacePath}/\` for scratch files
+- You can write to \`${memoryPath}\` to save learnings` : '';
     const taskContext = `## Task Details
 Title: ${taskTitle}
 Description: ${taskDescription}
-Tags: ${taskTags.join(', ')}
-
-**Your Workspace Directory:** \`${workspaceDir}\`
-- Use \`${workspacePath}/\` for scratch files
-- You can write to \`${memoryPath}\` to save learnings`;
+Tags: ${taskTags.join(', ')}${workspaceSection}`;
 
     const additionalSection = additionalContext ? `\n\n## Additional Context\n${additionalContext}` : '';
 
