@@ -25,7 +25,7 @@ import {
   initializeSoulForPersona,
   AgentSoul
 } from './agent-soul.js';
-import { getAllPersonas, getPersona } from './persona-storage.js';
+import { getAllPersonas, getPersona, getPersonaWorkspaceFile, setPersonaWorkspaceFile, ensurePersonaWorkspace, getPersonaWorkspaceDir } from './persona-storage.js';
 import { 
   addMessage, 
   getMessages, 
@@ -531,6 +531,16 @@ async function generatePersonaResponse(
     // Record the interaction
     await recordInteraction(persona.id, userId);
 
+    // Ensure workspace exists for this persona (creates on first chat message)
+    let workspaceDir = '';
+    try {
+      await ensurePersonaWorkspace(persona.id);
+      workspaceDir = getPersonaWorkspaceDir(persona.id);
+      console.log(`📁 Workspace ensured for ${persona.name} at ${workspaceDir}`);
+    } catch (error) {
+      console.warn(`Failed to ensure workspace for ${persona.name} (non-fatal):`, error);
+    }
+
     // Get or initialize soul
     let soul = await getAgentSoul(persona.id);
     if (!soul) {
@@ -674,6 +684,24 @@ This conversation is about the task described above. Keep your responses relevan
       console.warn(`Failed to get workspace context: ${error}`);
     }
 
+    // Get persona workspace files (CONTEXT.md and MEMORY.md)
+    let workspaceFiles = { context: '', memory: '' };
+    if (workspaceDir) {
+      try {
+        const contextContent = await getPersonaWorkspaceFile(persona.id, 'CONTEXT.md');
+        const memoryContent = await getPersonaWorkspaceFile(persona.id, 'MEMORY.md');
+        workspaceFiles = {
+          context: contextContent.trim(),
+          memory: memoryContent.trim()
+        };
+        if (workspaceFiles.context || workspaceFiles.memory) {
+          console.log(`📁 Loaded workspace files for ${persona.name}: context=${workspaceFiles.context.length} chars, memory=${workspaceFiles.memory.length} chars`);
+        }
+      } catch (error) {
+        console.warn(`Failed to load workspace files for ${persona.name}:`, error);
+      }
+    }
+
     // Build selective chat history
     const chatHistory = buildSelectiveChatHistory(
       recentMessages, persona, originalMessage, channelType
@@ -695,6 +723,8 @@ This conversation is about the task described above. Keep your responses relevan
       knowledgeContext,
       slackContext,
       workspaceContext,
+      workspaceDir,
+      workspaceFiles,
       tracker,
       budget
     });
@@ -717,6 +747,8 @@ This conversation is about the task described above. Keep your responses relevan
       knowledgeContext: '', // Strip knowledge on retry
       slackContext: '', // Strip slack on retry
       workspaceContext: '', // Strip workspace on retry
+      workspaceDir,
+      workspaceFiles, // Keep workspace files on retry (important for context)
       tracker: new TokenTracker(),
       budget
     });
@@ -850,12 +882,17 @@ interface PromptContext {
   knowledgeContext?: string;
   slackContext?: string;
   workspaceContext?: string;
+  workspaceDir?: string; // Persona workspace directory
+  workspaceFiles?: {
+    context: string;  // CONTEXT.md content
+    memory: string;   // MEMORY.md content
+  };
   tracker: TokenTracker;
   budget: ReturnType<typeof getDefaultBudget>;
 }
 
 function buildChatPrompt(context: PromptContext): string {
-  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, workspaceContext, tracker, budget } = context;
+  const { soul, persona, originalMessage, chatHistory, conversationBackground, memoryContext, relevantMemories, teamContext, taskContext, boardContext, prContext, knowledgeContext, slackContext, workspaceContext, workspaceDir, workspaceFiles, tracker, budget } = context;
 
   const sections: string[] = [];
 
@@ -899,6 +936,34 @@ function buildChatPrompt(context: PromptContext): string {
   // Workspace context (repos, board summary, reports)
   if (workspaceContext) {
     sections.push(`\n## Workspace Context\n${workspaceContext}`);
+  }
+
+  // Persona workspace files (CONTEXT.md and MEMORY.md from workspace)
+  if (workspaceDir && workspaceFiles) {
+    const workspaceSections: string[] = [];
+    
+    if (workspaceFiles.context) {
+      workspaceSections.push(`## CONTEXT.md\n${workspaceFiles.context}`);
+    }
+    
+    if (workspaceFiles.memory) {
+      workspaceSections.push(`## MEMORY.md\n${workspaceFiles.memory}`);
+    }
+    
+    if (workspaceSections.length > 0) {
+      // Use forward slashes for display paths (works on all platforms)
+      const workspacePath = workspaceDir.replace(/\\/g, '/') + '/workspace';
+      const memoryPath = workspaceDir.replace(/\\/g, '/') + '/MEMORY.md';
+      sections.push(`\n## Your Personal Workspace
+
+Your workspace is at: \`${workspaceDir.replace(/\\/g, '/')}\`
+- Scratch space: \`${workspacePath}/\`
+- Long-term memory: \`${memoryPath}\` (you can update this!)
+
+${workspaceSections.join('\n\n')}
+
+You can write to MEMORY.md to save important learnings from our conversation that you want to remember long-term.`);
+    }
   }
 
   // Task context (for task channel conversations) - use budgeted tracker
@@ -1033,7 +1098,22 @@ Guidelines for reminders:
 - **remindAt** — ISO 8601 timestamp. Today's date/time context is in the system prompt. Interpret "tomorrow at 9am", "in 2 hours", "next Monday" etc. relative to now.
 - **taskId** — optional, include if the reminder is about a specific task
 - Always confirm in your response text what you've set and when it will fire
-- If the user doesn't specify a time, ask them when they'd like to be reminded`;
+- If the user doesn't specify a time, ask them when they'd like to be reminded
+
+### Update Your Memory
+You can save important learnings from your conversation to your long-term memory (MEMORY.md). Use this when you want to remember something beyond the current conversation:
+
+\`\`\`action
+{"action":"update_memory","content":"What you want to remember - key decisions, important context, or insights from this conversation."}
+\`\`\`
+
+**When to use:**
+- Important decisions made during the chat
+- Key context about the project or user that you'll need for future conversations
+- Insights or learnings you want to retain long-term
+- The user explicitly says "remember this" or asks you to save something
+
+**Note:** Most things don't need to be saved to MEMORY.md - the system already stores memories automatically. Only use this for genuinely important, long-term information.
 
   if (persona.id === 'product-manager') {
     instructions += `
@@ -1344,6 +1424,36 @@ async function executeAction(
           throw new Error(`File not found: ${action.path}`);
         }
         throw new Error(`Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case 'update_memory': {
+      // Allow persona to update their own MEMORY.md file in their workspace
+      if (!action.content) {
+        throw new Error('Memory content is required');
+      }
+
+      try {
+        // Ensure workspace exists first
+        await ensurePersonaWorkspace(persona.id);
+        
+        // Read existing memory
+        const existingMemory = await getPersonaWorkspaceFile(persona.id, 'MEMORY.md');
+        
+        // Append new content with timestamp
+        const timestamp = new Date().toISOString().split('T')[0];
+        const newEntry = `\n\n## ${timestamp} - Chat Session Update\n\n${action.content}\n`;
+        
+        const updatedMemory = existingMemory + newEntry;
+        
+        // Write back to MEMORY.md
+        await setPersonaWorkspaceFile(persona.id, 'MEMORY.md', updatedMemory);
+        
+        console.log(`📝 ${persona.name} updated their MEMORY.md`);
+        return `📝 **Memory updated** - I've saved this to my long-term memory.`;
+      } catch (error) {
+        console.error('Failed to update memory:', error);
+        throw new Error(`Failed to update memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
