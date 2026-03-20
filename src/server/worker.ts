@@ -204,6 +204,7 @@ interface PRSnapshot {
   lastCommentCheck?: string; // ISO timestamp of last plain comment check
   hasUnresolvedThreads?: boolean; // True if PR has any unresolved review threads
   mergeable?: 'MERGEABLE' | 'CONFLICTING' | null; // PR mergeable state
+  stale?: boolean; // True if snapshot was preserved from previous cycle due to API failure
 }
 
 interface WorkerTriggerTaskState {
@@ -792,8 +793,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       const state = await getPRState(pr.repo, pr.number);
       if (state === null) {
         // Preserve the last known snapshot on transient state lookup failures.
+        // Mark as stale so auto-merge logic can skip to avoid false positives.
         if (previous) {
-          newSnapshots[pr.key] = previous;
+          newSnapshots[pr.key] = { ...previous, stale: true };
         }
         continue;
       }
@@ -1009,8 +1011,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       const linkedPR = prLinks[0]; // Use first linked PR for auto-merge decision
       const prSnapshot = newSnapshots[linkedPR.key];
       
-      // PR is clean if: open, no unresolved threads, and mergeable (not conflicting)
-      const isClean = prSnapshot && prSnapshot.state === 'open' && prSnapshot.hasUnresolvedThreads === false && prSnapshot.mergeable === 'MERGEABLE';
+      // PR is clean if: open, no unresolved threads, mergeable (not conflicting), and snapshot is fresh (not stale)
+      const isClean = prSnapshot && !prSnapshot.stale && prSnapshot.state === 'open' && prSnapshot.hasUnresolvedThreads === false && prSnapshot.mergeable === 'MERGEABLE';
       
       if (isClean) {
         // Check CI — passing or null (no required checks)
