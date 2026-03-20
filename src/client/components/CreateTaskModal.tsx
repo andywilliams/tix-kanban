@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Task, Persona, Link } from '../types';
+import { Pipeline } from '../types/pipeline';
 
 interface LinkFormData {
   url: string;
@@ -29,11 +30,38 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkForm, setLinkForm] = useState<LinkFormData>({ url: '', title: '', type: 'reference' });
 
+  // Pipeline state
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
+
+  // Load pipelines on mount
+  useEffect(() => {
+    loadPipelines();
+  }, []);
+
+  const loadPipelines = async () => {
+    setLoadingPipelines(true);
+    try {
+      const response = await fetch('/api/pipelines');
+      if (response.ok) {
+        const data = await response.json();
+        setPipelines(data.pipelines || []);
+      }
+    } catch (error) {
+      console.error('Failed to load pipelines:', error);
+    } finally {
+      setLoadingPipelines(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTask.title.trim()) return;
 
-    onSubmit({
+    // Include pipelineId in the submitted data
+    // The parent component will handle pipeline state initialization after task creation
+    const taskData = {
       title: newTask.title.trim(),
       description: newTask.description.trim(),
       status: newTask.status,
@@ -45,7 +73,10 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
       dueDate: newTask.dueDate,
       estimate: newTask.estimate.trim() || undefined,
       links: links.length > 0 ? links.map(l => ({ ...l, taskId: '' })) : undefined,
-    });
+      pipelineId: selectedPipelineId || undefined,
+    };
+
+    onSubmit(taskData);
   };
 
   return (
@@ -152,6 +183,27 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ personas, onClose, on
                 <option value="900000">15 min (complex)</option>
                 <option value="1800000">30 min (large research/analysis)</option>
               </select>
+            </div>
+
+            <div className="form-group">
+              <label>Pipeline</label>
+              <select
+                value={selectedPipelineId}
+                onChange={(e) => setSelectedPipelineId(e.target.value)}
+                disabled={loadingPipelines}
+              >
+                <option value="">No Pipeline</option>
+                {pipelines.filter(p => p.isActive).map(pipeline => (
+                  <option key={pipeline.id} value={pipeline.id}>
+                    {pipeline.name}
+                  </option>
+                ))}
+              </select>
+              {selectedPipelineId && (
+                <small className="form-help">
+                  Task will start at: {pipelines.find(p => p.id === selectedPipelineId)?.stages[0]?.name || 'first stage'}
+                </small>
+              )}
             </div>
 
             <div className="form-row">
