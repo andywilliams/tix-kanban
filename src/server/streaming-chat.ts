@@ -6,7 +6,6 @@
  */
 
 import { Response } from 'express';
-import { Persona } from '../client/types/index.js';
 
 export interface StreamEvent {
   event: 'thinking' | 'token' | 'done' | 'error';

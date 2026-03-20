@@ -10,6 +10,8 @@ export function useChatStreaming() {
   const [isThinking, setIsThinking] = useState(false);
   const [streamingChannelId, setStreamingChannelId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const streamIdRef = useRef<number>(0); // Track stream session to guard against race conditions
+  const streamCompletedRef = useRef<boolean>(false); // Track if stream completed successfully via 'done' event
 
   const cancelStream = useCallback(() => {
     if (eventSourceRef.current) {
@@ -31,6 +33,12 @@ export function useChatStreaming() {
   ) => {
     // Cancel any existing stream
     cancelStream();
+    
+    // Increment stream ID to track this session
+    const currentStreamId = ++streamIdRef.current;
+    
+    // Reset completion flag for the new stream
+    streamCompletedRef.current = false;
     
     // Set the channel ID for this stream
     setStreamingChannelId(channelId);
@@ -57,30 +65,91 @@ export function useChatStreaming() {
       eventSource.addEventListener('done', async (event) => {
         const data = JSON.parse(event.data);
         console.log('✅ SSE: Response complete');
+        // Mark stream as successfully completed so onerror ignores the connection-close event
+        streamCompletedRef.current = true;
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtStart = currentStreamId;
         // Call onComplete first and await it to avoid flash while waiting for refresh
         try {
           await onComplete(data.messageId, data.fullText);
         } finally {
+          // Only reset state if this is still the current stream (no new stream started)
+          if (streamIdRef.current === streamIdAtStart) {
+            setIsThinking(false);
+            setStreamingMessageId(null);
+            setStreamingText('');
+            setStreamingChannelId(null);
+            eventSource.close();
+            eventSourceRef.current = null;
+          }
+        }
+      });
+
+      // Listen for server-sent error events (different from EventSource native onerror)
+      // Only handle if event.data exists - native connection errors don't have data
+      eventSource.addEventListener('error', (event) => {
+        // Ignore errors after successful completion (connection close after 'done' event)
+        if (streamCompletedRef.current) {
+          console.log('📡 SSE: Server error event after completion (ignored)');
+          return;
+        }
+        
+        // Only process server-sent error events (which have event.data)
+        // Native EventSource connection errors don't have event.data - let onerror handle those
+        if (!event.data) {
+          console.log('📡 SSE: Native connection error (letting onerror handler process)');
+          return;
+        }
+        
+        const data = JSON.parse(event.data);
+        console.error('❌ SSE: Server sent error event:', data.error);
+        // Mark stream as completed (with error) so onerror doesn't double-process
+        streamCompletedRef.current = true;
+        
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtError = currentStreamId;
+        
+        // Only reset state and invoke onError if this is still the current stream
+        if (streamIdRef.current === streamIdAtError) {
           setIsThinking(false);
           setStreamingMessageId(null);
           setStreamingText('');
           setStreamingChannelId(null);
           eventSource.close();
           eventSourceRef.current = null;
+
+          if (onError) {
+            onError(data.error || 'Server error');
+          }
         }
       });
 
       eventSource.onerror = (err) => {
+        // EventSource fires onerror when the server closes the connection after 'done'.
+        // Close and bail out without resetting state or invoking onError in that case.
+        if (streamCompletedRef.current) {
+          console.log('📡 SSE: Connection closed after successful completion (onerror suppressed)');
+          eventSource.close();
+          eventSourceRef.current = null;
+          return;
+        }
+
         console.error('❌ SSE: Connection error', err);
-        setIsThinking(false);
-        setStreamingMessageId(null);
-        setStreamingText('');
-        setStreamingChannelId(null);
-        eventSource.close();
-        eventSourceRef.current = null;
+        // Capture current stream ID to guard against race with new streams
+        const streamIdAtError = currentStreamId;
         
-        if (onError) {
-          onError('Connection to server lost');
+        // Only reset state and invoke onError if this is still the current stream
+        if (streamIdRef.current === streamIdAtError) {
+          setIsThinking(false);
+          setStreamingMessageId(null);
+          setStreamingText('');
+          setStreamingChannelId(null);
+          eventSource.close();
+          eventSourceRef.current = null;
+
+          if (onError) {
+            onError('Connection to server lost');
+          }
         }
       };
 
