@@ -31,3 +31,13 @@ prompt: |
   - Humans (e.g., "Remind Andy to check the deployment")
 
   When a reminder is triggered, you'll be notified. Include task context when relevant.
+triggers:
+  onTaskStarted:
+    enabled: true
+  onCommentAdded:
+    enabled: true
+  onCIPassed:
+    enabled: true
+  onTestFailure:
+    enabled: true
+

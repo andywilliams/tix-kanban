@@ -51,6 +51,7 @@ import { SyncButton } from './components/SyncButton';
 import { PersonasPage } from './components/PersonasPage';
 import { PersonaDashboard } from './components/PersonaDashboard';
 import { PersonaMemoriesPage } from './components/PersonaMemoriesPage';
+import { PersonaWorkspacePage } from './components/PersonaWorkspacePage';
 import PipelinesPage from './components/PipelinesPage';
 import TeamChatPanel from './components/TeamChatPanel';
 import { SettingsPage } from './components/SettingsPage';
@@ -209,13 +210,14 @@ function AppContent() {
             </Link>
             <NavDropdown 
               label="🔧 Work" 
-              active={['/pipelines', '/personas', '/dashboard', '/memories', '/chat'].some(p => location.pathname.startsWith(p))}
+              active={['/pipelines', '/personas', '/dashboard', '/memories', '/chat', '/workspace'].some(p => location.pathname.startsWith(p))}
               items={[
                 { to: '/dashboard', label: '📊 Dashboard', active: location.pathname === '/dashboard' },
                 { to: '/pipelines', label: '📋 Pipelines', active: location.pathname === '/pipelines' },
                 { to: '/personas', label: '🤖 Personas', active: location.pathname === '/personas' },
                 { to: '/chat', label: '💬 Persona Chat', active: location.pathname === '/chat' },
                 { to: '/memories', label: '🧠 Memories', active: location.pathname === '/memories' },
+                { to: '/workspace', label: '📁 Workspaces', active: location.pathname === '/workspace' },
               ]}
             />
             <NavDropdown 
@@ -339,6 +341,10 @@ function AppContent() {
           <Route
             path="/memories"
             element={<PersonaMemoriesPage />}
+          />
+          <Route
+            path="/workspace"
+            element={<PersonaWorkspacePage />}
           />
           <Route
             path="/pipelines"

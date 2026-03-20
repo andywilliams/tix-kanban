@@ -114,6 +114,7 @@ export function PersonasPage() {
               onDelete={() => handleDelete(persona.id)}
               onEditSoul={() => setEditingSoulPersona(persona)}
               onViewMemory={() => navigate(`/memories?persona=${persona.id}`)}
+              onViewWorkspace={() => navigate(`/workspace?persona=${persona.id}`)}
               onChat={() => {
                 // This would open the chat panel - for now just alert
                 alert(`Start chatting with ${persona.name} in the Team Chat panel!`);
