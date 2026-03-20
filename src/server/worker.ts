@@ -857,11 +857,19 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
           const threads = await getPRReviewThreads(pr.repo, pr.number);
           const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
           
-          // Fire onCommentAdded for ALL unresolved threads every cycle.
-          // A thread is "handled" when it is resolved — until then, keep firing.
+          // Fire onCommentAdded only for NEW unresolved threads (not seen before).
+          // Skip threads we've already processed to avoid duplicate invocations.
           for (const thread of unresolvedThreads) {
+            if (seenThreadIds.includes(thread.id)) {
+              continue; // Already processed this thread
+            }
+            
             const firstComment = thread.comments[0];
             if (firstComment) {
+              // Mark thread as seen BEFORE enqueueing to prevent duplicates on crash
+              seenThreadIds.push(thread.id);
+              current.seenThreadIds = seenThreadIds;
+              
               const metadata = {
                 prUrl: pr.url || `https://github.com/${pr.repo}/pull/${pr.number}`,
                 prNumber: pr.number,
@@ -1808,6 +1816,9 @@ async function processTask(task: Task): Promise<void> {
               agentActivity: clearedActivity,
             });
 
+            // Keep in-memory state in sync for auto-link check
+            fullTask.status = 'auto-review';
+
             await postTaskUpdate(fullTask, persona, `I've finished my work and it's now being auto-reviewed.`);
 
             // Execute the first review cycle
@@ -1820,6 +1831,9 @@ async function processTask(task: Task): Promise<void> {
               comments: updatedComments,
               agentActivity: clearedActivity,
             });
+
+            // Keep in-memory state in sync for auto-link check
+            fullTask.status = 'review';
 
             await postTaskUpdate(fullTask, persona, `Work complete! I've moved this to review — ready for your eyes.`);
 
