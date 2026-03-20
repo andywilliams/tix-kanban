@@ -986,22 +986,34 @@ export async function setPersonaWorkspaceFile(personaId: string, filename: strin
 }
 
 // List all files in workspace directory
-export async function listPersonaWorkspaceFiles(personaId: string): Promise<Array<{ name: string; path: string; size: number; modified: Date }>> {
+// Limits: maxDepth=5 (prevent infinite recursion), maxFiles=1000 (prevent memory/IO exhaustion)
+export async function listPersonaWorkspaceFiles(personaId: string, maxDepth: number = 5, maxFiles: number = 1000): Promise<Array<{ name: string; path: string; size: number; modified: Date }>> {
   try {
     await ensurePersonaWorkspace(personaId);
     const workspaceDir = getPersonaWorkspaceDir(personaId);
     
     const files: Array<{ name: string; path: string; size: number; modified: Date }> = [];
+    let fileCount = 0;
     
-    async function scanDir(dir: string, prefix: string = ''): Promise<void> {
+    async function scanDir(dir: string, prefix: string = '', depth: number = 0): Promise<void> {
+      // Stop if we've reached max depth or max files
+      if (depth > maxDepth || fileCount >= maxFiles) {
+        return;
+      }
+      
       const entries = await fs.readdir(dir, { withFileTypes: true });
       
       for (const entry of entries) {
+        // Stop if we've hit max files limit
+        if (fileCount >= maxFiles) {
+          return;
+        }
+        
         const fullPath = path.join(dir, entry.name);
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
         
         if (entry.isDirectory()) {
-          await scanDir(fullPath, relativePath);
+          await scanDir(fullPath, relativePath, depth + 1);
         } else {
           const stats = await fs.stat(fullPath);
           files.push({
@@ -1010,6 +1022,7 @@ export async function listPersonaWorkspaceFiles(personaId: string): Promise<Arra
             size: stats.size,
             modified: stats.mtime
           });
+          fileCount++;
         }
       }
     }
