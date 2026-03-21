@@ -97,7 +97,7 @@ export async function recordMemoryRecalls(
   
   // Check each memory for importance boosts
   for (const memoryId of memoryIds) {
-    await checkForImportanceBoost(personaId, memoryId, data.usage[memoryId]);
+    await checkForImportanceBoost(personaId, memoryId);
   }
 }
 
@@ -136,8 +136,7 @@ export async function recordTaskOutcome(
 // Check if a memory should get an importance boost
 async function checkForImportanceBoost(
   personaId: string,
-  memoryId: string,
-  _stats: MemoryUsageStats // Kept for API compatibility but ignored to avoid stale data
+  memoryId: string
 ): Promise<void> {
   // Re-read stats from disk to avoid race condition with concurrent calls
   // The caller's stats object may be stale (e.g., importanceBoosts=0) while another
