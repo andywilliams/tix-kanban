@@ -2438,8 +2438,26 @@ app.get('/api/chat/:channelId/messages', async (req, res) => {
     const { channelId } = req.params;
     const limit = clampInt(req.query.limit as string, 50, 1, 500);
     const before = req.query.before as string;
-    
-    const messages = await getMessages(channelId, limit, before);
+
+    // Return 404 if the channel doesn't exist so clients can distinguish
+    // "channel not yet created" from "channel exists but has no messages".
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Reuse the already-loaded channel instead of calling getMessages (which
+    // would read and parse the same file a second time on this hot polling path).
+    let msgs = [...channel.messages];
+    if (before) {
+      const beforeIndex = msgs.findIndex(msg => msg.id === before);
+      if (beforeIndex > 0) msgs = msgs.slice(0, beforeIndex);
+    }
+    const messages = msgs
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit)
+      .reverse();
     res.json({ messages });
   } catch (error) {
     console.error(`GET /api/chat/${req.params.channelId}/messages error:`, error);
