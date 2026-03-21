@@ -1122,19 +1122,7 @@ You can save important learnings from your conversation to your long-term memory
 
 You have additional capabilities as a PM Coordinator:
 
-### 1. Read Files
-
-You can read codebase files to understand architecture before decomposing epics:
-
-\`\`\`action
-{"action":"read_file","path":"src/server/agent-chat.ts"}
-\`\`\`
-
-The file content will appear in the chat conversation. You can read multiple files.
-
-**Security**: Only read files in the project workspace. Path traversal (..) is blocked.
-
-### 2. Propose-Before-Create Pattern
+### 1. Propose-Before-Create Pattern
 
 **IMPORTANT**: When decomposing epics, follow this flow:
 
@@ -1152,7 +1140,7 @@ The file content will appear in the chat conversation. You can read multiple fil
 - Use multiple \`create_task\` action blocks
 - One action block per ticket
 
-### 3. Creating Multiple Related Tickets
+### 2. Creating Multiple Related Tickets
 
 After user confirms, create tickets with action blocks:
 
@@ -1166,14 +1154,14 @@ After user confirms, create tickets with action blocks:
 {"action":"create_task","title":"Wire DSS events into context","description":"Integrate DSS signals into strategy context\\n\\nDependencies:\\n- DSS calculation must be complete\\n\\nAcceptance Criteria:\\n- DSS state available in context\\n- Events trigger correctly","assignee":"developer","priority":300,"tags":["integration","events"],"repo":"owner/repo-name"}
 \`\`\`
 
-### 4. Right-Sized Tickets
+### 3. Right-Sized Tickets
 
 Each ticket should be completable in **5-10 minutes** by an AI agent:
 - **Single focus**: One clear objective
 - **Too large signals**: >3 implementation bullets, touches >3 files
 - **Break down**: Separate logic from integration, backend from frontend, core from edge cases
 
-### 5. Update Tasks
+### 4. Update Tasks
 
 You can update existing tasks:
 
@@ -1183,7 +1171,7 @@ You can update existing tasks:
 
 Fields you can update: title, description, status, priority, assignee, tags
 
-### 6. Add Comments
+### 5. Add Comments
 
 You can comment on tasks:
 
@@ -1191,7 +1179,7 @@ You can comment on tasks:
 {"action":"add_comment","taskId":"ABC123","body":"This is blocked waiting for API design to be finalized."}
 \`\`\`
 
-### 7. Query Board State
+### 6. Query Board State
 
 The board context in this prompt shows current tasks. You can reference it to:
 - Check what's already in progress
@@ -1479,6 +1467,11 @@ function isValidResponse(response: string): boolean {
 }
 
 // Generate AI response with retry on failure
+// Detect if the CLI hit its max-turns limit (shows up verbatim in stdout)
+function isMaxTurnsError(response: string): boolean {
+  return /reached max turns/i.test(response) || /error:.*max turns/i.test(response);
+}
+
 async function generateAIResponseWithRetry(
   prompt: string,
   persona: Persona,
@@ -1489,9 +1482,13 @@ async function generateAIResponseWithRetry(
   const elapsed = Date.now() - startTime;
   console.log(`⏱️ ${persona.name} AI response took ${elapsed}ms`);
 
-  // If we got a valid response, return it
-  if (isValidResponse(response)) {
+  // If we got a valid response (and it's not a max-turns error), return it
+  if (isValidResponse(response) && !isMaxTurnsError(response)) {
     return response;
+  }
+
+  if (isMaxTurnsError(response)) {
+    console.warn(`⚠️ ${persona.name} hit max-turns limit — retrying with simplified prompt`);
   }
 
   // Retry with simplified prompt
@@ -1499,14 +1496,13 @@ async function generateAIResponseWithRetry(
   const simplifiedPrompt = buildChatPrompt(retryContext);
   const retryResponse = await generateAIResponse(simplifiedPrompt, persona, 90000);
 
-  if (isValidResponse(retryResponse)) {
+  if (isValidResponse(retryResponse) && !isMaxTurnsError(retryResponse)) {
     return retryResponse;
   }
 
-  // Both attempts failed — return a greeting fallback
+  // Both attempts failed — return a graceful fallback (not a greeting)
   console.warn(`⚠️ Both attempts failed for ${persona.name}, using fallback`);
-  const soul = await getAgentSoul(persona.id);
-  return soul?.greetings?.[0] || `I'm ${persona.name}, how can I help?`;
+  return `Sorry, I hit a snag processing that — could you try rephrasing or breaking it into a smaller step?`;
 }
 
 // Generate AI response using Claude Code CLI
@@ -1517,7 +1513,7 @@ async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: n
       const { spawn } = await import('child_process');
 
       // Use spawn to pipe prompt via stdin — avoids shell escaping issues
-      const claude = spawn('claude', ['-p', '-', '--max-turns', '3'], {
+      const claude = spawn('claude', ['-p', '-', '--max-turns', '10'], {
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: timeoutMs
