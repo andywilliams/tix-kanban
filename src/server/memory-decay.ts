@@ -62,12 +62,12 @@ export async function decayPersonaMemories(personaId: string): Promise<DecayResu
   
   // Remove archived entries from active memory
   if (toArchive.length > 0) {
+    // Archive first — if this fails, active memory is untouched and nothing is lost
+    await archiveMemories(personaId, toArchive, 'age');
+
     const archivedIds = new Set(toArchive.map(e => e.id));
     memory.entries = memory.entries.filter(e => !archivedIds.has(e.id));
     await saveStructuredMemory(memory);
-    
-    // Move to archive
-    await archiveMemories(personaId, toArchive, 'age');
     
     // Clean up embeddings
     for (const entry of toArchive) {
