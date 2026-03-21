@@ -192,7 +192,7 @@ function generateDecayReport(results: DecayResult[]): string {
  */
 async function saveJobReport(jobType: 'decay' | 'curation', report: string): Promise<void> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `${jobType}-${timestamp}.md`;
+  const filename = `${jobType}--${timestamp}.md`;
   const filepath = path.join(JOBS_DIR, filename);
   
   await fs.writeFile(filepath, report, 'utf8');
@@ -233,10 +233,14 @@ export async function getRecentReports(limit: number = 10): Promise<Array<{
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
       
-      const [type, ...timestampParts] = file.slice(0, -3).split('-');
+      // Split by '--' separator to handle job types with hyphens
+      const parts = file.slice(0, -3).split('--');
+      if (parts.length !== 2) continue;
+      
+      const type = parts[0];
+      const timestamp = parts[1];
       if (type !== 'decay' && type !== 'curation') continue;
       
-      const timestamp = timestampParts.join('-');
       const filepath = path.join(JOBS_DIR, file);
       const content = await fs.readFile(filepath, 'utf8');
       
