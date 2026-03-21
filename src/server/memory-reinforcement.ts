@@ -136,8 +136,7 @@ export async function recordTaskOutcome(
 // Check if a memory should get an importance boost
 async function checkForImportanceBoost(
   personaId: string,
-  memoryId: string,
-  _stats: MemoryUsageStats // Kept for API compatibility but ignored to avoid stale data
+  memoryId: string
 ): Promise<void> {
   // Re-read stats from disk to avoid race condition with concurrent calls
   // The caller's stats object may be stale (e.g., importanceBoosts=0) while another
