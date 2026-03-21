@@ -246,6 +246,14 @@ export function usePersonaChat(currentUser: string) {
     selectedPersonaIdRef.current = personaId;
     setMessages([]);
     setLoadingMessages(true); // Show spinner immediately — avoids empty-state flash before fetch completes
+
+    // Pre-populate the channel ID — it's deterministic on the server:
+    // `direct-${personaId}-${userId}`. This means loadMessages reads from
+    // the channel store (which holds the real conversation) rather than
+    // falling back to the session endpoint (which may be empty/stale).
+    const sanitisedUser = currentUser.replace(/[^a-zA-Z0-9]/g, '_');
+    personaChannelIds.current[personaId] = `direct-${personaId}-${sanitisedUser}`;
+
     await loadMessages(personaId, false, requestId);
     // Check if this request is still the latest one before starting polling
     if (requestId !== latestRequestIdRef.current) return;
