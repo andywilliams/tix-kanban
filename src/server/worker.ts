@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
-import { parsePRLinks, getPRState } from './pr-utils.js';
+import { parsePRLinks, getPRState, getPRMergeableState } from './pr-utils.js';
 import { getPRReviewThreads, getPRComments, ReviewThread } from './github.js';
 import { runSlxDigest } from './slx-service.js';
 import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
@@ -202,6 +202,9 @@ interface PRSnapshot {
   lastThreadCheck?: string; // ISO timestamp of last thread check
   seenCommentIds?: string[]; // Track which plain PR comments we've seen
   lastCommentCheck?: string; // ISO timestamp of last plain comment check
+  hasUnresolvedThreads?: boolean; // True if PR has any unresolved review threads
+  mergeable?: 'MERGEABLE' | 'CONFLICTING' | null; // PR mergeable state
+  stale?: boolean; // True if snapshot was preserved from previous cycle due to API failure
 }
 
 interface WorkerTriggerTaskState {
@@ -790,8 +793,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       const state = await getPRState(pr.repo, pr.number);
       if (state === null) {
         // Preserve the last known snapshot on transient state lookup failures.
+        // Mark as stale so auto-merge logic can skip to avoid false positives.
         if (previous) {
-          newSnapshots[pr.key] = previous;
+          newSnapshots[pr.key] = { ...previous, stale: true };
         }
         continue;
       }
@@ -812,9 +816,10 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       // on first poll causes all existing threads to appear "new" on second poll)
       let seenThreadIds: string[] = [];
       let seenCommentIds: string[] = [];
+      let unresolvedThreads: ReviewThread[] = [];
       if (!previous || isMigration || isCommentMigration) {
         const threads = await getPRReviewThreads(pr.repo, pr.number);
-        const unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
+        unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
         seenThreadIds = unresolvedThreads.map(t => t.id + ':' + t.comments.length);
         
         // Also pre-populate plain comments
@@ -823,6 +828,9 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
       } else {
         seenThreadIds = previous.seenThreadIds || [];
         seenCommentIds = previous.seenCommentIds || [];
+        // For subsequent observations, recalculate unresolved threads for accurate snapshot
+        const threads = await getPRReviewThreads(pr.repo, pr.number);
+        unresolvedThreads = threads.filter(t => !t.isResolved && !t.isOutdated);
       }
       
       const current: PRSnapshot = { 
@@ -832,6 +840,8 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         lastThreadCheck: new Date().toISOString(),
         seenCommentIds,
         lastCommentCheck: new Date().toISOString(),
+        hasUnresolvedThreads: unresolvedThreads.length > 0,
+        mergeable: state === 'open' ? await getPRMergeableState(pr.repo, pr.number) : undefined,
       };
       newSnapshots[pr.key] = current;
 
@@ -974,12 +984,14 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
     const hasAutoReviewNote = fullTask.comments?.some(
       (c) => c.body?.includes('Keeping this task in review until at least one linked PR is merged')
     );
+    let taskMarkedDoneByStrandedHandler = false;
     if (hasAutoReviewNote && prLinks.length > 0) {
       // Match isPRMerged semantics: any linked PR merged is sufficient to close the task
       const anyMerged = prLinks.some((pr) => newSnapshots[pr.key]?.state === 'merged');
       if (anyMerged) {
         console.log(`✅ Linked PR merged for stranded review task ${task.id} — marking done`);
         await updateTask(task.id, { status: 'done' });
+        taskMarkedDoneByStrandedHandler = true;
         // Update persona stats if we know which persona worked this task
         const workerId = fullTask.persona;
         if (workerId) {
@@ -988,6 +1000,110 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
         }
         // Clean up review state to avoid re-processing
         await deleteTaskReviewState(task.id).catch(() => {});
+      }
+    }
+
+    // Clean PR detection — two-cycle auto-merge
+    // Only process tasks in review or verified status with linked PRs
+    // Skip if human has explicitly held for manual merge
+    // Skip if task was already marked done by stranded-review handler
+    if (!taskMarkedDoneByStrandedHandler && ['review', 'verified'].includes(fullTask.status as string) && prLinks.length > 0 && !fullTask.holdForMerge) {
+      const linkedPR = prLinks[0]; // Use first linked PR for auto-merge decision
+      const prSnapshot = newSnapshots[linkedPR.key];
+      
+      // PR is clean if: open, no unresolved threads, mergeable (not conflicting), and snapshot is fresh (not stale)
+      const isClean = prSnapshot && !prSnapshot.stale && prSnapshot.state === 'open' && prSnapshot.hasUnresolvedThreads === false && prSnapshot.mergeable === 'MERGEABLE';
+      
+      if (isClean) {
+        // Check CI — passing or null (no required checks)
+        const ciPassing = prSnapshot.ciState === 'SUCCESS' || prSnapshot.ciState === null;
+        
+        if (ciPassing) {
+          const taskComments = fullTask.comments || [];
+          const verifiedComment = taskComments.find((c: any) => c.body?.includes('✅ PR verified clean'));
+          
+          if (!verifiedComment) {
+            // First clean observation — post verified comment, move to verified
+            const verifiedCommentBody = '✅ PR verified clean — CI passing, no conflicts, all threads resolved. Will auto-merge next cycle if still clean.';
+            console.log(`🔔 PR ${linkedPR.repo}#${linkedPR.number} verified clean for task ${fullTask.id} — moving to verified`);
+            
+            const newComment: Comment = {
+              id: Math.random().toString(36).substr(2, 9),
+              taskId: fullTask.id,
+              body: verifiedCommentBody,
+              author: 'Worker (system)',
+              createdAt: new Date(),
+            };
+            
+            await updateTask(fullTask.id, { 
+              status: 'verified',
+              comments: [...taskComments, newComment]
+            });
+            
+            // Update trigger state to reflect new status
+            taskState.lastStatus = 'verified';
+          } else {
+            // Already verified — check if still clean and no new human comments
+            const verifiedAt = new Date(verifiedComment.createdAt);
+            
+            // Filter for human comments (exclude bots and system)
+            const humanTaskComments = taskComments.filter((c: any) => {
+              const botPatterns = ['jenna@dwlf.co.uk', 'System', 'Worker (system)', 'AI Trigger', 'AI Reviewer', 'PR Monitor', '(system)', '[bot]'];
+              return !botPatterns.some(pattern => c.author?.includes(pattern));
+            });
+            
+            const humanCommentAfterVerified = humanTaskComments.some((c: any) => 
+              new Date(c.createdAt) > verifiedAt
+            );
+            
+            if (!humanCommentAfterVerified) {
+              // Safe to merge — attempt auto-merge
+              console.log(`🔔 Attempting auto-merge for PR ${linkedPR.repo}#${linkedPR.number} (task ${fullTask.id})`);
+              
+              try {
+                const mergeResult = await execFile(
+                  'gh',
+                  ['pr', 'merge', String(linkedPR.number), '--repo', linkedPR.repo, '--squash', '--delete-branch', '--admin'],
+                  { timeout: 30000 }
+                );
+                
+                // Verify merge actually succeeded
+                const confirmState = await getPRState(linkedPR.repo, linkedPR.number);
+                if (confirmState === 'merged') {
+                  console.log(`✅ Auto-merged PR ${linkedPR.repo}#${linkedPR.number} for task ${fullTask.id}`);
+                  
+                  const mergedComment: Comment = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    taskId: fullTask.id,
+                    body: `✅ PR #${linkedPR.number} auto-merged after two clean cycles — done`,
+                    author: 'Worker (system)',
+                    createdAt: new Date(),
+                  };
+                  
+                  const finalComments = [...taskComments, mergedComment];
+                  await updateTask(fullTask.id, { 
+                    status: 'done',
+                    comments: finalComments
+                  });
+                  
+                  // Update persona stats if we know which persona worked this task
+                  const workerId = fullTask.persona;
+                  if (workerId) {
+                    const completionTimeMs = Date.now() - new Date(fullTask.createdAt).getTime();
+                    await updatePersonaStats(workerId, completionTimeMs / 60000, true).catch(() => {});
+                  }
+                } else {
+                  console.warn(`⚠️ Auto-merge attempted but PR state is ${confirmState} for ${linkedPR.repo}#${linkedPR.number}`);
+                }
+              } catch (mergeError) {
+                console.warn(`⚠️ Auto-merge failed for ${linkedPR.repo}#${linkedPR.number}:`, mergeError);
+              }
+            } else {
+              // Human commented after verified — don't auto-merge
+              console.log(`ℹ️ PR ${linkedPR.repo}#${linkedPR.number} clean but human commented after verified — skipping auto-merge for task ${fullTask.id}`);
+            }
+          }
+        }
       }
     }
   }
