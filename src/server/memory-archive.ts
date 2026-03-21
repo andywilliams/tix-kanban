@@ -8,7 +8,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { MemoryEntry, getStructuredMemory, saveStructuredMemory } from './persona-memory.js';
+import { MemoryEntry } from './persona-memory.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -59,6 +59,24 @@ export async function saveArchive(archive: MemoryArchive): Promise<void> {
   const archivePath = path.join(personaDir, 'archive.json');
   archive.lastUpdated = new Date().toISOString();
   await fs.writeFile(archivePath, JSON.stringify(archive, null, 2), 'utf8');
+}
+
+// Archive a memory entry
+export async function archiveMemory(
+  personaId: string,
+  entry: MemoryEntry,
+  reason: ArchivedMemory['archiveReason']
+): Promise<void> {
+  const archive = await getArchive(personaId);
+  
+  const archivedEntry: ArchivedMemory = {
+    ...entry,
+    archivedAt: new Date(),
+    archiveReason: reason,
+  };
+  
+  archive.entries.push(archivedEntry);
+  await saveArchive(archive);
 }
 
 // Archive multiple entries at once
@@ -178,12 +196,5 @@ export async function restoreFromArchive(
   
   // Return the base MemoryEntry (without archive metadata)
   const { archivedAt, archiveReason, ...memoryEntry } = archivedEntry;
-  const entry = memoryEntry as MemoryEntry;
-  
-  // Add the entry back to active memory
-  const memory = await getStructuredMemory(personaId);
-  memory.entries.push(entry);
-  await saveStructuredMemory(memory);
-  
-  return entry;
+  return memoryEntry as MemoryEntry;
 }
