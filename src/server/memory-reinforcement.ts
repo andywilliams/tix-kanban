@@ -66,34 +66,6 @@ async function saveReinforcementData(data: ReinforcementData): Promise<void> {
   await fs.writeFile(reinforcementPath, JSON.stringify(data, null, 2), 'utf8');
 }
 
-// Record that a memory was recalled
-export async function recordMemoryRecall(
-  personaId: string,
-  memoryId: string
-): Promise<void> {
-  const data = await getReinforcementData(personaId);
-  
-  if (!data.usage[memoryId]) {
-    data.usage[memoryId] = {
-      memoryId,
-      recallCount: 0,
-      lastRecalled: new Date(),
-      successCount: 0,
-      failureCount: 0,
-      importanceBoosts: 0,
-    };
-  }
-  
-  const stats = data.usage[memoryId];
-  stats.recallCount++;
-  stats.lastRecalled = new Date();
-  
-  await saveReinforcementData(data);
-  
-  // Check if this memory should get an importance boost
-  await checkForImportanceBoost(personaId, memoryId, stats);
-}
-
 // Record multiple memory recalls at once
 export async function recordMemoryRecalls(
   personaId: string,
@@ -165,8 +137,16 @@ export async function recordTaskOutcome(
 async function checkForImportanceBoost(
   personaId: string,
   memoryId: string,
-  stats: MemoryUsageStats
+  _stats: MemoryUsageStats // Kept for API compatibility but ignored to avoid stale data
 ): Promise<void> {
+  // Re-read stats from disk to avoid race condition with concurrent calls
+  // The caller's stats object may be stale (e.g., importanceBoosts=0) while another
+  // concurrent call already updated it, causing double-boosts
+  const data = await getReinforcementData(personaId);
+  const stats = data.usage[memoryId];
+  
+  if (!stats) return;
+  
   // Boost thresholds:
   // - 5+ recalls: first boost (low -> medium)
   // - 10+ recalls: second boost (medium -> high)
@@ -193,9 +173,9 @@ async function checkForImportanceBoost(
   // Skip if already at max importance to avoid redundant I/O
   if (entry.importance === 'high') {
     // Still update boost count but don't rewrite memory file
-    const data = await getReinforcementData(personaId);
-    data.usage[memoryId].importanceBoosts++;
-    await saveReinforcementData(data);
+    const reinforcementData = await getReinforcementData(personaId);
+    reinforcementData.usage[memoryId].importanceBoosts++;
+    await saveReinforcementData(reinforcementData);
     return;
   }
   
@@ -209,9 +189,9 @@ async function checkForImportanceBoost(
   await saveStructuredMemory(memory);
   
   // Update boost count
-  const data = await getReinforcementData(personaId);
-  data.usage[memoryId].importanceBoosts++;
-  await saveReinforcementData(data);
+  const reinforcementData = await getReinforcementData(personaId);
+  reinforcementData.usage[memoryId].importanceBoosts++;
+  await saveReinforcementData(reinforcementData);
 }
 
 // Get memories that should be flagged for review (high failure rate)
