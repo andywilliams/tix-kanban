@@ -1974,9 +1974,14 @@ async function processTask(task: Task): Promise<void> {
       await trackTaskFailed(persona.id, persona.name, fullTask, 'AI worker unable to complete task');
     }
 
-    // Auto-link PRs for successful tasks that have a repo configured
-    if (success && fullTask.repo && (fullTask.status === 'review' || fullTask.status === 'done' || fullTask.status === 'auto-review')) {
-      await autoLinkPRToTask(fullTask.id, fullTask.repo);
+    // Auto-link PRs for successful tasks that have a repo configured.
+    // Re-fetch the task to get the status the agent set (fullTask reflects pre-run status).
+    if (success && fullTask.repo) {
+      const updatedTask = await getTask(fullTask.id);
+      const postRunStatus = updatedTask?.status ?? fullTask.status;
+      if (['review', 'done', 'auto-review', 'in-progress'].includes(postRunStatus)) {
+        await autoLinkPRToTask(fullTask.id, fullTask.repo);
+      }
     }
 
     console.log(`${success ? '✅' : '❌'} Task processed: ${fullTask.title}`);
