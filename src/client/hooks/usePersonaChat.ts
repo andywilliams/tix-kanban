@@ -245,6 +245,7 @@ export function usePersonaChat(currentUser: string) {
     setSelectedPersonaId(personaId);
     selectedPersonaIdRef.current = personaId;
     setMessages([]);
+    setLoadingMessages(true); // Show spinner immediately — avoids empty-state flash before fetch completes
     await loadMessages(personaId, false, requestId);
     // Check if this request is still the latest one before starting polling
     if (requestId !== latestRequestIdRef.current) return;
