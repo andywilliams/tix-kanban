@@ -168,9 +168,9 @@ async function checkForImportanceBoost(
   stats: MemoryUsageStats
 ): Promise<void> {
   // Boost thresholds:
-  // - 5+ recalls AND less than 2 boosts
-  // - 10+ recalls AND less than 3 boosts
-  // - 20+ recalls AND less than 4 boosts
+  // - 5+ recalls: first boost (low -> medium)
+  // - 10+ recalls: second boost (medium -> high)
+  // - 20+ recalls: additional boosts (already high, no-op but counts)
   
   let shouldBoost = false;
   
@@ -178,7 +178,7 @@ async function checkForImportanceBoost(
     shouldBoost = true;
   } else if (stats.recallCount >= 10 && stats.importanceBoosts < 3) {
     shouldBoost = true;
-  } else if (stats.recallCount >= 5 && stats.importanceBoosts < 2) {
+  } else if (stats.recallCount >= 5 && stats.importanceBoosts < 1) {
     shouldBoost = true;
   }
   
@@ -190,13 +190,21 @@ async function checkForImportanceBoost(
   
   if (!entry) return;
   
+  // Skip if already at max importance to avoid redundant I/O
+  if (entry.importance === 'high') {
+    // Still update boost count but don't rewrite memory file
+    const data = await getReinforcementData(personaId);
+    data.usage[memoryId].importanceBoosts++;
+    await saveReinforcementData(data);
+    return;
+  }
+  
   // Boost importance: low -> medium -> high
   if (entry.importance === 'low') {
     entry.importance = 'medium';
   } else if (entry.importance === 'medium') {
     entry.importance = 'high';
   }
-  // Already high - no change
   
   await saveStructuredMemory(memory);
   
