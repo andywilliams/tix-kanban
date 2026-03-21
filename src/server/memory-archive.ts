@@ -8,7 +8,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { MemoryEntry } from './persona-memory.js';
+import { MemoryEntry, getStructuredMemory, saveStructuredMemory } from './persona-memory.js';
 
 const STORAGE_DIR = path.join(os.homedir(), '.tix-kanban');
 const PERSONAS_DIR = path.join(STORAGE_DIR, 'personas');
@@ -196,5 +196,12 @@ export async function restoreFromArchive(
   
   // Return the base MemoryEntry (without archive metadata)
   const { archivedAt, archiveReason, ...memoryEntry } = archivedEntry;
-  return memoryEntry as MemoryEntry;
+  const entry = memoryEntry as MemoryEntry;
+  
+  // Add the entry back to active memory
+  const memory = await getStructuredMemory(personaId);
+  memory.entries.push(entry);
+  await saveStructuredMemory(memory);
+  
+  return entry;
 }
