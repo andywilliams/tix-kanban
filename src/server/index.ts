@@ -4253,6 +4253,213 @@ app.post('/api/tasks/:taskId/test-results', async (req, res) => {
 });
 
 // ========================================
+// Memory Management API
+// ========================================
+
+import {
+  runDecayJob,
+  runCurationJob,
+  getJobStatus,
+  getRecentReports,
+  initializeMemoryJobs,
+  stopMemoryJobs
+} from './memory-jobs.js';
+import { decayPersonaMemories, previewDecay, manualArchive } from './memory-decay.js';
+import { getArchive, getArchiveStats, searchArchive, restoreFromArchive } from './memory-archive.js';
+import { getReinforcementData, getReinforcementStats, getFlaggedMemories, recordTaskOutcome } from './memory-reinforcement.js';
+
+// GET /api/memory/jobs/status - Get memory job status
+app.get('/api/memory/jobs/status', (_req, res) => {
+  try {
+    const status = getJobStatus();
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/jobs/decay - Run decay job manually
+app.post('/api/memory/jobs/decay', async (_req, res) => {
+  try {
+    const results = await runDecayJob();
+    res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/jobs/curation - Run curation job manually
+app.post('/api/memory/jobs/curation', async (_req, res) => {
+  try {
+    const results = await runCurationJob();
+    res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/jobs/reports - Get recent job reports
+app.get('/api/memory/jobs/reports', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const reports = await getRecentReports(limit);
+    res.json({ reports });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/decay/preview - Preview what would be archived
+app.get('/api/memory/:personaId/decay/preview', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const preview = await previewDecay(personaId);
+    res.json(preview);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/:personaId/decay - Run decay for a specific persona
+app.post('/api/memory/:personaId/decay', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const result = await decayPersonaMemories(personaId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/:personaId/archive - Manually archive specific memories
+app.post('/api/memory/:personaId/archive', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const { memoryIds } = req.body;
+    
+    if (!memoryIds || !Array.isArray(memoryIds)) {
+      return res.status(400).json({ error: 'memoryIds array required' });
+    }
+    
+    const count = await manualArchive(personaId, memoryIds);
+    res.json({ archived: count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/archive - Get archive
+app.get('/api/memory/:personaId/archive', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const archive = await getArchive(personaId);
+    res.json(archive);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/archive/stats - Get archive statistics
+app.get('/api/memory/:personaId/archive/stats', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const stats = await getArchiveStats(personaId);
+    res.json(stats);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/archive/search - Search archive
+app.get('/api/memory/:personaId/archive/search', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const query = req.query.q as string;
+    const category = req.query.category as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 20;
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter q required' });
+    }
+    
+    const results = await searchArchive(personaId, query, { category: category as any, limit });
+    res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/:personaId/archive/:memoryId/restore - Restore from archive
+app.post('/api/memory/:personaId/archive/:memoryId/restore', async (req, res) => {
+  try {
+    const { personaId, memoryId } = req.params;
+    const restored = await restoreFromArchive(personaId, memoryId);
+    
+    if (!restored) {
+      return res.status(404).json({ error: 'Memory not found in archive' });
+    }
+    
+    res.json({ restored });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/reinforcement - Get reinforcement data
+app.get('/api/memory/:personaId/reinforcement', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const data = await getReinforcementData(personaId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/reinforcement/stats - Get reinforcement statistics
+app.get('/api/memory/:personaId/reinforcement/stats', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const stats = await getReinforcementStats(personaId);
+    res.json(stats);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/memory/:personaId/reinforcement/flagged - Get flagged memories
+app.get('/api/memory/:personaId/reinforcement/flagged', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const minFailures = parseInt(req.query.minFailures as string) || 3;
+    const flagged = await getFlaggedMemories(personaId, minFailures);
+    res.json({ flagged });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/:personaId/outcome - Record task outcome for memories
+app.post('/api/memory/:personaId/outcome', async (req, res) => {
+  try {
+    const { personaId } = req.params;
+    const { memoryIds, success } = req.body;
+    
+    if (!memoryIds || !Array.isArray(memoryIds)) {
+      return res.status(400).json({ error: 'memoryIds array required' });
+    }
+    if (typeof success !== 'boolean') {
+      return res.status(400).json({ error: 'success boolean required' });
+    }
+    
+    await recordTaskOutcome(personaId, memoryIds, success);
+    res.json({ recorded: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================
 // Conversation API (Phase 2)
 // ========================================
 
@@ -4304,6 +4511,12 @@ async function startServer() {
     await startSlxAutoSync();
     await startBackupScheduler();
     await initializeProviders();
+    
+    // Initialize memory maintenance jobs
+    await initializeMemoryJobs({
+      enableDecay: true,
+      enableCuration: true,
+    });
     
     // Start conversation monitor (Phase 2)
     setInterval(() => {
