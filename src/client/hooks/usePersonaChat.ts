@@ -34,6 +34,9 @@ export function usePersonaChat(currentUser: string) {
   const selectedPersonaIdRef = useRef<string | null>(null);
   // Store the direct channel id per persona so reads and writes use the same store (Issue #1)
   const personaChannelIds = useRef<Record<string, string>>({});
+  // Track which channel IDs have been confirmed to exist on the server.
+  // A channel ID may be pre-populated (deterministic) but not yet created.
+  const confirmedChannelIds = useRef<Set<string>>(new Set());
 
   // Helper to map channel message format to PersonaChatMessage
   const mapChannelMessage = (m: any, currentUser: string): PersonaChatMessage => {
@@ -157,9 +160,21 @@ export function usePersonaChat(currentUser: string) {
       if (channelId) {
         // Read from the same channel we write to (Issue #1 fix)
         const res = await fetch(`/api/chat/${channelId}/messages`);
-        if (!res.ok) throw new Error('Failed to load messages');
-        const data = await res.json();
-        msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
+        if (res.status === 404) {
+          // Channel doesn't exist on the server yet (pre-populated ID for a new conversation).
+          // Clear the pre-populated ID and fall back to the session endpoint.
+          delete personaChannelIds.current[personaId];
+          const sessionRes = await fetch(`/api/personas/${personaId}/session/messages`);
+          if (!sessionRes.ok) throw new Error('Failed to load messages');
+          const sessionData = await sessionRes.json();
+          msgs = (sessionData.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
+        } else if (!res.ok) {
+          throw new Error('Failed to load messages');
+        } else {
+          confirmedChannelIds.current.add(channelId);
+          const data = await res.json();
+          msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
+        }
       } else {
         // Fall back to session endpoint before a channel has been established
         const res = await fetch(`/api/personas/${personaId}/session/messages`);
@@ -197,9 +212,20 @@ export function usePersonaChat(currentUser: string) {
 
         if (channelId) {
           const res = await fetch(`/api/chat/${channelId}/messages`);
-          if (!res.ok) return;
-          const data = await res.json();
-          msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
+          if (res.status === 404) {
+            // Channel not yet created — fall back to session
+            delete personaChannelIds.current[personaId];
+            const sessionRes = await fetch(`/api/personas/${personaId}/session/messages`);
+            if (!sessionRes.ok) return;
+            const sessionData = await sessionRes.json();
+            msgs = (sessionData.messages || []).map((m: any) => mapSessionMessage(m, currentUser));
+          } else if (!res.ok) {
+            return;
+          } else {
+            confirmedChannelIds.current.add(channelId);
+            const data = await res.json();
+            msgs = (data.messages || []).map((m: any) => mapChannelMessage(m, currentUser));
+          }
         } else {
           const res = await fetch(`/api/personas/${personaId}/session/messages`);
           if (!res.ok) return;
@@ -286,10 +312,13 @@ export function usePersonaChat(currentUser: string) {
     const capturedPersonaId = selectedPersonaId;
 
     try {
-      // Use cached channelId if available, otherwise start a new conversation
+      // Use cached channelId only if it's been confirmed to exist on the server.
+      // A pre-populated (deterministic) ID that hasn't been confirmed must go through
+      // chat/start so the channel is actually created before we try to post to it.
       let channelId = personaChannelIds.current[capturedPersonaId];
-      
-      if (!channelId) {
+      const isConfirmed = channelId ? confirmedChannelIds.current.has(channelId) : false;
+
+      if (!channelId || !isConfirmed) {
         const startRes = await fetch(`/api/personas/${capturedPersonaId}/chat/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -306,8 +335,9 @@ export function usePersonaChat(currentUser: string) {
         const { channelId: newChannelId } = await startRes.json();
         channelId = newChannelId;
         if (channelId) {
-          // Store the channel id so future loadMessages reads from the same store (Issue #1)
+          // Store and confirm the channel id
           personaChannelIds.current[capturedPersonaId] = channelId;
+          confirmedChannelIds.current.add(channelId);
         }
       }
 
