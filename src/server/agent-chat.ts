@@ -1113,7 +1113,7 @@ You can save important learnings from your conversation to your long-term memory
 - Insights or learnings you want to retain long-term
 - The user explicitly says "remember this" or asks you to save something
 
-**Note:** Most things don't need to be saved to MEMORY.md - the system already stores memories automatically. Only use this for genuinely important, long-term information.
+**Note:** Most things don't need to be saved to MEMORY.md - the system already stores memories automatically. Only use this for genuinely important, long-term information.`;
 
   if (persona.id === 'product-manager') {
     instructions += `
