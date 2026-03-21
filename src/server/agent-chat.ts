@@ -1075,7 +1075,7 @@ Importance: 8+ for key people/roles, 6-7 for genuinely useful context. If in dou
 You can create tickets on the kanban board when the user asks. Include a JSON block in your response like this:
 
 \`\`\`action
-{"action":"create_task","title":"Short descriptive title","description":"Detailed description of what needs to be done","assignee":"persona-id","priority":400,"tags":["tag1","tag2"]}
+{"action":"create_task","title":"Short descriptive title","description":"Detailed description of what needs to be done","assignee":"persona-id","priority":400,"tags":["tag1","tag2"],"repo":"owner/repo-name"}
 \`\`\`
 
 Guidelines for task creation:
@@ -1156,12 +1156,14 @@ The file content will appear in the chat conversation. You can read multiple fil
 
 After user confirms, create tickets with action blocks:
 
+**Important**: Always include the \`repo\` field (GitHub \`owner/repo\` format) on any ticket assigned to a developer. Without it, the AI coding agent cannot pick up and implement the ticket. Ask the user which repo to target if they haven't told you.
+
 \`\`\`action
-{"action":"create_task","title":"Add DSS calculation logic","description":"Implement DSS indicator calculation\\n\\nAcceptance Criteria:\\n- Calculate DSS from price data\\n- Return bearish/bullish state\\n- Unit tests pass","assignee":"developer","priority":300,"tags":["indicator","logic"]}
+{"action":"create_task","title":"Add DSS calculation logic","description":"Implement DSS indicator calculation\\n\\nAcceptance Criteria:\\n- Calculate DSS from price data\\n- Return bearish/bullish state\\n- Unit tests pass","assignee":"developer","priority":300,"tags":["indicator","logic"],"repo":"owner/repo-name"}
 \`\`\`
 
 \`\`\`action
-{"action":"create_task","title":"Wire DSS events into context","description":"Integrate DSS signals into strategy context\\n\\nDependencies:\\n- DSS calculation must be complete\\n\\nAcceptance Criteria:\\n- DSS state available in context\\n- Events trigger correctly","assignee":"developer","priority":300,"tags":["integration","events"]}
+{"action":"create_task","title":"Wire DSS events into context","description":"Integrate DSS signals into strategy context\\n\\nDependencies:\\n- DSS calculation must be complete\\n\\nAcceptance Criteria:\\n- DSS state available in context\\n- Events trigger correctly","assignee":"developer","priority":300,"tags":["integration","events"],"repo":"owner/repo-name"}
 \`\`\`
 
 ### 4. Right-Sized Tickets
@@ -1290,6 +1292,7 @@ async function executeAction(
         assignee: action.assignee || undefined,
         persona: action.assignee || undefined,
         tags: action.tags || [],
+        repo: action.repo || undefined,
       }, persona.name);
 
       const assigneeText = action.assignee ? ` → assigned to **${action.assignee}**` : '';
