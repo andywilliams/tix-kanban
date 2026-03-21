@@ -289,7 +289,7 @@ export function usePersonaChat(currentUser: string) {
       ...prev,
       [personaId]: { ...prev[personaId], unreadCount: 0 },
     }));
-  }, [loadMessages, startPolling, stopPolling]);
+  }, [loadMessages, startPolling, stopPolling, currentUser]);
 
   // Send a message to the selected persona
   const sendMessage = useCallback(async (content: string) => {
