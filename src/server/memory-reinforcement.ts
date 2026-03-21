@@ -136,7 +136,8 @@ export async function recordTaskOutcome(
 // Check if a memory should get an importance boost
 async function checkForImportanceBoost(
   personaId: string,
-  memoryId: string
+  memoryId: string,
+  _stats: MemoryUsageStats // Kept for API compatibility but ignored to avoid stale data
 ): Promise<void> {
   // Re-read stats from disk to avoid race condition with concurrent calls
   // The caller's stats object may be stale (e.g., importanceBoosts=0) while another
@@ -172,9 +173,9 @@ async function checkForImportanceBoost(
   // Skip if already at max importance to avoid redundant I/O
   if (entry.importance === 'high') {
     // Still update boost count but don't rewrite memory file
-    const data = await getReinforcementData(personaId);
-    data.usage[memoryId].importanceBoosts++;
-    await saveReinforcementData(data);
+    const reinforcementData = await getReinforcementData(personaId);
+    reinforcementData.usage[memoryId].importanceBoosts++;
+    await saveReinforcementData(reinforcementData);
     return;
   }
   
