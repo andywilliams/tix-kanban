@@ -162,7 +162,8 @@ export function usePersonaChat(currentUser: string) {
         const res = await fetch(`/api/chat/${channelId}/messages`);
         if (res.status === 404) {
           // Channel doesn't exist on the server yet (pre-populated ID for a new conversation).
-          // Clear the pre-populated ID and fall back to the session endpoint.
+          // Clear both refs so sendMessage goes through chat/start on next attempt.
+          confirmedChannelIds.current.delete(personaChannelIds.current[personaId]);
           delete personaChannelIds.current[personaId];
           const sessionRes = await fetch(`/api/personas/${personaId}/session/messages`);
           if (!sessionRes.ok) throw new Error('Failed to load messages');
@@ -214,6 +215,7 @@ export function usePersonaChat(currentUser: string) {
           const res = await fetch(`/api/chat/${channelId}/messages`);
           if (res.status === 404) {
             // Channel not yet created — fall back to session
+            confirmedChannelIds.current.delete(personaChannelIds.current[personaId]);
             delete personaChannelIds.current[personaId];
             const sessionRes = await fetch(`/api/personas/${personaId}/session/messages`);
             if (!sessionRes.ok) return;
