@@ -313,14 +313,17 @@ async function executeCurationActions(
     }
   }
   
-  // Save updated memory
-  await saveStructuredMemory(memory);
-  
   // Archive outdated entries
   if (toArchive.length > 0) {
     const archivedIds = new Set(toArchive.map(e => e.id));
     memory.entries = memory.entries.filter(e => !archivedIds.has(e.id));
-    await saveStructuredMemory(memory);
+  }
+  
+  // Save updated memory (after filtering out archived entries)
+  await saveStructuredMemory(memory);
+  
+  // Archive outdated entries
+  if (toArchive.length > 0) {
     await archiveMemories(personaId, toArchive, 'curation');
     
     // Clean up embeddings
