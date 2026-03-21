@@ -61,24 +61,6 @@ export async function saveArchive(archive: MemoryArchive): Promise<void> {
   await fs.writeFile(archivePath, JSON.stringify(archive, null, 2), 'utf8');
 }
 
-// Archive a memory entry
-export async function archiveMemory(
-  personaId: string,
-  entry: MemoryEntry,
-  reason: ArchivedMemory['archiveReason']
-): Promise<void> {
-  const archive = await getArchive(personaId);
-  
-  const archivedEntry: ArchivedMemory = {
-    ...entry,
-    archivedAt: new Date(),
-    archiveReason: reason,
-  };
-  
-  archive.entries.push(archivedEntry);
-  await saveArchive(archive);
-}
-
 // Archive multiple entries at once
 export async function archiveMemories(
   personaId: string,

@@ -153,9 +153,9 @@ async function checkForImportanceBoost(
   
   let shouldBoost = false;
   
-  if (stats.recallCount >= 20 && stats.importanceBoosts < 4) {
+  if (stats.recallCount >= 20 && stats.importanceBoosts < 3) {
     shouldBoost = true;
-  } else if (stats.recallCount >= 10 && stats.importanceBoosts < 3) {
+  } else if (stats.recallCount >= 10 && stats.importanceBoosts < 2) {
     shouldBoost = true;
   } else if (stats.recallCount >= 5 && stats.importanceBoosts < 1) {
     shouldBoost = true;
