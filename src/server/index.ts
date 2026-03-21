@@ -16,7 +16,8 @@ import {
   getAllActivity,
   withTaskLock,
   writeTask,
-  updateSummary
+  updateSummary,
+  addTaskLink,
 } from './storage.js';
 import { Task, Comment, Link, Persona } from '../client/types/index.js';
 import {
@@ -2733,6 +2734,21 @@ app.post('/api/github/pr', async (req, res) => {
     }
     
     const prStatus = await createTaskPR(repo, taskId, taskTitle, taskDescription, branchName);
+
+    // Auto-link the PR to the task so the worker can track and auto-merge it
+    if (prStatus?.url && taskId) {
+      try {
+        await addTaskLink(taskId, {
+          url: prStatus.url,
+          title: `PR #${prStatus.number}: ${taskTitle}`,
+          type: 'pr',
+        }, 'worker-auto-link');
+      } catch (linkError) {
+        console.warn(`⚠️ Failed to auto-link PR to task ${taskId}:`, linkError);
+        // Don't fail the whole request — PR was created successfully
+      }
+    }
+
     res.json({ prStatus });
   } catch (error) {
     console.error('POST /api/github/pr error:', error);
