@@ -313,18 +313,18 @@ async function executeCurationActions(
     }
   }
   
-  // Archive outdated entries
+  // Archive first — write to archive before removing from active memory
+  // so a failed archive write doesn't cause permanent data loss
   if (toArchive.length > 0) {
+    await archiveMemories(personaId, toArchive, 'curation');
     const archivedIds = new Set(toArchive.map(e => e.id));
     memory.entries = memory.entries.filter(e => !archivedIds.has(e.id));
   }
-  
+
   // Save updated memory (after filtering out archived entries)
   await saveStructuredMemory(memory);
-  
-  // Archive outdated entries
+
   if (toArchive.length > 0) {
-    await archiveMemories(personaId, toArchive, 'curation');
     
     // Clean up embeddings
     for (const entry of toArchive) {
