@@ -2438,7 +2438,15 @@ app.get('/api/chat/:channelId/messages', async (req, res) => {
     const { channelId } = req.params;
     const limit = clampInt(req.query.limit as string, 50, 1, 500);
     const before = req.query.before as string;
-    
+
+    // Return 404 if the channel doesn't exist so clients can distinguish
+    // "channel not yet created" from "channel exists but has no messages".
+    const channel = await getChannel(channelId);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
     const messages = await getMessages(channelId, limit, before);
     res.json({ messages });
   } catch (error) {
