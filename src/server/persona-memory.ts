@@ -187,7 +187,8 @@ export async function searchMemories(
 export async function getRelevantMemories(
   personaId: string,
   context: string,
-  limit: number = 10
+  limit: number = 10,
+  trackRecall: boolean = true
 ): Promise<MemoryEntry[]> {
   const memory = await getStructuredMemory(personaId);
   
@@ -197,7 +198,20 @@ export async function getRelevantMemories(
     preferHybrid: true,
   });
   
-  return results.map(r => r.entry);
+  const entries = results.map(r => r.entry);
+  
+  // Track memory recalls for reinforcement learning
+  if (trackRecall && entries.length > 0) {
+    // Import here to avoid circular dependency
+    const { recordMemoryRecalls } = await import('./memory-reinforcement.js');
+    const memoryIds = entries.map(e => e.id);
+    // Fire and forget - don't block on tracking
+    recordMemoryRecalls(personaId, memoryIds).catch(err => {
+      console.warn('[Memory] Failed to track memory recalls:', err);
+    });
+  }
+  
+  return entries;
 }
 
 // ============================================
