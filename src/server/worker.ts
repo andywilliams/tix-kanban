@@ -495,7 +495,8 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 }
 
 // Auto-link PRs to task after agent completes work
-// Scans GitHub for PRs with branch matching feature/{taskId}-* and links them if not already linked
+// Strategy 1: Parse PR URLs directly from comment text (catches any branch name)
+// Strategy 2: Scan GitHub for PRs with branch matching feature/{taskId}-*
 async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
   if (!taskId || !repo) {
     return;
@@ -511,10 +512,42 @@ async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
       return;
     }
 
-    // Build pattern to match: feature/{taskId}-*
+    // Get existing PR links to avoid duplicates
+    const existingPRUrls = new Set(
+      (task.links || [])
+        .filter(link => link.type === 'pr' || link.url?.includes('/pull/'))
+        .map(link => link.url)
+    );
+
+    // Strategy 1: Extract PR URLs directly from comment text
+    // Agents often write "PR created: https://github.com/.../pull/N" — parse that
+    const prUrlPattern = /https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+/g;
+    const commentPRUrls: string[] = [];
+    for (const comment of task.comments || []) {
+      const matches = comment.body?.match(prUrlPattern) || [];
+      for (const url of matches) {
+        if (!existingPRUrls.has(url) && !commentPRUrls.includes(url)) {
+          commentPRUrls.push(url);
+        }
+      }
+    }
+
+    for (const url of commentPRUrls) {
+      const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+      if (!match) continue;
+      const prNumber = parseInt(match[2]);
+      console.log(`🔗 Found PR #${prNumber} in comment text — linking to task ${taskId}`);
+      await addTaskLink(taskId, {
+        url,
+        title: `PR #${prNumber}`,
+        type: 'pr',
+      }, 'worker-auto-link');
+      existingPRUrls.add(url);
+    }
+
+    // Strategy 2: Scan GitHub for open PRs with branch matching feature/{taskId}-*
     const branchPattern = `feature/${taskId}-`;
 
-    // Use gh pr list to find open PRs with matching branch
     const { stdout } = await execFile(
       'gh',
       ['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,headRefName,url', '--limit', '20'],
@@ -532,12 +565,12 @@ async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
     // Filter PRs whose branch matches our pattern
     const matchingPRs = prs.filter(pr => pr.headRefName.startsWith(branchPattern));
 
-    if (matchingPRs.length === 0) {
-      console.log(`🔗 No matching PRs found for pattern ${branchPattern}`);
+    if (matchingPRs.length === 0 && commentPRUrls.length === 0) {
+      console.log(`🔗 No matching PRs found via comment scan or branch pattern ${branchPattern}`);
       return;
     }
 
-    console.log(`🔗 Found ${matchingPRs.length} matching PR(s)`);
+    console.log(`🔗 Found ${matchingPRs.length} matching PR(s) via branch pattern`);
 
     // Get existing PR links to avoid duplicates
     const existingPRUrls = new Set(
