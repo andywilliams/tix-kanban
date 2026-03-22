@@ -2553,9 +2553,18 @@ async function runWorkerCycle(): Promise<void> {
     .filter(task => task.status === 'backlog' && task.persona)
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
+  // Build set of repos that already have an active task (in-progress, review, auto-review, verified)
+  // to enforce the one-ticket-per-repo rule and reduce merge conflicts
+  const activeRepos = new Set(
+    tasks
+      .filter(t => ['in-progress', 'review', 'auto-review', 'verified'].includes(t.status as string) && t.repo)
+      .map(t => t.repo as string)
+  );
+
   // Find eligible tasks (provider access + persona availability)
   const eligibleBacklogTasks: Task[] = [];
   const personasInCurrentBatch: Set<string> = new Set();
+  const reposInCurrentBatch: Set<string> = new Set();
   for (const candidate of backlogTasks) {
     const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
     if (!candidatePersona) continue;
@@ -2591,6 +2600,13 @@ async function runWorkerCycle(): Promise<void> {
 
     if (!eligible) continue;
 
+    // Enforce one-ticket-per-repo rule: skip if this repo already has an active task
+    // (in-progress, review, auto-review, or verified) to reduce merge conflicts
+    if (candidate.repo && (activeRepos.has(candidate.repo) || reposInCurrentBatch.has(candidate.repo))) {
+      console.log(`⏭️  Skipping task "${candidate.title}" — repo ${candidate.repo} already has an active task`);
+      continue;
+    }
+
     // Check if persona is already active (unless duplicates allowed)
     // Also check batch-local set to prevent same persona being scheduled multiple times in single cycle
     if (!workerState.allowDuplicatePersonas && (isPersonaActive(candidatePersona.id) || personasInCurrentBatch.has(candidatePersona.id))) {
@@ -2598,6 +2614,7 @@ async function runWorkerCycle(): Promise<void> {
       continue;
     }
 
+    if (candidate.repo) reposInCurrentBatch.add(candidate.repo);
     personasInCurrentBatch.add(candidatePersona.id);
     eligibleBacklogTasks.push(candidate);
   }
