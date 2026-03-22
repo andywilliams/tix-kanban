@@ -233,12 +233,29 @@ export async function getRecentReports(limit: number = 10): Promise<Array<{
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
       
-      // Split by '--' separator to handle job types with hyphens
-      const parts = file.slice(0, -3).split('--');
-      if (parts.length !== 2) continue;
+      const basename = file.slice(0, -3);
       
-      const type = parts[0];
-      const timestamp = parts[1];
+      // Try splitting by '--' separator first (new format)
+      let parts = basename.split('--');
+      let type: string;
+      let timestamp: string;
+      
+      // If no '--' separator, fall back to '-' separator (old format)
+      // The timestamp always starts with a 4-digit year, so we split on the
+      // '-' that precedes the year pattern (e.g., "decay-2024-01-15..." -> ["decay", "2024-01-15..."])
+      if (parts.length !== 2) {
+        const yearMatch = basename.match(/^([^-]+)-(\d{4}-)/);
+        if (yearMatch) {
+          type = yearMatch[1];
+          timestamp = yearMatch[2] + basename.slice(yearMatch[0].length);
+        } else {
+          continue;
+        }
+      } else {
+        type = parts[0];
+        timestamp = parts[1];
+      }
+      
       if (type !== 'decay' && type !== 'curation') continue;
       
       const filepath = path.join(JOBS_DIR, file);
