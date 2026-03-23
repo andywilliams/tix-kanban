@@ -572,13 +572,6 @@ async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
 
     console.log(`🔗 Found ${matchingPRs.length} matching PR(s) via branch pattern`);
 
-    // Get existing PR links to avoid duplicates
-    const existingPRUrls = new Set(
-      (task.links || [])
-        .filter(link => link.type === 'pr' || link.url?.includes('/pull/'))
-        .map(link => link.url)
-    );
-
     // Link each matching PR that's not already linked
     for (const pr of matchingPRs) {
       if (existingPRUrls.has(pr.url)) {
