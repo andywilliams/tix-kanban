@@ -495,7 +495,8 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
 }
 
 // Auto-link PRs to task after agent completes work
-// Scans GitHub for PRs with branch matching feature/{taskId}-* and links them if not already linked
+// Strategy 1: Parse PR URLs directly from comment text (catches any branch name)
+// Strategy 2: Scan GitHub for PRs with branch matching feature/{taskId}-*
 async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
   if (!taskId || !repo) {
     return;
@@ -511,10 +512,42 @@ async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
       return;
     }
 
-    // Build pattern to match: feature/{taskId}-*
+    // Get existing PR links to avoid duplicates
+    const existingPRUrls = new Set(
+      (task.links || [])
+        .filter(link => link.type === 'pr' || link.url?.includes('/pull/'))
+        .map(link => link.url)
+    );
+
+    // Strategy 1: Extract PR URLs directly from comment text
+    // Agents often write "PR created: https://github.com/.../pull/N" — parse that
+    const prUrlPattern = /https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+/g;
+    const commentPRUrls: string[] = [];
+    for (const comment of task.comments || []) {
+      const matches = comment.body?.match(prUrlPattern) || [];
+      for (const url of matches) {
+        if (!existingPRUrls.has(url) && !commentPRUrls.includes(url)) {
+          commentPRUrls.push(url);
+        }
+      }
+    }
+
+    for (const url of commentPRUrls) {
+      const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+      if (!match) continue;
+      const prNumber = parseInt(match[2]);
+      console.log(`🔗 Found PR #${prNumber} in comment text — linking to task ${taskId}`);
+      await addTaskLink(taskId, {
+        url,
+        title: `PR #${prNumber}`,
+        type: 'pr',
+      }, 'worker-auto-link');
+      existingPRUrls.add(url);
+    }
+
+    // Strategy 2: Scan GitHub for open PRs with branch matching feature/{taskId}-*
     const branchPattern = `feature/${taskId}-`;
 
-    // Use gh pr list to find open PRs with matching branch
     const { stdout } = await execFile(
       'gh',
       ['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,headRefName,url', '--limit', '20'],
@@ -532,12 +565,12 @@ async function autoLinkPRToTask(taskId: string, repo: string): Promise<void> {
     // Filter PRs whose branch matches our pattern
     const matchingPRs = prs.filter(pr => pr.headRefName.startsWith(branchPattern));
 
-    if (matchingPRs.length === 0) {
-      console.log(`🔗 No matching PRs found for pattern ${branchPattern}`);
+    if (matchingPRs.length === 0 && commentPRUrls.length === 0) {
+      console.log(`🔗 No matching PRs found via comment scan or branch pattern ${branchPattern}`);
       return;
     }
 
-    console.log(`🔗 Found ${matchingPRs.length} matching PR(s)`);
+    console.log(`🔗 Found ${matchingPRs.length} matching PR(s) via branch pattern`);
 
     // Get existing PR links to avoid duplicates
     const existingPRUrls = new Set(
@@ -2553,9 +2586,18 @@ async function runWorkerCycle(): Promise<void> {
     .filter(task => task.status === 'backlog' && task.persona)
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
+  // Build set of repos that already have an active task (in-progress, review, auto-review, verified)
+  // to enforce the one-ticket-per-repo rule and reduce merge conflicts
+  const activeRepos = new Set(
+    tasks
+      .filter(t => ['in-progress', 'review', 'auto-review', 'verified'].includes(t.status as string) && t.repo)
+      .map(t => t.repo as string)
+  );
+
   // Find eligible tasks (provider access + persona availability)
   const eligibleBacklogTasks: Task[] = [];
   const personasInCurrentBatch: Set<string> = new Set();
+  const reposInCurrentBatch: Set<string> = new Set();
   for (const candidate of backlogTasks) {
     const candidatePersona = candidate.persona ? await getPersona(candidate.persona) : null;
     if (!candidatePersona) continue;
@@ -2591,6 +2633,13 @@ async function runWorkerCycle(): Promise<void> {
 
     if (!eligible) continue;
 
+    // Enforce one-ticket-per-repo rule: skip if this repo already has an active task
+    // (in-progress, review, auto-review, or verified) to reduce merge conflicts
+    if (candidate.repo && (activeRepos.has(candidate.repo) || reposInCurrentBatch.has(candidate.repo))) {
+      console.log(`⏭️  Skipping task "${candidate.title}" — repo ${candidate.repo} already has an active task`);
+      continue;
+    }
+
     // Check if persona is already active (unless duplicates allowed)
     // Also check batch-local set to prevent same persona being scheduled multiple times in single cycle
     if (!workerState.allowDuplicatePersonas && (isPersonaActive(candidatePersona.id) || personasInCurrentBatch.has(candidatePersona.id))) {
@@ -2598,6 +2647,7 @@ async function runWorkerCycle(): Promise<void> {
       continue;
     }
 
+    if (candidate.repo) reposInCurrentBatch.add(candidate.repo);
     personasInCurrentBatch.add(candidatePersona.id);
     eligibleBacklogTasks.push(candidate);
   }
