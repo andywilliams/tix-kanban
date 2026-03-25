@@ -171,7 +171,17 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   if (existsSync(workspacePath)) {
     console.log(`[workspace] Workspace already exists for task ${taskId}: ${workspacePath}`);
     const info = await getWorkspaceInfo(taskId, repoPath);
-    if (info) return info;
+    if (info) {
+      // Refresh from origin to ensure we have latest changes
+      console.log(`[workspace] Refreshing existing workspace from origin`);
+      try {
+        await execFile('git', ['fetch', 'origin'], { cwd: workspacePath });
+        await execFile('git', ['reset', '--hard', 'origin/main'], { cwd: workspacePath });
+      } catch (err) {
+        console.log(`[workspace] Could not refresh workspace, using existing: ${err}`);
+      }
+      return info;
+    }
 
     // Clean up incomplete workspace: remove worktree first, then directory
     console.log(`[workspace] Cleaning up incomplete workspace for ${taskId}`);
