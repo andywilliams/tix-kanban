@@ -188,7 +188,7 @@ export async function getPRStatus(repo: string, prNumber: number): Promise<PRSta
       // Get check runs (may 404 for repos without CI)
       let checks: PRStatus['checks'] = [];
       try {
-        const { stdout: checksData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json statusCheckRollup --jq '.statusCheckRollup[] | {conclusion: .conclusion, status: .status}'`);
+        const { stdout: checksData } = await exec(`gh pr view ${prNumber} --repo ${repo} --json statusCheckRollup --jq '(.statusCheckRollup // [])[] | {conclusion: .conclusion, status: .status}'`);
         checks = checksData.trim() ? checksData.split('\n').map(line => {
           try { return JSON.parse(line); } catch { return null; }
         }).filter(Boolean) : [];
