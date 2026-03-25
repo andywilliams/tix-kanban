@@ -46,6 +46,11 @@ import {
   trackTaskFailed,
   trackReviewCompleted
 } from './activityTracker.js';
+import {
+  createWorkspace,
+  cleanupWorkspace,
+  initializeForgeWorkspaces,
+} from '../utils/workspace.js';
 
 
 const execFile = promisify(execFileCallback);
@@ -1226,7 +1231,7 @@ async function processEventBasedPersonaTriggers(tasks: Task[]): Promise<void> {
 }
 
 // Spawn AI session for a task using OpenClaw
-async function spawnAISession(task: Task, persona: Persona): Promise<{ output: string; success: boolean }> {
+async function spawnAISession(task: Task, persona: Persona, workspacePath?: string): Promise<{ output: string; success: boolean }> {
   try {
     console.log(`🤖 Spawning AI session for task: ${task.title}`);
     
@@ -1318,30 +1323,33 @@ async function spawnAISession(task: Task, persona: Persona): Promise<{ output: s
     }
     
     // Determine working directory for Claude CLI
-    let cwd: string | undefined;
-    try {
-      const settings = await getUserSettings();
-      if (task.repo) {
-        // 1. Check per-repo path mapping first
-        if (settings.repoPaths?.[task.repo]) {
-          cwd = settings.repoPaths[task.repo];
-        } else if (settings.workspaceDir) {
-          // 2. Fall back to workspaceDir/repoName
-          const repoName = task.repo.split('/').pop();
-          if (repoName) {
-            cwd = path.join(settings.workspaceDir, repoName);
-          } else {
-            cwd = settings.workspaceDir;
+    // Priority: 1) Isolated workspace (workspacePath), 2) per-repo path mapping, 3) workspaceDir
+    let cwd: string | undefined = workspacePath;
+    if (!cwd) {
+      try {
+        const settings = await getUserSettings();
+        if (task.repo) {
+          // 1. Check per-repo path mapping first
+          if (settings.repoPaths?.[task.repo]) {
+            cwd = settings.repoPaths[task.repo];
+          } else if (settings.workspaceDir) {
+            // 2. Fall back to workspaceDir/repoName
+            const repoName = task.repo.split('/').pop();
+            if (repoName) {
+              cwd = path.join(settings.workspaceDir, repoName);
+            } else {
+              cwd = settings.workspaceDir;
+            }
           }
+        } else if (settings.workspaceDir) {
+          cwd = settings.workspaceDir;
         }
-      } else if (settings.workspaceDir) {
-        cwd = settings.workspaceDir;
+      } catch (error) {
+        console.error('Failed to load workspace directory setting:', error);
       }
-      if (cwd) {
-        console.log(`🗂️  Using workspace directory: ${cwd}`);
-      }
-    } catch (error) {
-      console.error('Failed to load workspace directory setting:', error);
+    }
+    if (cwd) {
+      console.log(`🗂️  Using workspace directory: ${cwd}`);
     }
 
     // Resolve model: task model > persona model > system default
@@ -1496,7 +1504,7 @@ async function handleProviderDenial(task: Task, provider: string, reason: string
 }
 
 // Handle research tasks by generating reports instead of code
-async function processResearchTask(task: Task, persona: Persona): Promise<{ success: boolean; reportId?: string }> {
+async function processResearchTask(task: Task, persona: Persona, workspacePath?: string): Promise<{ success: boolean; reportId?: string }> {
   try {
     console.log(`🔍 Processing research task: ${task.title}`);
     
@@ -1538,7 +1546,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
       (task as any).timeoutMs || 600000, // task override > 10 min default for research
-      undefined, // No specific working directory needed for research
+      workspacePath, // Use isolated workspace if available
       researchModel,
       'research'
     );
@@ -1605,7 +1613,7 @@ async function processResearchTask(task: Task, persona: Persona): Promise<{ succ
 }
 
 // Run lgtm automated review and parse JSON output
-async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output: string; shouldAdvance: boolean }> {
+async function runLgtmAutoReview(task: Task, workspacePath?: string): Promise<{ success: boolean; output: string; shouldAdvance: boolean }> {
   // Helper to format lgtm result
   function formatLgtmResult(lgtmResult: any): { success: boolean; output: string; shouldAdvance: boolean } {
     const commentsPosted = lgtmResult.commentsPosted || 0;
@@ -1656,33 +1664,36 @@ async function runLgtmAutoReview(task: Task): Promise<{ success: boolean; output
     const pr = prLinks[0];
     
     // Determine workspace directory
-    let cwd: string | undefined;
-    try {
-      const settings = await getUserSettings();
-      if (task.repo) {
-        if (settings.repoPaths?.[task.repo]) {
-          cwd = settings.repoPaths[task.repo];
+    // Priority: 1) Isolated workspace (workspacePath), 2) per-repo path mapping, 3) workspaceDir
+    let cwd: string | undefined = workspacePath;
+    if (!cwd) {
+      try {
+        const settings = await getUserSettings();
+        if (task.repo) {
+          if (settings.repoPaths?.[task.repo]) {
+            cwd = settings.repoPaths[task.repo];
+          } else if (settings.workspaceDir) {
+            const repoName = task.repo.split('/').pop();
+            if (repoName) {
+              cwd = path.join(settings.workspaceDir, repoName);
+            }
+          }
         } else if (settings.workspaceDir) {
-          const repoName = task.repo.split('/').pop();
+          // Fallback: try to infer repo from PR link
+          const repoName = pr.repo.split('/').pop();
           if (repoName) {
             cwd = path.join(settings.workspaceDir, repoName);
           }
         }
-      } else if (settings.workspaceDir) {
-        // Fallback: try to infer repo from PR link
-        const repoName = pr.repo.split('/').pop();
-        if (repoName) {
-          cwd = path.join(settings.workspaceDir, repoName);
-        }
+      } catch (error) {
+        console.warn('Failed to load workspace directory setting:', error);
       }
-    } catch (error) {
-      console.warn('Failed to load workspace directory setting:', error);
     }
 
     if (!cwd) {
       return {
         success: false,
-        output: '⚠️ **lgtm Review: ERROR**\n\nCould not determine repository workspace directory. Please configure workspaceDir in settings.',
+        output: '⚠️ **lgtm Review: ERROR**\n\nCould not determine repository workspace directory. Please configure workspaceDir in settings or ensure workspace is created.',
         shouldAdvance: false
       };
     }
@@ -1744,6 +1755,12 @@ function isLgtmReviewerTask(persona?: Persona): boolean {
 
 // Process a single task
 async function processTask(task: Task): Promise<void> {
+  // Workspace variables - accessible in finally block for cleanup
+  let workspacePath: string | undefined;
+  let workspaceCreated = false;
+  let mainRepoPath: string | undefined; // Main repo path for workspace cleanup
+  const taskId = task.id; // Save task ID for finally block
+  
   try {
     console.log(`📋 Processing task: ${task.title}`);
 
@@ -1822,6 +1839,31 @@ async function processTask(task: Task): Promise<void> {
     // Notify via chat that work is starting
     await postTaskUpdate(fullTask, persona, `Starting work on this task. I'll update you when I'm done.`);
 
+    // Create isolated workspace for this task (if repo is specified)
+    if (fullTask.repo) {
+      try {
+        // Resolve the main repo path
+        const settings = await getUserSettings();
+        mainRepoPath = settings.repoPaths?.[fullTask.repo] 
+          || (settings.workspaceDir 
+            ? path.join(settings.workspaceDir, fullTask.repo.split('/').pop()!)
+            : undefined);
+        
+        if (mainRepoPath && existsSync(mainRepoPath)) {
+          console.log(`🏗️  Creating isolated workspace for task ${fullTask.id} in repo ${fullTask.repo}`);
+          const workspaceInfo = await createWorkspace(fullTask.id, mainRepoPath);
+          workspacePath = workspaceInfo.path;
+          workspaceCreated = true;
+          console.log(`🏗️  Workspace created at: ${workspacePath}`);
+        } else {
+          console.warn(`⚠️  Could not resolve repo path for ${fullTask.repo}, using fallback workspace method`);
+        }
+      } catch (workspaceError) {
+        console.error(`⚠️  Failed to create isolated workspace: ${workspaceError}`);
+        // Continue without workspace - will fall back to settings-based directory
+      }
+    }
+
     // Check task type and handle accordingly
     let output: string;
     let success: boolean;
@@ -1830,7 +1872,7 @@ async function processTask(task: Task): Promise<void> {
     
     if (isLgtmReviewerTask(persona)) {
       // Handle as lgtm automated review
-      const lgtmResult = await runLgtmAutoReview(fullTask);
+      const lgtmResult = await runLgtmAutoReview(fullTask, workspacePath);
       success = lgtmResult.success;
       output = lgtmResult.output;
       shouldAdvance = lgtmResult.shouldAdvance;
@@ -1842,7 +1884,7 @@ async function processTask(task: Task): Promise<void> {
       }
     } else if (isResearchTask(fullTask, persona)) {
       // Handle as research task - generate report
-      const researchResult = await processResearchTask(fullTask, persona);
+      const researchResult = await processResearchTask(fullTask, persona, workspacePath);
       success = researchResult.success;
       reportId = researchResult.reportId;
       output = success 
@@ -1850,7 +1892,7 @@ async function processTask(task: Task): Promise<void> {
         : `❌ Research task failed. Please check the task details and try again.`;
     } else {
       // Handle as regular development task
-      const aiResult = await spawnAISession(fullTask, persona);
+      const aiResult = await spawnAISession(fullTask, persona, workspacePath);
       output = aiResult.output;
       success = aiResult.success;
     }
@@ -2021,7 +2063,19 @@ async function processTask(task: Task): Promise<void> {
     });
   } finally {
     // Always remove session on completion (success, failure, or error)
-    removeActiveSession(task.id);
+    removeActiveSession(taskId);
+    
+    // Clean up isolated workspace if one was created
+    if (workspaceCreated && workspacePath) {
+      try {
+        console.log(`🧹 Cleaning up workspace: ${workspacePath}`);
+        await cleanupWorkspace(taskId, false, mainRepoPath);
+        console.log(`🧹 Workspace cleaned up for task ${taskId}`);
+      } catch (cleanupError) {
+        console.error(`⚠️  Failed to cleanup workspace for task ${taskId}:`, cleanupError);
+      }
+    }
+    
     await saveWorkerState();
   }
 }
@@ -2702,6 +2756,7 @@ export async function runWorker(): Promise<{ skipped: boolean; error?: string }>
 export async function startWorker(): Promise<void> {
   try {
     await ensureWorkerDirectories();
+    await initializeForgeWorkspaces(); // Initialize forge workspaces directory
     await loadWorkerState();
     await initializeTriggerSystem();
     
