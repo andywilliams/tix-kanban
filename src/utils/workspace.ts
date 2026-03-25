@@ -178,17 +178,16 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   const branchName = `feature/${taskId}-worktree`;
 
   try {
-    // Ensure main branch is up to date
-    console.log(`[workspace] Checking main branch in ${repoPath}`);
+    // Get the default branch name (usually main or master) without touching the working directory
+    console.log(`[workspace] Determining main branch in ${repoPath}`);
     
-    // Get the default branch name (usually main or master)
+    // Fetch latest refs from origin (non-destructive - doesn't modify working tree)
+    console.log(`[workspace] Fetching latest refs from origin`);
+    await execFile('git', ['fetch', 'origin'], { cwd: repoPath, timeout: 60000 });
+    
+    // Get the default branch name from origin
     let mainBranch = 'main';
     try {
-      const { stdout } = await execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD@{upstream}'], {
-        cwd: repoPath,
-      }).catch(() => ({ stdout: '' }));
-      
-      // Try to get the default branch from origin
       const { stdout: remoteRef } = await execFile('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
         cwd: repoPath,
       }).catch(() => ({ stdout: '' }));
@@ -201,27 +200,9 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
       console.log(`[workspace] Could not determine default branch, using 'main'`);
     }
 
-    // Check if we're on main, if not checkout main
-    const { stdout: currentBranch } = await execFile('git', ['branch', '--show-current'], {
-      cwd: repoPath,
-    });
-    
-    if (currentBranch.trim() !== mainBranch) {
-      console.log(`[workspace] Checking out ${mainBranch} in main repo`);
-      await execFile('git', ['checkout', mainBranch], { cwd: repoPath });
-    }
-
-    // Pull latest changes
-    console.log(`[workspace] Pulling latest changes on ${mainBranch}`);
-    try {
-      await execFile('git', ['pull', 'origin', mainBranch], { cwd: repoPath, timeout: 60000 });
-    } catch (pullError) {
-      console.warn(`[workspace] Git pull failed (may be up to date or no remote):`, pullError);
-    }
-
-    // Create the worktree
-    console.log(`[workspace] Creating worktree at ${workspacePath} with branch ${branchName}`);
-    await execFile('git', ['worktree', 'add', workspacePath, '-b', branchName], {
+    // Create the worktree directly from the remote ref (no checkout/pull needed on main repo)
+    console.log(`[workspace] Creating worktree at ${workspacePath} with branch ${branchName} from origin/${mainBranch}`);
+    await execFile('git', ['worktree', 'add', workspacePath, '-b', branchName, `origin/${mainBranch}`], {
       cwd: repoPath,
     });
 
@@ -251,10 +232,12 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
  * 
  * @param taskId - The task ID
  * @param keepBranch - Whether to keep the branch (default: false)
+ * @param repoPath - Optional path to the main repository (needed for branch deletion after worktree removal)
  */
 export async function cleanupWorkspace(
   taskId: string, 
-  keepBranch: boolean = false
+  keepBranch: boolean = false,
+  repoPath?: string
 ): Promise<void> {
   const workspacePath = getWorkspacePath(taskId);
   
@@ -282,10 +265,12 @@ export async function cleanupWorkspace(
     // Optionally delete the branch
     if (!keepBranch) {
       try {
-        console.log(`[workspace] Deleting branch ${branchName}`);
-        await execFile('git', ['branch', '-d', branchName], { cwd: workspacePath }).catch(() => {
+        // Use repoPath for branch deletion since workspacePath no longer exists after worktree remove
+        const branchDeleteCwd = repoPath || workspacePath;
+        console.log(`[workspace] Deleting branch ${branchName} from ${branchDeleteCwd}`);
+        await execFile('git', ['branch', '-d', branchName], { cwd: branchDeleteCwd }).catch(() => {
           // Try force delete if regular delete failed
-          return execFile('git', ['branch', '-D', branchName], { cwd: workspacePath });
+          return execFile('git', ['branch', '-D', branchName], { cwd: branchDeleteCwd });
         });
       } catch (branchError) {
         console.warn(`[workspace] Could not delete branch ${branchName}:`, branchError);

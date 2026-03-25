@@ -1547,7 +1547,7 @@ async function processResearchTask(task: Task, persona: Persona, workspacePath?:
       prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'web_search,web_fetch,Read'],
       (task as any).timeoutMs || 600000, // task override > 10 min default for research
-      undefined, // No specific working directory needed for research
+      workspacePath, // Use isolated workspace if available
       researchModel,
       'research'
     );
@@ -1759,6 +1759,7 @@ async function processTask(task: Task): Promise<void> {
   // Workspace variables - accessible in finally block for cleanup
   let workspacePath: string | undefined;
   let workspaceCreated = false;
+  let mainRepoPath: string | undefined; // Main repo path for workspace cleanup
   const taskId = task.id; // Save task ID for finally block
   
   try {
@@ -1844,7 +1845,7 @@ async function processTask(task: Task): Promise<void> {
       try {
         // Resolve the main repo path
         const settings = await getUserSettings();
-        const mainRepoPath = settings.repoPaths?.[fullTask.repo] 
+        mainRepoPath = settings.repoPaths?.[fullTask.repo] 
           || (settings.workspaceDir 
             ? path.join(settings.workspaceDir, fullTask.repo.split('/').pop()!)
             : undefined);
@@ -2069,7 +2070,7 @@ async function processTask(task: Task): Promise<void> {
     if (workspaceCreated && workspacePath) {
       try {
         console.log(`🧹 Cleaning up workspace: ${workspacePath}`);
-        await cleanupWorkspace(taskId);
+        await cleanupWorkspace(taskId, false, mainRepoPath);
         console.log(`🧹 Workspace cleaned up for task ${taskId}`);
       } catch (cleanupError) {
         console.error(`⚠️  Failed to cleanup workspace for task ${taskId}:`, cleanupError);
