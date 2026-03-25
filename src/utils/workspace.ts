@@ -165,27 +165,37 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   console.log(`[workspace] Pruning stale worktree metadata`);
   await execFile('git', ['worktree', 'prune'], { cwd: repoPath });
   
-  // Check if the branch already exists and delete it if so (always run this to handle orphaned branches)
-  // This handles the case where a previous cleanup removed the worktree directory but failed to delete the branch
-  const { stdout: branchList } = await execFile('git', ['branch', '--list', branchName], { cwd: repoPath });
-  if (branchList.trim()) {
-    console.log(`[workspace] Deleting orphaned branch ${branchName}`);
-    await execFile('git', ['branch', '-D', branchName], { cwd: repoPath });
-  } else {
-    console.log(`[workspace] Branch ${branchName} does not exist, proceeding`);
-  }
-  
-  // Check if workspace already exists
+  // Check if workspace directory already exists and clean it up FIRST
+  // This must happen before branch deletion because git refuses to delete a branch
+  // that's currently checked out in a worktree (even with -D)
   if (existsSync(workspacePath)) {
     console.log(`[workspace] Workspace already exists for task ${taskId}: ${workspacePath}`);
     const info = await getWorkspaceInfo(taskId, repoPath);
     if (info) return info;
-    
-    // If directory exists but not a valid worktree, clean it up first
+
+    // Clean up incomplete workspace: remove worktree first, then directory
     console.log(`[workspace] Cleaning up incomplete workspace for ${taskId}`);
-    
-    // Now remove the directory
+    try {
+      await execFile('git', ['worktree', 'remove', '--force', workspacePath], { cwd: repoPath });
+    } catch {
+      // Ignore - may not be a valid worktree
+      console.log(`[workspace] Could not remove worktree, proceeding with directory cleanup`);
+    }
     await fs.rm(workspacePath, { recursive: true, force: true });
+  }
+
+  // Now safe to delete orphaned branch (worktree is already removed)
+  const { stdout: branchList } = await execFile('git', ['branch', '--list', branchName], { cwd: repoPath });
+  if (branchList.trim()) {
+    console.log(`[workspace] Deleting orphaned branch ${branchName}`);
+    try {
+      await execFile('git', ['branch', '-D', branchName], { cwd: repoPath });
+    } catch {
+      // Ignore - branch may not exist or already deleted
+      console.log(`[workspace] Could not delete branch ${branchName}, may not exist`);
+    }
+  } else {
+    console.log(`[workspace] Branch ${branchName} does not exist, proceeding`);
   }
 
   // Verify main repo exists and has .git
