@@ -459,7 +459,7 @@ async function getPRCIState(repo: string, number: number): Promise<'SUCCESS' | '
     // fire prematurely when only some checks have completed.
     const { stdout } = await execFile(
       'gh',
-      ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '.statusCheckRollup[] | select(.conclusion != null) | .conclusion'],
+      ['pr', 'view', String(number), '--repo', repo, '--json', 'statusCheckRollup', '--jq', '(.statusCheckRollup // [])[] | select(.conclusion != null) | .conclusion'],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
 
