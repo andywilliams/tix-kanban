@@ -161,6 +161,20 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   const workspacePath = getWorkspacePath(taskId);
   const branchName = `feature/${taskId}-worktree`;
   
+  // Prune stale git worktree metadata from the main repo
+  console.log(`[workspace] Pruning stale worktree metadata`);
+  await execFile('git', ['worktree', 'prune'], { cwd: repoPath });
+  
+  // Check if the branch already exists and delete it if so (always run this to handle orphaned branches)
+  // This handles the case where a previous cleanup removed the worktree directory but failed to delete the branch
+  const { stdout: branchList } = await execFile('git', ['branch', '--list', branchName], { cwd: repoPath });
+  if (branchList.trim()) {
+    console.log(`[workspace] Deleting orphaned branch ${branchName}`);
+    await execFile('git', ['branch', '-D', branchName], { cwd: repoPath });
+  } else {
+    console.log(`[workspace] Branch ${branchName} does not exist, proceeding`);
+  }
+  
   // Check if workspace already exists
   if (existsSync(workspacePath)) {
     console.log(`[workspace] Workspace already exists for task ${taskId}: ${workspacePath}`);
@@ -169,19 +183,6 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
     
     // If directory exists but not a valid worktree, clean it up first
     console.log(`[workspace] Cleaning up incomplete workspace for ${taskId}`);
-    
-    // Prune stale git worktree metadata from the main repo
-    console.log(`[workspace] Pruning stale worktree metadata`);
-    await execFile('git', ['worktree', 'prune'], { cwd: repoPath });
-    
-    // Check if the branch already exists and delete it if so
-    const { stdout: branchList } = await execFile('git', ['branch', '--list', branchName], { cwd: repoPath });
-    if (branchList.trim()) {
-      console.log(`[workspace] Deleting existing branch ${branchName}`);
-      await execFile('git', ['branch', '-D', branchName], { cwd: repoPath });
-    } else {
-      console.log(`[workspace] Branch ${branchName} does not exist, proceeding`);
-    }
     
     // Now remove the directory
     await fs.rm(workspacePath, { recursive: true, force: true });
