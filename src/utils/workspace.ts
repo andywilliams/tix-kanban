@@ -176,7 +176,22 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
       console.log(`[workspace] Refreshing existing workspace from origin`);
       try {
         await execFile('git', ['fetch', 'origin'], { cwd: workspacePath });
-        await execFile('git', ['reset', '--hard', 'origin/main'], { cwd: workspacePath });
+        
+        // Detect the actual default branch dynamically
+        let mainBranch = 'main';
+        try {
+          const { stdout: remoteRef } = await execFile('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+            cwd: repoPath,
+          }).catch(() => ({ stdout: '' }));
+          
+          if (remoteRef) {
+            mainBranch = remoteRef.replace('refs/remotes/origin/', '').trim();
+          }
+        } catch {
+          console.log(`[workspace] Could not determine default branch, using 'main'`);
+        }
+        
+        await execFile('git', ['reset', '--hard', `origin/${mainBranch}`], { cwd: workspacePath });
       } catch (err) {
         console.log(`[workspace] Could not refresh workspace, using existing: ${err}`);
       }
@@ -298,9 +313,9 @@ export async function cleanupWorkspace(
       branchName = `feature/${taskId}-worktree`;
     }
 
-    // Remove the worktree
+    // Remove the worktree (cwd must be main repo, not workspace)
     console.log(`[workspace] Removing worktree at ${workspacePath}`);
-    await execFile('git', ['worktree', 'remove', workspacePath, '--force']);
+    await execFile('git', ['worktree', 'remove', workspacePath, '--force'], { cwd: repoPath });
 
     // Optionally delete the branch
     if (!keepBranch) {
