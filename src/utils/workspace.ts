@@ -159,6 +159,7 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   await ensureWorkspacesDir();
   
   const workspacePath = getWorkspacePath(taskId);
+  const branchName = `feature/${taskId}-worktree`;
   
   // Check if workspace already exists
   if (existsSync(workspacePath)) {
@@ -168,6 +169,21 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
     
     // If directory exists but not a valid worktree, clean it up first
     console.log(`[workspace] Cleaning up incomplete workspace for ${taskId}`);
+    
+    // Prune stale git worktree metadata from the main repo
+    console.log(`[workspace] Pruning stale worktree metadata`);
+    await execFile('git', ['worktree', 'prune'], { cwd: repoPath });
+    
+    // Check if the branch already exists and delete it if so
+    const { stdout: branchList } = await execFile('git', ['branch', '--list', branchName], { cwd: repoPath });
+    if (branchList.trim()) {
+      console.log(`[workspace] Deleting existing branch ${branchName}`);
+      await execFile('git', ['branch', '-D', branchName], { cwd: repoPath });
+    } else {
+      console.log(`[workspace] Branch ${branchName} does not exist, proceeding`);
+    }
+    
+    // Now remove the directory
     await fs.rm(workspacePath, { recursive: true, force: true });
   }
 
@@ -179,8 +195,6 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   if (!existsSync(path.join(repoPath, '.git'))) {
     throw new Error(`Not a git repository: ${repoPath}`);
   }
-
-  const branchName = `feature/${taskId}-worktree`;
 
   try {
     // Get the default branch name (usually main or master) without touching the working directory
