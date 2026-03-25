@@ -255,6 +255,8 @@ export default function ChatPanel({
     onSendMessage(currentChannel.id, messageInput.trim(), replyToMessage?.id);
     setMessageInput('');
     setReplyToMessage(null);
+    // Restore focus to input after sending so user can keep typing (or dictating)
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -78,6 +78,8 @@ export function PersonaChatPage({ currentUser = 'User' }: PersonaChatPageProps) 
     if (!content || sending || !selectedPersonaId) return;
     setInputValue('');
     await sendMessage(content);
+    // Restore focus to input after sending so user can keep typing (or dictating)
+    setTimeout(() => inputRef.current?.focus(), 0);
   }, [inputValue, sending, selectedPersonaId, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
