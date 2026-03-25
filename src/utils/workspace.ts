@@ -33,6 +33,7 @@ export function getWorkspacePath(taskId: string): string {
 
 /**
  * Check if a workspace already exists for a task
+ * @internal - Not currently used, reserved for future workspace management features
  */
 export async function workspaceExists(taskId: string): Promise<boolean> {
   const workspacePath = getWorkspacePath(taskId);
@@ -41,8 +42,11 @@ export async function workspaceExists(taskId: string): Promise<boolean> {
 
 /**
  * Get workspace info if it exists
+ * 
+ * @param taskId - The task ID
+ * @param mainRepoPath - Optional path to the main repository (if known)
  */
-export async function getWorkspaceInfo(taskId: string): Promise<WorkspaceInfo | null> {
+export async function getWorkspaceInfo(taskId: string, mainRepoPath?: string): Promise<WorkspaceInfo | null> {
   const workspacePath = getWorkspacePath(taskId);
   
   if (!existsSync(workspacePath)) {
@@ -59,7 +63,7 @@ export async function getWorkspaceInfo(taskId: string): Promise<WorkspaceInfo | 
       path: workspacePath,
       branch: branch.trim(),
       taskId,
-      repoPath: workspacePath,
+      repoPath: mainRepoPath ?? workspacePath,
     };
   } catch {
     return null;
@@ -68,6 +72,7 @@ export async function getWorkspaceInfo(taskId: string): Promise<WorkspaceInfo | 
 
 /**
  * List all existing workspaces
+ * @internal - Not currently used, reserved for future workspace management features
  */
 export async function listWorkspaces(): Promise<WorkspaceInfo[]> {
   await ensureWorkspacesDir();
@@ -158,7 +163,7 @@ export async function createWorkspace(taskId: string, repoPath: string): Promise
   // Check if workspace already exists
   if (existsSync(workspacePath)) {
     console.log(`[workspace] Workspace already exists for task ${taskId}: ${workspacePath}`);
-    const info = await getWorkspaceInfo(taskId);
+    const info = await getWorkspaceInfo(taskId, repoPath);
     if (info) return info;
     
     // If directory exists but not a valid worktree, clean it up first
@@ -286,7 +291,7 @@ export async function cleanupWorkspace(
 
 /**
  * Ensure the main repository is clean (no uncommitted changes, on main branch)
- * 
+ * @internal - Not currently used, reserved for future workspace management features
  * @param repoPath - Local path to the repository
  */
 export async function ensureMainRepoClean(repoPath: string): Promise<void> {
@@ -347,6 +352,7 @@ export async function ensureMainRepoClean(repoPath: string): Promise<void> {
 
 /**
  * Execute git commands in a workspace with proper error handling
+ * @internal - Not currently used, reserved for future workspace management features
  */
 export async function gitPush(
   workspacePath: string, 
@@ -361,6 +367,7 @@ export async function gitPush(
 
 /**
  * Get the remote URL for a repository
+ * @internal - Not currently used, reserved for future workspace management features
  */
 export async function getRemoteUrl(repoPath: string): Promise<string | null> {
   try {

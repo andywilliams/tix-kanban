@@ -49,7 +49,6 @@ import {
 import {
   createWorkspace,
   cleanupWorkspace,
-  resolveRepoPath,
   initializeForgeWorkspaces,
 } from '../utils/workspace.js';
 
