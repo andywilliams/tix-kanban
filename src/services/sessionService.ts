@@ -216,9 +216,6 @@ async function truncateSession(
   // Build a simple truncation summary
   const summary = `[Compacted ${messagesToSummarize.length} messages due to compaction failure. Original message count: ${messagesToSummarize.length} messages]`;
   
-  // Calculate tokens freed (just count what we're removing)
-  const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
-  
   // Create summary message
   const summaryMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
@@ -227,6 +224,9 @@ async function truncateSession(
   // Compute token count on the FULL content that's actually stored (with prefix)
   const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
   const summaryTokenCount = countTokens(fullContent);
+
+  // Calculate tokens freed (net value after accounting for summary overhead)
+  const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount;
   
   await db.insert(messages).values({
     id: summaryMessageId,
