@@ -2,7 +2,7 @@ import { db } from '../db/index.js';
 import { sessions, messages, compactions, personas } from '../db/schema.js';
 import { eq, desc, asc, sql } from 'drizzle-orm';
 import { encoding_for_model, Tiktoken } from 'tiktoken';
-import Anthropic from '@anthropic-ai/sdk';
+import { spawn } from 'child_process';
 
 // Default context window size (tokens)
 const DEFAULT_CONTEXT_LIMIT = 100000;
@@ -152,6 +152,144 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
 }
 
 /**
+ * Summarize conversation using Claude Code CLI (OAuth auth, no API key needed)
+ * Uses stdin for prompt to avoid ARG_MAX limits on large prompts
+ */
+async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // NOTE: This is a fourth copy of the Claude CLI spawn pattern. See:
+    // - executeClaudeWithStdin() in src/server/worker.ts
+    // - executeClaudeWithStdin() in src/server/auto-review.ts
+    // - executeClaudeWithStdin() in src/server/pr-comment-resolver.ts
+    // These all follow the same pattern: spawn Claude with -p flag, pipe prompt via stdin,
+    // collect stdout/stderr, handle timeout. Consider extracting to a shared utility.
+    // Kept separate here because sessionService.ts has different dependencies and this
+    // function is tightly coupled to session compaction logic.
+    const claude = spawn('claude', [
+      '-p',
+      '--max-turns', '1'
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    // Timeout increased from 60s to 180s to handle large conversation summarization (80K+ tokens)
+    // Other CLI timeouts in codebase: auto-review.ts=200s, agent-chat.ts=90s, direct-execution.ts=20m
+    const timeout = setTimeout(() => {
+      claude.kill('SIGKILL');
+      reject(new Error('Claude CLI timed out after 180s'));
+    }, 180000);
+
+    claude.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    claude.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    claude.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0 && stdout.trim()) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(`Claude CLI exited with code ${code}: ${stderr || 'No output'}`));
+      }
+    });
+
+    claude.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    // Send prompt via stdin to avoid ARG_MAX limits (issue #2)
+    claude.stdin.write(prompt);
+    claude.stdin.end();
+  });
+}
+
+/**
+ * Graceful fallback: truncate oldest messages when Claude CLI fails
+ * TODO: Code duplication - this function and compactSession() share significant logic
+ * (message deletion, compaction record creation, session stats updates). Should refactor
+ * to use a shared utility for the common DB operations.
+ */
+async function truncateSession(
+  sessionId: string,
+  messagesToSummarize: Array<{ id: string; role: string; content: string; tokenCount: number | null; createdAt: Date | null }>,
+  messagesToKeep: Array<{ id: string; role: string; content: string; tokenCount: number | null; createdAt: Date | null }>
+): Promise<string> {
+  // Build a simple truncation summary
+  const summary = `[Compacted ${messagesToSummarize.length} messages due to compaction failure. Original message count: ${messagesToSummarize.length} messages]`;
+  
+  // Create summary message
+  const summaryMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
+  const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1000);
+  
+  // Compute token count on the FULL content that's actually stored (with prefix)
+  const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
+  const summaryTokenCount = countTokens(fullContent);
+
+  // Calculate tokens freed (net value after accounting for summary overhead)
+  const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount;
+  
+  await db.insert(messages).values({
+    id: summaryMessageId,
+    sessionId,
+    role: 'system',
+    content: fullContent,
+    tokenCount: summaryTokenCount,
+    createdAt: summaryCreatedAt,
+    metadataJson: JSON.stringify({ 
+      compacted: true,
+      originalMessageCount: messagesToSummarize.length,
+      tokensFreed,
+      fallback: true
+    }),
+  });
+
+  // Delete old messages
+  const messageIdsToDelete = messagesToSummarize.map(m => m.id);
+  for (const msgId of messageIdsToDelete) {
+    await db.delete(messages).where(eq(messages.id, msgId));
+  }
+
+  // Create compaction record
+  const compactionId = `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  await db.insert(compactions).values({
+    id: compactionId,
+    sessionId,
+    summary,
+    messagesCompacted: messagesToSummarize.length,
+    tokensFreed,
+  });
+
+  // Update session stats
+  const session = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (session.length > 0) {
+    // Note: tokensFreed already accounts for summaryTokenCount overhead, so just subtract it
+    const newTokenCount = (session[0].tokenCount || 0) - tokensFreed;
+    const newCompactionCount = (session[0].compactionCount || 0) + 1;
+    await db
+      .update(sessions)
+      .set({
+        tokenCount: newTokenCount,
+        compactionCount: newCompactionCount,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+
+  console.log(`✅ Session ${sessionId} truncated: ${messagesToSummarize.length} messages removed (fallback mode)`);
+  
+  return summary;
+}
+
+/**
  * Compact a session by summarizing old messages
  */
 export async function compactSession(sessionId: string): Promise<void> {
@@ -173,25 +311,34 @@ export async function compactSession(sessionId: string): Promise<void> {
 
   const summaryPrompt = `Summarize the key decisions, outcomes, and context from these messages. Focus on what's important for maintaining conversational continuity. Be concise but preserve critical details.\n\n${conversationText}`;
 
+  let summary = '';
+  let usedFallback = false;
+  
   try {
-    // Use Claude API to generate summary
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [
-        {
-          role: 'user',
-          content: summaryPrompt,
-        },
-      ],
-    });
-
-    const summary = response.content[0].type === 'text' ? response.content[0].text : '';
+    // Use Claude Code CLI to generate summary (works with OAuth, no API key needed)
+    summary = await summarizeWithClaudeCLI(summaryPrompt);
+  } catch (cliError) {
+    // Claude Code CLI failed - try graceful fallback: truncate oldest messages
+    console.error(`⚠️ Claude Code CLI compaction failed for ${sessionId}:`, cliError);
+    console.log(`🔄 Falling back to truncation compaction...`);
     
+    try {
+      summary = await truncateSession(sessionId, messagesToSummarize, messagesToKeep);
+      usedFallback = true;
+    } catch (truncateError) {
+      console.error(`❌ Truncation fallback also failed:`, truncateError);
+      throw cliError; // Re-throw original error if fallback fails
+    }
+  }
+  
+  // If we used fallback (truncateSession), it already did all the DB operations
+  // so we just need to return here
+  if (usedFallback) {
+    return;
+  }
+    
+  // Normal Claude CLI path: build summary and do DB operations
+  try {
     // Build full content with prefix (same as what's stored in DB)
     const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
     const summaryTokenCount = countTokens(fullContent);
