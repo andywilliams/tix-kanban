@@ -157,10 +157,10 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
  */
 async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    // TODO: Extract to shared utility (same pattern exists in worker.ts, auto-review.ts, pr-comment-resolver.ts)
     const claude = spawn('claude', [
       '-p',
-      '--max-turns', '1',
-      '--dangerously-skip-permissions'
+      '--max-turns', '1'
     ], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env }
