@@ -2,7 +2,7 @@ import { db } from '../db/index.js';
 import { sessions, messages, compactions, personas } from '../db/schema.js';
 import { eq, desc, asc, sql } from 'drizzle-orm';
 import { encoding_for_model, Tiktoken } from 'tiktoken';
-import Anthropic from '@anthropic-ai/sdk';
+import { spawn } from 'child_process';
 
 // Default context window size (tokens)
 const DEFAULT_CONTEXT_LIMIT = 100000;
@@ -152,6 +152,125 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
 }
 
 /**
+ * Summarize conversation using Claude Code CLI (OAuth auth, no API key needed)
+ */
+async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const claude = spawn('claude', [
+      '-p',
+      prompt,
+      '--max-turns', '1',
+      '--dangerously-skip-permissions'
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    const timeout = setTimeout(() => {
+      claude.kill('SIGKILL');
+      reject(new Error('Claude CLI timed out after 60s'));
+    }, 60000);
+
+    claude.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    claude.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    claude.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
+      }
+    });
+
+    claude.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
+
+/**
+ * Graceful fallback: truncate oldest messages when Claude CLI fails
+ */
+async function truncateSession(
+  sessionId: string,
+  messagesToSummarize: Array<{ id: string; role: string; content: string; tokenCount: number | null; createdAt: Date | null }>,
+  messagesToKeep: Array<{ id: string; role: string; content: string; tokenCount: number | null; createdAt: Date | null }>
+): Promise<string> {
+  // Build a simple truncation summary
+  const summary = `[Compacted ${messagesToSummarize.length} messages due to compaction failure. Original message count: ${messagesToSummarize.length} messages]`;
+  
+  // Calculate tokens freed (just count what we're removing)
+  const tokensFreed = messagesToSummarize.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
+  
+  // Create summary message
+  const summaryMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
+  const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1000);
+  
+  const summaryTokenCount = countTokens(summary);
+  
+  await db.insert(messages).values({
+    id: summaryMessageId,
+    sessionId,
+    role: 'system',
+    content: `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`,
+    tokenCount: summaryTokenCount,
+    createdAt: summaryCreatedAt,
+    metadataJson: JSON.stringify({ 
+      compacted: true,
+      originalMessageCount: messagesToSummarize.length,
+      tokensFreed,
+      fallback: true
+    }),
+  });
+
+  // Delete old messages
+  const messageIdsToDelete = messagesToSummarize.map(m => m.id);
+  for (const msgId of messageIdsToDelete) {
+    await db.delete(messages).where(eq(messages.id, msgId));
+  }
+
+  // Create compaction record
+  const compactionId = `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  await db.insert(compactions).values({
+    id: compactionId,
+    sessionId,
+    summary,
+    messagesCompacted: messagesToSummarize.length,
+    tokensFreed,
+  });
+
+  // Update session stats
+  const session = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (session.length > 0) {
+    const newTokenCount = (session[0].tokenCount || 0) - tokensFreed + summaryTokenCount;
+    const newCompactionCount = (session[0].compactionCount || 0) + 1;
+    await db
+      .update(sessions)
+      .set({
+        tokenCount: newTokenCount,
+        compactionCount: newCompactionCount,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+
+  console.log(`✅ Session ${sessionId} truncated: ${messagesToSummarize.length} messages removed (fallback mode)`);
+  
+  return summary;
+}
+
+/**
  * Compact a session by summarizing old messages
  */
 export async function compactSession(sessionId: string): Promise<void> {
@@ -173,25 +292,34 @@ export async function compactSession(sessionId: string): Promise<void> {
 
   const summaryPrompt = `Summarize the key decisions, outcomes, and context from these messages. Focus on what's important for maintaining conversational continuity. Be concise but preserve critical details.\n\n${conversationText}`;
 
+  let summary = '';
+  let usedFallback = false;
+  
   try {
-    // Use Claude API to generate summary
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [
-        {
-          role: 'user',
-          content: summaryPrompt,
-        },
-      ],
-    });
-
-    const summary = response.content[0].type === 'text' ? response.content[0].text : '';
+    // Use Claude Code CLI to generate summary (works with OAuth, no API key needed)
+    summary = await summarizeWithClaudeCLI(summaryPrompt);
+  } catch (cliError) {
+    // Claude Code CLI failed - try graceful fallback: truncate oldest messages
+    console.error(`⚠️ Claude Code CLI compaction failed for ${sessionId}:`, cliError);
+    console.log(`🔄 Falling back to truncation compaction...`);
     
+    try {
+      summary = await truncateSession(sessionId, messagesToSummarize, messagesToKeep);
+      usedFallback = true;
+    } catch (truncateError) {
+      console.error(`❌ Truncation fallback also failed:`, truncateError);
+      throw cliError; // Re-throw original error if fallback fails
+    }
+  }
+  
+  // If we used fallback (truncateSession), it already did all the DB operations
+  // so we just need to return here
+  if (usedFallback) {
+    return;
+  }
+    
+  // Normal Claude CLI path: build summary and do DB operations
+  try {
     // Build full content with prefix (same as what's stored in DB)
     const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
     const summaryTokenCount = countTokens(fullContent);
