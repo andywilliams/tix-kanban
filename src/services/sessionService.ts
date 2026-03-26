@@ -184,10 +184,10 @@ async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
 
     claude.on('close', (code) => {
       clearTimeout(timeout);
-      if (code === 0) {
+      if (code === 0 && stdout.trim()) {
         resolve(stdout.trim());
       } else {
-        reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
+        reject(new Error(`Claude CLI exited with code ${code}: ${stderr || 'No output'}`));
       }
     });
 
@@ -204,6 +204,9 @@ async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
 
 /**
  * Graceful fallback: truncate oldest messages when Claude CLI fails
+ * TODO: Code duplication - this function and compactSession() share significant logic
+ * (message deletion, compaction record creation, session stats updates). Should refactor
+ * to use a shared utility for the common DB operations.
  */
 async function truncateSession(
   sessionId: string,
