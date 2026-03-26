@@ -157,7 +157,14 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
  */
 async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    // TODO: Extract to shared utility (same pattern exists in worker.ts, auto-review.ts, pr-comment-resolver.ts)
+    // NOTE: This is a fourth copy of the Claude CLI spawn pattern. See:
+    // - executeClaudeWithStdin() in src/server/worker.ts
+    // - executeClaudeWithStdin() in src/server/auto-review.ts
+    // - executeClaudeWithStdin() in src/server/pr-comment-resolver.ts
+    // These all follow the same pattern: spawn Claude with -p flag, pipe prompt via stdin,
+    // collect stdout/stderr, handle timeout. Consider extracting to a shared utility.
+    // Kept separate here because sessionService.ts has different dependencies and this
+    // function is tightly coupled to session compaction logic.
     const claude = spawn('claude', [
       '-p',
       '--max-turns', '1'
@@ -169,10 +176,12 @@ async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
     let stdout = '';
     let stderr = '';
 
+    // Timeout increased from 60s to 180s to handle large conversation summarization (80K+ tokens)
+    // Other CLI timeouts in codebase: auto-review.ts=200s, agent-chat.ts=90s, direct-execution.ts=20m
     const timeout = setTimeout(() => {
       claude.kill('SIGKILL');
-      reject(new Error('Claude CLI timed out after 60s'));
-    }, 60000);
+      reject(new Error('Claude CLI timed out after 180s'));
+    }, 180000);
 
     claude.stdout.on('data', (data) => {
       stdout += data.toString();
