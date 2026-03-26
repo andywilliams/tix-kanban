@@ -153,12 +153,12 @@ export async function getSessionHistory(sessionId: string, limit?: number): Prom
 
 /**
  * Summarize conversation using Claude Code CLI (OAuth auth, no API key needed)
+ * Uses stdin for prompt to avoid ARG_MAX limits on large prompts
  */
 async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const claude = spawn('claude', [
       '-p',
-      prompt,
       '--max-turns', '1',
       '--dangerously-skip-permissions'
     ], {
@@ -195,6 +195,10 @@ async function summarizeWithClaudeCLI(prompt: string): Promise<string> {
       clearTimeout(timeout);
       reject(error);
     });
+
+    // Send prompt via stdin to avoid ARG_MAX limits (issue #2)
+    claude.stdin.write(prompt);
+    claude.stdin.end();
   });
 }
 
@@ -217,13 +221,15 @@ async function truncateSession(
   const oldestKeptMessageCreatedAt = messagesToKeep[0]?.createdAt || new Date();
   const summaryCreatedAt = new Date(oldestKeptMessageCreatedAt.getTime() - 1000);
   
-  const summaryTokenCount = countTokens(summary);
+  // Compute token count on the FULL content that's actually stored (with prefix)
+  const fullContent = `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`;
+  const summaryTokenCount = countTokens(fullContent);
   
   await db.insert(messages).values({
     id: summaryMessageId,
     sessionId,
     role: 'system',
-    content: `[COMPACTED HISTORY — ${messagesToSummarize.length} messages]\n\n${summary}`,
+    content: fullContent,
     tokenCount: summaryTokenCount,
     createdAt: summaryCreatedAt,
     metadataJson: JSON.stringify({ 
