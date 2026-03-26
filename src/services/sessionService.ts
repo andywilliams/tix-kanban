@@ -262,7 +262,8 @@ async function truncateSession(
   // Update session stats
   const session = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
   if (session.length > 0) {
-    const newTokenCount = (session[0].tokenCount || 0) - tokensFreed + summaryTokenCount;
+    // Note: tokensFreed already accounts for summaryTokenCount overhead, so just subtract it
+    const newTokenCount = (session[0].tokenCount || 0) - tokensFreed;
     const newCompactionCount = (session[0].compactionCount || 0) + 1;
     await db
       .update(sessions)
