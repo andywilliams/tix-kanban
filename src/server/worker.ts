@@ -50,6 +50,7 @@ import {
   createWorkspace,
   cleanupWorkspace,
   initializeForgeWorkspaces,
+  syncReviewerWorkspace,
 } from '../utils/workspace.js';
 
 
@@ -1864,12 +1865,29 @@ async function processTask(task: Task): Promise<void> {
       }
     }
 
+    // For reviewer personas, sync workspace to the PR branch before execution
+    if (workspacePath && (isLgtmReviewerTask(persona) || isCodeReviewTask(fullTask, persona))) {
+      const prBranches = await getPRBranchInfo(fullTask.links);
+      if (prBranches.length > 0) {
+        const prBranch = prBranches[0].branch;
+        console.log(`🔄 Syncing reviewer workspace to PR branch: ${prBranch}`);
+        const synced = await syncReviewerWorkspace(workspacePath, prBranch);
+        if (synced) {
+          console.log(`✅ Reviewer workspace synced to branch '${prBranch}'`);
+        } else {
+          console.warn(`⚠️ Could not sync reviewer workspace to branch '${prBranch}', proceeding with default branch`);
+        }
+      } else {
+        console.log(`ℹ️ No PR branch info found for reviewer task, using default workspace`);
+      }
+    }
+
     // Check task type and handle accordingly
     let output: string;
     let success: boolean;
     let reportId: string | undefined;
     let shouldAdvance: boolean = true; // For lgtm-reviewer: controls pipeline advancement
-    
+
     if (isLgtmReviewerTask(persona)) {
       // Handle as lgtm automated review
       const lgtmResult = await runLgtmAutoReview(fullTask, workspacePath);

@@ -431,6 +431,72 @@ export async function getRemoteUrl(repoPath: string): Promise<string | null> {
 }
 
 /**
+ * Sync a reviewer's workspace by ensuring the target repo is available
+ * and the correct PR branch is checked out.
+ *
+ * Unlike createWorkspace (which creates a fresh worktree from main),
+ * this fetches the latest and checks out the specific PR branch so
+ * reviewers see exactly the code under review.
+ *
+ * @param workspacePath - Path to the existing workspace (from createWorkspace)
+ * @param branch - The PR branch name to check out
+ * @returns true if sync succeeded, false otherwise
+ */
+export async function syncReviewerWorkspace(
+  workspacePath: string,
+  branch: string,
+): Promise<boolean> {
+  if (!existsSync(workspacePath)) {
+    console.error(`[workspace] Reviewer workspace does not exist: ${workspacePath}`);
+    return false;
+  }
+
+  try {
+    // Fetch latest refs so the PR branch is available locally
+    console.log(`[workspace] Fetching latest refs for reviewer workspace`);
+    await execFile('git', ['fetch', 'origin'], {
+      cwd: workspacePath,
+      timeout: 60000,
+    });
+
+    // Check if the branch exists on the remote
+    const { stdout: remoteBranches } = await execFile(
+      'git',
+      ['ls-remote', '--heads', 'origin', branch],
+      { cwd: workspacePath, timeout: 15000 }
+    );
+
+    if (!remoteBranches.trim()) {
+      console.error(`[workspace] Branch '${branch}' does not exist on remote`);
+      return false;
+    }
+
+    // Checkout the PR branch
+    console.log(`[workspace] Checking out PR branch: ${branch}`);
+    try {
+      await execFile('git', ['checkout', branch], { cwd: workspacePath });
+    } catch {
+      // Branch may not exist locally yet — create tracking branch
+      await execFile('git', ['checkout', '-b', branch, `origin/${branch}`], {
+        cwd: workspacePath,
+      });
+    }
+
+    // Pull latest changes on the branch
+    await execFile('git', ['pull', 'origin', branch], {
+      cwd: workspacePath,
+      timeout: 60000,
+    });
+
+    console.log(`[workspace] Reviewer workspace synced to branch '${branch}' at ${workspacePath}`);
+    return true;
+  } catch (error) {
+    console.error(`[workspace] Failed to sync reviewer workspace: ${error}`);
+    return false;
+  }
+}
+
+/**
  * Initialize a new repository as a worktree-friendly repo
  * (Creates the .forge/workspaces directory structure)
  */
