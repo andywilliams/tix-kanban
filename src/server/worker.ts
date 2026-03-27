@@ -357,7 +357,7 @@ You have access to the tix-kanban API running at http://localhost:3001/api
 
 ⚡ **IMPORTANT:** You are running in agentic mode with file editing and command execution enabled!
 - Use the Edit tool to modify files
-- Use the exec tool to run git commands, tests, builds, etc.
+- Use the Bash tool to run git commands, tests, builds, etc.
 - You can actually DO the work described in the task, not just describe it
 
 🚨 **GITHUB RATE LIMIT AWARENESS:**
@@ -1358,7 +1358,7 @@ async function spawnAISession(task: Task, persona: Persona, workspacePath?: stri
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
-      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,exec,Read,Write'],
+      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write'],
       (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,
       model,
