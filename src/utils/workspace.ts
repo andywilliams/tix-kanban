@@ -302,16 +302,8 @@ export async function cleanupWorkspace(
   }
 
   try {
-    // Get branch name before removing worktree
-    let branchName: string;
-    try {
-      const { stdout } = await execFile('git', ['branch', '--show-current'], {
-        cwd: workspacePath,
-      });
-      branchName = stdout.trim();
-    } catch {
-      branchName = `feature/${taskId}-worktree`;
-    }
+    // Get branch name - always derive from taskId since worktree may have been synced to PR branch
+    const branchName = `feature/${taskId}-worktree`;
 
     // Remove the worktree (cwd must be main repo, not workspace)
     console.log(`[workspace] Removing worktree at ${workspacePath}`);
@@ -427,6 +419,92 @@ export async function getRemoteUrl(repoPath: string): Promise<string | null> {
     return stdout.trim();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Sync a reviewer's workspace by ensuring the target repo is available
+ * and the correct PR branch is checked out.
+ *
+ * Unlike createWorkspace (which creates a fresh worktree from main),
+ * this fetches the latest and checks out the specific PR branch so
+ * reviewers see exactly the code under review.
+ *
+ * @param workspacePath - Path to the existing workspace (from createWorkspace)
+ * @param branch - The PR branch name to check out
+ * @returns true if sync succeeded, false otherwise
+ */
+export async function syncReviewerWorkspace(
+  workspacePath: string,
+  branch: string,
+): Promise<boolean> {
+  if (!existsSync(workspacePath)) {
+    console.error(`[workspace] Reviewer workspace does not exist: ${workspacePath}`);
+    return false;
+  }
+
+  // Capture original branch before any checkout so we can restore on failure
+  let originalBranch: string;
+  try {
+    const { stdout } = await execFile('git', ['branch', '--show-current'], {
+      cwd: workspacePath,
+    });
+    originalBranch = stdout.trim();
+  } catch {
+    originalBranch = '';
+  }
+
+  try {
+    // Fetch latest refs so the PR branch is available locally
+    console.log(`[workspace] Fetching latest refs for reviewer workspace`);
+    await execFile('git', ['fetch', 'origin'], {
+      cwd: workspacePath,
+      timeout: 60000,
+    });
+
+    // Check if the branch exists on the remote
+    const { stdout: remoteBranches } = await execFile(
+      'git',
+      ['ls-remote', '--heads', 'origin', branch],
+      { cwd: workspacePath, timeout: 15000 }
+    );
+
+    if (!remoteBranches.trim()) {
+      console.error(`[workspace] Branch '${branch}' does not exist on remote`);
+      return false;
+    }
+
+    // Checkout the PR branch
+    console.log(`[workspace] Checking out PR branch: ${branch}`);
+    try {
+      await execFile('git', ['checkout', branch], { cwd: workspacePath });
+    } catch {
+      // Branch may not exist locally yet — create tracking branch
+      await execFile('git', ['checkout', '-b', branch, `origin/${branch}`], {
+        cwd: workspacePath,
+      });
+    }
+
+    // Pull latest changes on the branch
+    await execFile('git', ['pull', 'origin', branch], {
+      cwd: workspacePath,
+      timeout: 60000,
+    });
+
+    console.log(`[workspace] Reviewer workspace synced to branch '${branch}' at ${workspacePath}`);
+    return true;
+  } catch (error) {
+    console.error(`[workspace] Failed to sync reviewer workspace: ${error}`);
+    // Restore original branch to avoid leaving workspace in dirty state
+    if (originalBranch) {
+      try {
+        await execFile('git', ['checkout', originalBranch], { cwd: workspacePath });
+        console.log(`[workspace] Restored workspace to original branch '${originalBranch}'`);
+      } catch (restoreError) {
+        console.warn(`[workspace] Could not restore original branch '${originalBranch}': ${restoreError}`);
+      }
+    }
+    return false;
   }
 }
 
