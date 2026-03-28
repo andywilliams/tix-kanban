@@ -302,16 +302,8 @@ export async function cleanupWorkspace(
   }
 
   try {
-    // Get branch name before removing worktree
-    let branchName: string;
-    try {
-      const { stdout } = await execFile('git', ['branch', '--show-current'], {
-        cwd: workspacePath,
-      });
-      branchName = stdout.trim();
-    } catch {
-      branchName = `feature/${taskId}-worktree`;
-    }
+    // Get branch name - always derive from taskId since worktree may have been synced to PR branch
+    const branchName = `feature/${taskId}-worktree`;
 
     // Remove the worktree (cwd must be main repo, not workspace)
     console.log(`[workspace] Removing worktree at ${workspacePath}`);
@@ -451,6 +443,17 @@ export async function syncReviewerWorkspace(
     return false;
   }
 
+  // Capture original branch before any checkout so we can restore on failure
+  let originalBranch: string;
+  try {
+    const { stdout } = await execFile('git', ['branch', '--show-current'], {
+      cwd: workspacePath,
+    });
+    originalBranch = stdout.trim();
+  } catch {
+    originalBranch = '';
+  }
+
   try {
     // Fetch latest refs so the PR branch is available locally
     console.log(`[workspace] Fetching latest refs for reviewer workspace`);
@@ -492,6 +495,15 @@ export async function syncReviewerWorkspace(
     return true;
   } catch (error) {
     console.error(`[workspace] Failed to sync reviewer workspace: ${error}`);
+    // Restore original branch to avoid leaving workspace in dirty state
+    if (originalBranch) {
+      try {
+        await execFile('git', ['checkout', originalBranch], { cwd: workspacePath });
+        console.log(`[workspace] Restored workspace to original branch '${originalBranch}'`);
+      } catch (restoreError) {
+        console.warn(`[workspace] Could not restore original branch '${originalBranch}': ${restoreError}`);
+      }
+    }
     return false;
   }
 }
