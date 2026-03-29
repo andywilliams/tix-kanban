@@ -105,15 +105,17 @@ function estimateTaskComplexity(task: Task): ComplexityResult {
   }
   
   // Count implementation steps (bullets, numbered lists, action verbs)
+  // Use Math.max to avoid double-counting bullets that also contain action verbs
   const stepPatterns = [
     /^[•\-\*]\s+/gm,
     /^\d+[.)]\s+/gm,
     /\b(?:implement|add|create|update|fix|build|integrate|configure|setup|refactor|rewrite|enable|disable|remove|delete)\b/gi,
   ];
-  for (const pattern of stepPatterns) {
+  const stepCounts = stepPatterns.map(pattern => {
     const matches = desc.match(pattern);
-    if (matches) stepCount += matches.length;
-  }
+    return matches ? matches.length : 0;
+  });
+  stepCount = Math.max(...stepCounts);
   
   // Calculate complexity score
   // Thresholds: >3 files or >4 steps = too complex for single worker session
@@ -1838,12 +1840,6 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
 
-    // Check for resume comment - if there's a timeout progress note, resume from there
-    const existingComments = fullTask.comments || [];
-    const timeoutComment = existingComments.find(c => 
-      c.body?.includes('[TIMEOUT_PROGRESS]') || c.body?.includes('timeout') || c.body?.includes('What was done:')
-    );
-
     // Estimate task complexity before starting
     const complexity = estimateTaskComplexity(fullTask);
     if (complexity.isComplex) {
@@ -2010,7 +2006,7 @@ async function processTask(task: Task): Promise<void> {
       const errorMsg = executionError.message || String(executionError);
       const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('timeout') || 
                         errorMsg.includes('max turns') || errorMsg.includes('max_iterations') ||
-                        errorMsg.includes('exceeded');
+                        errorMsg.includes('turn limit') || errorMsg.includes('limit exceeded');
       
       if (isTimeout) {
         // Leave a timeout progress comment for retry/resume
@@ -2023,6 +2019,9 @@ async function processTask(task: Task): Promise<void> {
         try {
           await addCommentToTask(fullTask.id, timeoutProgressMsg, 'worker');
           console.log(`⏱️ Added timeout progress comment to task ${fullTask.id}`);
+          // Re-fetch task to get fresh comments (avoids stale array overwriting the new comment)
+          const refreshedTask = await getTask(fullTask.id);
+          if (refreshedTask) fullTask.comments = refreshedTask.comments;
         } catch (commentError) {
           console.warn(`Failed to add timeout progress comment:`, commentError);
         }
@@ -2790,14 +2789,6 @@ async function runWorkerCycle(): Promise<void> {
     if (isPaused) {
       console.log(`⏸️ Skipping task "${candidate.title}" — persona "${candidatePersona.name}" is paused due to budget`);
       continue;
-    }
-
-    // Check for timeout resume - if there's a TIMEOUT_PROGRESS comment, this is a resume candidate
-    const hasTimeoutProgress = candidate.comments?.some(c => 
-      c.body?.includes('[TIMEOUT_PROGRESS]')
-    );
-    if (hasTimeoutProgress) {
-      console.log(`🔄 Resuming task "${candidate.title}" from timeout - checking comments for progress`);
     }
 
     const requiredProviders = getRequiredProviders(candidate);
