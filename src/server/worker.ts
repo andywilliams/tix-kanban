@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import { parsePRLinks, getPRState, getPRMergeableState } from './pr-utils.js';
 import { getPRReviewThreads, getPRComments, ReviewThread } from './github.js';
 import { runSlxDigest } from './slx-service.js';
-import { getAllTasks, updateTask, getTask, addTaskLink } from './storage.js';
+import { getAllTasks, updateTask, getTask, addTaskLink, addCommentToTask } from './storage.js';
 import { getAllPersonas, getPersona, createPersonaContext, updatePersonaMemoryAfterTask, updatePersonaStats } from './persona-storage.js';
 import { enforceProviderAccess } from './persona-yaml-loader.js';
 import { getOrCreateSession, addMessage as addSessionMessage } from '../services/sessionService.js';
@@ -72,6 +72,72 @@ function sanitizeForPrompt(content: string): string {
     .substring(0, 2000)
     // Indicate if content was truncated
     + (content.length > 2000 ? '\n[Content truncated for security]' : '');
+}
+
+// Complexity estimation for tasks to prevent worker timeouts
+interface ComplexityResult {
+  isComplex: boolean;
+  score: number;
+  fileCount: number;
+  stepCount: number;
+  reasons: string[];
+}
+
+// Estimate task complexity based on description length, files mentioned, and implementation steps
+function estimateTaskComplexity(task: Task): ComplexityResult {
+  const reasons: string[] = [];
+  let fileCount = 0;
+  let stepCount = 0;
+  
+  const desc = task.description || '';
+  const title = task.title || '';
+  const combined = `${title} ${desc}`.toLowerCase();
+  
+  // Count files mentioned (common patterns)
+  const filePatterns = [
+    /\b(?:src|lib|app|components?|services?|models?|utils?|hooks?|api|server|client)\/[a-zA-Z0-9_\-./]+\.tsx?\b/g,
+    /\b[A-Z][a-zA-Z0-9]+\.(tsx?|js|ts)\b/g,
+    /\.jsx?\.|\.tsx?\.|\.css\.|\.html\.|\.json\b/g,
+  ];
+  for (const pattern of filePatterns) {
+    const matches = desc.match(pattern);
+    if (matches) fileCount += matches.length;
+  }
+  
+  // Count implementation steps (bullets, numbered lists, action verbs)
+  const stepPatterns = [
+    /^[•\-\*]\s+/gm,
+    /^\d+[.)]\s+/gm,
+    /\b(?:implement|add|create|update|fix|build|integrate|configure|setup|refactor|rewrite|enable|disable|remove|delete)\b/gi,
+  ];
+  for (const pattern of stepPatterns) {
+    const matches = desc.match(pattern);
+    if (matches) stepCount += matches.length;
+  }
+  
+  // Calculate complexity score
+  // Thresholds: >3 files or >4 steps = too complex for single worker session
+  let score = 0;
+  if (fileCount > 3) {
+    score += (fileCount - 3) * 2;
+    reasons.push(`touches ${fileCount} files (max 3 recommended)`);
+  }
+  if (stepCount > 4) {
+    score += (stepCount - 4) * 1.5;
+    reasons.push(`${stepCount} implementation steps (max 4 recommended)`);
+  }
+  if (desc.length > 500) {
+    score += 1;
+    reasons.push(`description too long (${desc.length} chars, max 500)`);
+  }
+  if (combined.includes('implement') && combined.includes('system')) {
+    score += 2;
+    reasons.push('vague "implement system" scope');
+  }
+  
+  const isComplex = score >= 3 || fileCount > 3 || stepCount > 4;
+  
+  return { isComplex, score, fileCount, stepCount, reasons };
 }
 
 // Post a proactive status update to the task's chat channel
@@ -1772,6 +1838,26 @@ async function processTask(task: Task): Promise<void> {
       return;
     }
 
+    // Check for resume comment - if there's a timeout progress note, resume from there
+    const existingComments = fullTask.comments || [];
+    const timeoutComment = existingComments.find(c => 
+      c.body?.includes('[TIMEOUT_PROGRESS]') || c.body?.includes('timeout') || c.body?.includes('What was done:')
+    );
+
+    // Estimate task complexity before starting
+    const complexity = estimateTaskComplexity(fullTask);
+    if (complexity.isComplex) {
+      console.warn(`⚠️ Task "${fullTask.title}" is too complex (${complexity.reasons.join(', ')}). Consider breaking it down.`);
+      // Leave a comment warning about complexity
+      const warningMsg = `[COMPLEXITY_WARNING] This task may be too large for a single worker session. Reasons: ${complexity.reasons.join('; ')}. Consider breaking into smaller sub-tasks.`;
+      try {
+        await addCommentToTask(fullTask.id, warningMsg, 'system');
+      } catch (e) {
+        console.warn(`Failed to add complexity warning comment:`, e);
+      }
+      // Still try to process - the worker will do its best
+    }
+
     // Load persona
     const persona = fullTask.persona ? await getPersona(fullTask.persona) : null;
     if (!persona) {
@@ -1887,32 +1973,63 @@ async function processTask(task: Task): Promise<void> {
     let success: boolean;
     let reportId: string | undefined;
     let shouldAdvance: boolean = true; // For lgtm-reviewer: controls pipeline advancement
+    let executionError: Error | null = null;
 
-    if (isLgtmReviewerTask(persona)) {
-      // Handle as lgtm automated review
-      const lgtmResult = await runLgtmAutoReview(fullTask, workspacePath);
-      success = lgtmResult.success;
-      output = lgtmResult.output;
-      shouldAdvance = lgtmResult.shouldAdvance;
-      console.log(`🔍 lgtm review result: success=${success}, shouldAdvance=${shouldAdvance}`);
-      // Track review completion for daily summaries (only when review actually completed, not errored)
-      if (success) {
-        const outcome = shouldAdvance ? 'approved' : 'changes-requested';
-        await trackReviewCompleted(persona.id, persona.name, fullTask, outcome);
+    try {
+      if (isLgtmReviewerTask(persona)) {
+        // Handle as lgtm automated review
+        const lgtmResult = await runLgtmAutoReview(fullTask, workspacePath);
+        success = lgtmResult.success;
+        output = lgtmResult.output;
+        shouldAdvance = lgtmResult.shouldAdvance;
+        console.log(`🔍 lgtm review result: success=${success}, shouldAdvance=${shouldAdvance}`);
+        // Track review completion for daily summaries (only when review actually completed, not errored)
+        if (success) {
+          const outcome = shouldAdvance ? 'approved' : 'changes-requested';
+          await trackReviewCompleted(persona.id, persona.name, fullTask, outcome);
+        }
+      } else if (isResearchTask(fullTask, persona)) {
+        // Handle as research task - generate report
+        const researchResult = await processResearchTask(fullTask, persona, workspacePath);
+        success = researchResult.success;
+        reportId = researchResult.reportId;
+        output = success 
+          ? `✅ Research completed successfully. Report saved as: ${reportId}`
+          : `❌ Research task failed. Please check the task details and try again.`;
+      } else {
+        // Handle as regular development task
+        const aiResult = await spawnAISession(fullTask, persona, workspacePath);
+        output = aiResult.output;
+        success = aiResult.success;
       }
-    } else if (isResearchTask(fullTask, persona)) {
-      // Handle as research task - generate report
-      const researchResult = await processResearchTask(fullTask, persona, workspacePath);
-      success = researchResult.success;
-      reportId = researchResult.reportId;
-      output = success 
-        ? `✅ Research completed successfully. Report saved as: ${reportId}`
-        : `❌ Research task failed. Please check the task details and try again.`;
-    } else {
-      // Handle as regular development task
-      const aiResult = await spawnAISession(fullTask, persona, workspacePath);
-      output = aiResult.output;
-      success = aiResult.success;
+    } catch (error) {
+      executionError = error as Error;
+      console.error(`❌ Task execution failed for ${fullTask.id}:`, error);
+      
+      // Check if this is a timeout/turn limit error
+      const errorMsg = executionError.message || String(executionError);
+      const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('timeout') || 
+                        errorMsg.includes('max turns') || errorMsg.includes('max_iterations') ||
+                        errorMsg.includes('exceeded');
+      
+      if (isTimeout) {
+        // Leave a timeout progress comment for retry/resume
+        const timeoutProgressMsg = `[TIMEOUT_PROGRESS] Task hit turn/timeout limit. Work may be incomplete.\n\n` +
+          `**Error:** ${errorMsg.substring(0, 500)}\n\n` +
+          `**What was done:** Task was in progress when worker session ended.\n\n` +
+          `**What remains:** Review task description - some work may need to be completed in a follow-up ticket.\n\n` +
+          `**For next worker:** Check comments for progress notes. Consider breaking remaining work into smaller sub-tasks.`;
+        
+        try {
+          await addCommentToTask(fullTask.id, timeoutProgressMsg, 'worker');
+          console.log(`⏱️ Added timeout progress comment to task ${fullTask.id}`);
+        } catch (commentError) {
+          console.warn(`Failed to add timeout progress comment:`, commentError);
+        }
+      }
+      
+      output = `Execution error: ${errorMsg.substring(0, 500)}`;
+      success = false;
     }
     
     // Update persona memory with learnings from this task
@@ -1925,7 +2042,7 @@ async function processTask(task: Task): Promise<void> {
     );
     
     // Add AI output as a comment to preserve work history
-    const existingComments = fullTask.comments || [];
+    const taskComments = fullTask.comments || [];
     const aiComment: Comment = {
       id: Math.random().toString(36).substr(2, 9),
       taskId: fullTask.id,
@@ -1933,7 +2050,7 @@ async function processTask(task: Task): Promise<void> {
       author: `${persona.name} (AI)`,
       createdAt: new Date(),
     };
-    const updatedComments = [...existingComments, aiComment];
+    const updatedComments = [...taskComments, aiComment];
     
     // If this was a research task and succeeded, add link to the report
     if (success && reportId && isResearchTask(fullTask, persona)) {
@@ -2673,6 +2790,14 @@ async function runWorkerCycle(): Promise<void> {
     if (isPaused) {
       console.log(`⏸️ Skipping task "${candidate.title}" — persona "${candidatePersona.name}" is paused due to budget`);
       continue;
+    }
+
+    // Check for timeout resume - if there's a TIMEOUT_PROGRESS comment, this is a resume candidate
+    const hasTimeoutProgress = candidate.comments?.some(c => 
+      c.body?.includes('[TIMEOUT_PROGRESS]')
+    );
+    if (hasTimeoutProgress) {
+      console.log(`🔄 Resuming task "${candidate.title}" from timeout - checking comments for progress`);
     }
 
     const requiredProviders = getRequiredProviders(candidate);
