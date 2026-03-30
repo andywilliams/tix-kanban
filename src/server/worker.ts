@@ -431,13 +431,11 @@ You have access to the tix-kanban API running at http://localhost:3001/api
 - Use the Bash tool to run git commands, tests, builds, etc.
 - You can actually DO the work described in the task, not just describe it
 
-🚨 **GITHUB RATE LIMIT AWARENESS:**
-- **PREFER LOCAL GIT COMMANDS** over GitHub API wherever possible
-- Use \`git log\`, \`git status\`, \`git branch\` instead of \`gh api\` calls
-- Only use GitHub API for things that require it: creating PRs, checking CI status, reviews
-- **Research tasks**: Read local files, use git history, avoid excessive \`gh\` commands
-- The system has automatic rate limiting and caching, but minimize API usage anyway
-- If you get rate limit errors, fall back to local alternatives
+📌 **GITHUB CLI GUIDANCE:**
+- Use local git commands (\`git log\`, \`git status\`, \`git branch\`, \`git diff\`) when they provide the same information as a \`gh api\` call
+- Use \`gh\` freely for operations that require it: creating/viewing PRs, CI status, reviews, issues, labels, and any GitHub-specific workflow
+- The system has automatic rate limiting and caching — you don't need to worry about rate limits
+- If you get a rate limit error, fall back to local alternatives where possible
 
 ### Core Task Operations:
 - GET /api/tasks - Get all tasks

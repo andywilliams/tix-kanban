@@ -64,8 +64,8 @@ When fetching multiple items:
 ### 6. Worker Guidance
 
 AI workers are instructed to:
-- Prefer local git operations for research
-- Use GitHub API only when necessary
+- Use local git commands when they provide the same information as a GitHub API call
+- Use `gh` freely for GitHub-specific operations (PRs, CI, reviews, issues, labels)
 - Fall back to local alternatives on rate limit errors
 
 ## Implementation
@@ -118,9 +118,9 @@ The system logs:
 
 ### For AI Workers
 
-1. **Start with local git commands** for exploration
-2. **Use GitHub API sparingly** - only for PRs, CI, reviews
-3. **On rate limit errors** - fall back to local alternatives
+1. **Use local git commands** when they give the same info as a GitHub API call (e.g. `git log` instead of `gh api repos/.../commits`)
+2. **Use `gh` freely** for PRs, CI, reviews, issues, labels, and any GitHub-specific workflow
+3. **On rate limit errors** - fall back to local alternatives where possible
 4. **Don't retry manually** - the system handles retries automatically
 
 ## Example Usage
