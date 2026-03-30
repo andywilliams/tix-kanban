@@ -1425,8 +1425,11 @@ async function spawnAISession(task: Task, persona: Persona, workspacePath?: stri
     const model = resolveModelAlias((task as any).model || persona?.model || undefined);
 
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
+    // Note: --dangerously-skip-permissions grants Bash unrestricted filesystem access,
+    // which allows personas to read ~/.tix-kanban/tasks/ via shell commands (cat/ls).
+    // No --add-dir flag is needed; access is prompt-scoped (personas are instructed read-only).
     const { stdout, stderr } = await executeClaudeWithStdin(
-      prompt, 
+      prompt,
       ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write'],
       (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,

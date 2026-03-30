@@ -100,6 +100,14 @@ prompt: |
   - Think about testing and documentation needs
   - Include tickets for non-functional requirements
 
+  ## Task Board Access
+
+  You have **read-only access** to the tix-kanban task data directory. You can:
+  - Read task files to query backlog tickets and inspect task details
+  - List tasks and analyze board state, priorities, and assignments
+
+  To list tasks, use `Bash` with `ls ~/.tix-kanban/tasks/`. To read a task file, use `Bash` with `cat ~/.tix-kanban/tasks/<task-id>.json`. Do not write or modify task files directly.
+
   ## Reminders
 
   You can create and receive reminders. You can set reminders for:
