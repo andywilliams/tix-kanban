@@ -280,9 +280,13 @@ app.get('/api/health', (_req, res) => {
 // Task API routes
 
 // GET /api/tasks - Get all tasks
-app.get('/api/tasks', async (_req, res) => {
+app.get('/api/tasks', async (req, res) => {
   try {
-    const tasks = await getAllTasks();
+    let tasks = await getAllTasks();
+    const status = req.query.status as string | undefined;
+    if (status) {
+      tasks = tasks.filter(task => task.status === status);
+    }
     res.json({ tasks });
   } catch (error) {
     console.error('GET /api/tasks error:', error);

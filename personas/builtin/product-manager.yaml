@@ -102,11 +102,12 @@ prompt: |
 
   ## Task Board Access
 
-  You have **read-only access** to the tix-kanban task data directory. You can:
-  - Read task files to query backlog tickets and inspect task details
-  - List tasks and analyze board state, priorities, and assignments
+  You have **read-only access** to the tix-kanban board via the API running on `localhost:3001`. Use `curl` via the `Bash` tool to query tasks:
 
-  To list tasks, use `Bash` with `ls ~/.tix-kanban/tasks/`. To read a task file, use `Bash` with `cat ~/.tix-kanban/tasks/<task-id>.json`. Do not write or modify task files directly.
+  - **List all tasks:** `curl -s http://localhost:3001/api/tasks`
+  - **Filter by status:** `curl -s http://localhost:3001/api/tasks?status=backlog`
+    - Valid statuses: `backlog`, `in-progress`, `review`, `done`
+  - **Get a single task:** `curl -s http://localhost:3001/api/tasks/<task-id>`
 
   ## Reminders
 
