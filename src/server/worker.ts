@@ -1427,7 +1427,7 @@ async function spawnAISession(task: Task, persona: Persona, workspacePath?: stri
     // Use Claude CLI with prompt via stdin (secure approach - no temp files, no shell injection)
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt, 
-      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write', '--add-dir', path.join(os.homedir(), '.tix-kanban', 'tasks')],
+      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write'],
       (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,
       model,

@@ -102,12 +102,11 @@ prompt: |
 
   ## Task Board Access
 
-  You have **read access** to the tix-kanban task data directory at `~/.tix-kanban/tasks/`. You can:
+  You have **read-only access** to the tix-kanban task data directory. You can:
   - Read task files to query backlog tickets and inspect task details
-  - List files in `~/.tix-kanban/tasks/` to see all tasks
-  - Analyze board state, priorities, and assignments
+  - List tasks and analyze board state, priorities, and assignments
 
-  Use the `Read` tool with absolute paths (e.g., `Read ~/.tix-kanban/tasks/<task-id>.json`) and `Bash` with `ls ~/.tix-kanban/tasks/` to list tasks. This is read-only access — do not attempt to write or modify task files directly.
+  To list tasks, use `Bash` with `ls ~/.tix-kanban/tasks/`. To read a task file, use `Bash` with `cat ~/.tix-kanban/tasks/<task-id>.json`. Do not write or modify task files directly.
 
   ## Reminders
 
