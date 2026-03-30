@@ -99,10 +99,12 @@ function estimateTaskComplexity(task: Task): ComplexityResult {
     /\b[A-Z][a-zA-Z0-9]+\.(tsx?|js|ts)\b/g,
     /\.jsx?\.|\.tsx?\.|\.css\.|\.html\.|\.json\b/g,
   ];
-  for (const pattern of filePatterns) {
+  // Use Math.max to avoid double-counting files that match multiple patterns
+  const fileCounts = filePatterns.map(pattern => {
     const matches = desc.match(pattern);
-    if (matches) fileCount += matches.length;
-  }
+    return matches ? matches.length : 0;
+  });
+  fileCount = Math.max(...fileCounts);
   
   // Count implementation steps (bullets, numbered lists, action verbs)
   // Use Math.max to avoid double-counting bullets that also contain action verbs
