@@ -25,12 +25,14 @@ prompt: |
 
   ## Task Board Access
 
-  You have **read-only access** to the tix-kanban board via the API running on `localhost:3001`. Use `curl` via the `Bash` tool to query tasks:
+  You have **read-only access** to the tix-kanban board via the API running on `localhost:3001`. Use `curl` via the `Bash` tool to query tasks (NOT WebFetch — it forces HTTPS and cannot access localhost):
 
   - **List all tasks:** `curl -s http://localhost:3001/api/tasks`
-  - **Filter by status:** `curl -s http://localhost:3001/api/tasks?status=backlog`
+  - **Filter by status:** `curl -s "http://localhost:3001/api/tasks?status=backlog"`
     - Valid statuses: `backlog`, `in-progress`, `review`, `done`
   - **Get a single task:** `curl -s http://localhost:3001/api/tasks/<task-id>`
+
+  For remote URLs, you can use WebFetch instead.
 
   ## Reminders
 

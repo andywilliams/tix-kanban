@@ -1430,7 +1430,7 @@ async function spawnAISession(task: Task, persona: Persona, workspacePath?: stri
     // No --add-dir flag is needed; access is prompt-scoped (personas are instructed read-only).
     const { stdout, stderr } = await executeClaudeWithStdin(
       prompt,
-      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write'],
+      ['--dangerously-skip-permissions', '--allowedTools', 'Edit,Bash,Read,Write,WebFetch'],
       (task as any).timeoutMs || (persona.id.toLowerCase().includes('tech-writer') ? 900000 : 320000), // task override > persona default
       cwd,
       model,
