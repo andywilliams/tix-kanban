@@ -1505,9 +1505,24 @@ async function generateAIResponseWithRetry(
   return `Sorry, I hit a snag processing that — could you try rephrasing or breaking it into a smaller step?`;
 }
 
-// Generate AI response using Claude Code CLI
+// Generate AI response using Claude Code CLI (or Agent SDK when FORGE_USE_AGENT_SDK=1).
 // Returns '' on failure so the retry logic can detect it and try again.
 async function generateAIResponse(prompt: string, persona: Persona, timeoutMs: number = 90000): Promise<string> {
+  if (process.env.FORGE_USE_AGENT_SDK === '1') {
+    try {
+      const { runSdkQuery } = await import('./claude-sdk-client.js');
+      const result = await runSdkQuery({ prompt, timeoutMs, maxTurns: 10 });
+      if (result.error) {
+        console.warn(`[SDK] ${persona.name} stopped=${result.stoppedBy} error=${result.error.substring(0, 200)}`);
+      }
+      if (result.text && result.text.length > 0) return result.text;
+      return '';
+    } catch (err: any) {
+      console.error(`[SDK] query failed for ${persona.name}:`, err?.message || err);
+      return '';
+    }
+  }
+
   return new Promise(async (resolve) => {
     try {
       const { spawn } = await import('child_process');
